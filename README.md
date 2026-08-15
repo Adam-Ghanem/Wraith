@@ -1,8 +1,10 @@
 # Wraith
 
-Wraith is a Linux-first, local-network discovery tool being built in deliberate phases. Phase 1 is a standalone CLI for authorized local IPv4 inventory. It is intentionally not an internet scanner, vulnerability scanner, exploitation framework, or web reconnaissance platform.
+Wraith is a security research and defensive/offensive security tooling project. It is being built in deliberate phases with explicit safety boundaries.
 
-## Phase 1 status
+## Status
+
+Phase 1 is implemented as a Linux-first, local-network discovery tool. It is a standalone CLI for authorized local IPv4 inventory and is intentionally not an internet scanner, vulnerability scanner, exploitation framework, or web reconnaissance platform.
 
 The current implementation provides the core contracts and pipeline for:
 
