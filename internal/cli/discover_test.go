@@ -31,3 +31,20 @@ func TestParseOptionsRequiresDiscoverCommand(t *testing.T) {
 		t.Fatal("expected unsupported subcommand to fail")
 	}
 }
+
+func TestParseOptionsAcceptsOptionalSaveDatabase(t *testing.T) {
+	options, err := parseOptions([]string{
+		"discover",
+		"--interface", "eth0",
+		"--cidr", "192.168.1.0/24",
+		"--authorized",
+		"--save",
+		"--db", "/tmp/wraith-phase2.db",
+	})
+	if err != nil {
+		t.Fatalf("parse save options: %v", err)
+	}
+	if !options.Save || options.DatabasePath != "/tmp/wraith-phase2.db" {
+		t.Fatalf("unexpected persistence options: %+v", options)
+	}
+}

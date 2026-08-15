@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -18,6 +19,7 @@ import (
 	"github.com/Adam-Ghanem/Wraith/internal/output"
 	"github.com/Adam-Ghanem/Wraith/internal/ports"
 	"github.com/Adam-Ghanem/Wraith/internal/probe"
+	"github.com/Adam-Ghanem/Wraith/internal/storage"
 )
 
 var ErrUsage = errors.New("usage: wraith discover --interface IFACE --cidr IPv4/CIDR --authorized [--format terminal|json]")
@@ -33,6 +35,8 @@ type Options struct {
 	RunTimeout         time.Duration
 	Verbose            bool
 	CandidateCount     int
+	Save               bool
+	DatabasePath       string
 }
 
 func parseOptions(args []string) (Options, error) {
@@ -60,6 +64,8 @@ func parseOptions(args []string) (Options, error) {
 	metadataMaxBytes := fs.Int("metadata-max-bytes", 4096, "maximum read-only metadata bytes")
 	metadataTimeout := fs.Duration("metadata-timeout", 750*time.Millisecond, "read-only metadata timeout")
 	runTimeout := fs.Duration("run-timeout", 2*time.Minute, "maximum total run duration")
+	save := fs.Bool("save", false, "persist discovered devices to SQLite")
+	databasePath := fs.String("db", DefaultDatabasePath, "SQLite database path used with --save")
 	if err := fs.Parse(args[1:]); err != nil {
 		return Options{}, fmt.Errorf("%w: %v", ErrUsage, err)
 	}
@@ -110,6 +116,8 @@ func parseOptions(args []string) (Options, error) {
 		ConfirmLargeSubnet: *confirmLargeSubnet,
 		Verbose:            verbose,
 		CandidateCount:     candidateCount,
+		Save:               *save,
+		DatabasePath:       *databasePath,
 		ARP: discovery.ARPOptions{
 			MaxTargets:  *arpMaxTargets,
 			Concurrency: *arpConcurrency,
@@ -142,7 +150,34 @@ func formatARPOpenError(err error) string {
 	return fmt.Sprintf("open ARP client: %v", err)
 }
 
-func Run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
+func persistPhase1Result(ctx context.Context, databasePath string, result model.Result) error {
+	database, err := storage.Open(databasePath)
+	if err != nil {
+		return err
+	}
+	defer database.Close()
+	if err := database.Migrate(ctx); err != nil {
+		return err
+	}
+	devices := make([]storage.DeviceRecord, 0, len(result.Targets))
+	for _, target := range result.Targets {
+		openPorts := make([]uint16, 0)
+		for _, port := range target.Ports {
+			if port.Status == "open" {
+				openPorts = append(openPorts, port.Port)
+			}
+		}
+		encodedPorts, err := json.Marshal(openPorts)
+		if err != nil {
+			return err
+		}
+		devices = append(devices, storage.DeviceRecord{IP: target.IP.String(), MAC: target.MAC, OpenPortsJSON: string(encodedPorts)})
+	}
+	_, err = database.SaveScan(ctx, storage.ScanRecord{Target: result.Scope.CIDR, ScanType: "discover", StartedAt: result.Run.StartedAt, CompletedAt: result.Run.CompletedAt}, devices, nil)
+	return err
+}
+
+func runDiscover(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	options, err := parseOptions(args)
 	if err != nil {
 		return err
@@ -206,6 +241,13 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		result.Targets = append(result.Targets, target)
 	}
 	result.Run.CompletedAt = time.Now().UTC().Format(time.RFC3339)
+	if options.Save {
+		if err := persistPhase1Result(ctx, options.DatabasePath, result); err != nil {
+			logger.Error("Phase 1 persistence failed", "error", err)
+			result.Run.Status = "partial"
+			result.Errors = append(result.Errors, model.RunError{Code: "storage", Message: err.Error()})
+		}
+	}
 
 	if options.Format == "json" {
 		return output.RenderJSON(stdout, result)

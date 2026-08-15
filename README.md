@@ -51,7 +51,35 @@ For JSON output, either use `--format json` or the compatible `--json` alias:
 
 Use `-v` for structured diagnostic messages on stderr. If the selected CIDR contains more than 256 candidate hosts, Wraith requires `--confirm-large-subnet` before discovery. The candidate count remains bounded by `--arp-max-targets`.
 
-The current command deliberately has no arbitrary target flag, arbitrary port range, public-target mode, automatic subnet detection, external enrichment, scheduling, persistence, dashboard, OUI vendor lookup, TTL-based OS inference, Nmap integration, or Nuclei integration. Those are outside the frozen Phase 1 boundary.
+The Phase 1 `discover` command remains unchanged by default. Phase 2 adds opt-in persistence with `--save --db wraith.db`; it does not change the local-network scope or the Phase 1 scanning logic.
+
+## Phase 2 web reconnaissance
+
+Phase 2 operates only against a domain that you own or are explicitly authorized to test. The authorization flag is mandatory, and all external sources and HTTP probes are bounded with timeouts, concurrency limits, response-size limits, redirect limits, and DNS rate limits.
+
+Run an authorized scan with terminal output:
+
+```bash
+./bin/wraith scan -d example.com --authorized --db wraith.db
+```
+
+Use JSON output when integrating the result into a local workflow:
+
+```bash
+./bin/wraith scan -d example.com --authorized --json --db wraith.db > scan.json
+```
+
+Compare the two most recent scans for the same domain:
+
+```bash
+./bin/wraith history -d example.com --authorized --db wraith.db
+```
+
+The default database is `wraith.db` in the current working directory. Inspect it with the SQLite CLI if installed, for example `sqlite3 wraith.db '.tables'` and `sqlite3 wraith.db 'SELECT id,target,scan_type,completed_at FROM scans ORDER BY id DESC;'`. Reset a local test database by stopping Wraith and removing only the explicitly selected database file, such as `rm -- wraith.db`; never delete a database unless you have confirmed its path and contents.
+
+VirusTotal is optional and is used only when `VT_API_KEY` is present. If it is absent, Wraith logs that the optional source was skipped and continues with crt.sh and bounded DNS enumeration. A source failure does not abort the complete scan.
+
+Phase 2 deliberately does not add content discovery, JavaScript analysis, port scanning of enumerated subdomains, Nmap/Nuclei wrappers, REST APIs, dashboards, PDF/CSV export, scheduling, or multi-tenancy.
 
 ## Safe testing
 
@@ -65,3 +93,4 @@ Do not use random public hosts, shared networks, employer networks, bug-bounty t
 - [`docs/responsible-use.md`](docs/responsible-use.md) — ownership, authorization, prohibited use, and operator duties.
 - [`docs/project-plan.md`](docs/project-plan.md) — skill gaps, resources, AI-assistance guidance, Phase 1 build order, and future roadmap.
 - [`docs/phase-1-prompt-reconciliation.md`](docs/phase-1-prompt-reconciliation.md) — reconciliation of the attached build prompt with the frozen Phase 1 boundary.
+- [`docs/phase-2-implementation.md`](docs/phase-2-implementation.md) — Phase 2 architecture, migrations, limits, and authorized testing instructions.

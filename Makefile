@@ -9,6 +9,9 @@ test:
 vet:
 	go vet ./...
 
+lint:
+	golangci-lint run ./...
+
 build:
 	mkdir -p bin
 	go build -o bin/wraith ./cmd/wraith
