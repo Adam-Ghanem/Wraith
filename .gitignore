@@ -2,6 +2,10 @@ bin/
 *.out
 *.test
 coverage.out
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
 .DS_Store
 .idea/
 .vscode/

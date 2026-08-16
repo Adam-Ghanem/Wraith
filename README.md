@@ -6,6 +6,8 @@ Wraith is a security research and defensive/offensive security tooling project. 
 
 Phase 1 is implemented as a Linux-first, local-network discovery tool. It is a standalone CLI for authorized local IPv4 inventory and is intentionally not an internet scanner, vulnerability scanner, exploitation framework, or web reconnaissance platform.
 
+> **Legal Notice — `--authorized` is a self-attestation only.** This flag is a checkbox supplied by the operator, not technical verification. Wraith does not verify domain ownership, WHOIS records, or authorization in any way. You are 100% legally responsible for confirming real authorization—through ownership, written permission, or an in-scope bug bounty program—before running any scan against a target. Misuse against unauthorized targets may be illegal in your jurisdiction.
+
 The current implementation provides the core contracts and pipeline for:
 
 - Explicit local IPv4 interface and CIDR selection.
@@ -55,7 +57,7 @@ The Phase 1 `discover` command remains unchanged by default. Phase 2 adds opt-in
 
 ## Phase 2 web reconnaissance
 
-Phase 2 operates only against a domain that you own or are explicitly authorized to test. The authorization flag is mandatory, and all external sources and HTTP probes are bounded with timeouts, concurrency limits, response-size limits, redirect limits, and DNS rate limits.
+Phase 2 operates only against a domain that you own or are explicitly authorized to test. The mandatory `--authorized` flag is a self-attestation checkbox, not technical verification: Wraith does not verify domain ownership, WHOIS records, or authorization in any way. You are 100% legally responsible for confirming real authorization through ownership, written permission, or an in-scope bug bounty program before running any scan against a target; misuse against unauthorized targets may be illegal in your jurisdiction. All external sources and HTTP probes are bounded with timeouts, concurrency limits, response-size limits, redirect limits, and DNS rate limits.
 
 Run an authorized scan with terminal output:
 
