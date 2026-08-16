@@ -17,7 +17,7 @@ import (
 //go:embed migrations/*.sql
 var migrationFS embed.FS
 
-const CurrentSchemaVersion = 1
+const CurrentSchemaVersion = 2
 
 var ErrInvalidMigration = errors.New("invalid storage migration")
 
@@ -218,4 +218,131 @@ func (db *DB) LoadSubdomainSnapshots(ctx context.Context, scanID int64) ([]Subdo
 		return nil, fmt.Errorf("iterate subdomain snapshots: %w", err)
 	}
 	return result, nil
+}
+
+func (db *DB) CurrentSchemaVersion(ctx context.Context) int {
+	if db == nil || db.sql == nil {
+		return 0
+	}
+	var version int
+	if err := db.sql.QueryRowContext(ctx, `SELECT COALESCE(MAX(version), 0) FROM schema_migrations`).Scan(&version); err != nil {
+		return 0
+	}
+	return version
+}
+
+func (db *DB) SaveScanWithFindings(ctx context.Context, scan ScanRecord, devices []DeviceRecord, subdomains []SubdomainRecord, contentFindings []ContentFindingRecord, jsFindings []JSFindingRecord) (int64, error) {
+	if db == nil || db.sql == nil {
+		return 0, errors.New("storage database is not initialized")
+	}
+	tx, err := db.sql.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, fmt.Errorf("begin scan transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	result, err := tx.ExecContext(ctx, `INSERT INTO scans(target, scan_type, started_at, completed_at) VALUES(?, ?, ?, ?)`, scan.Target, scan.ScanType, scan.StartedAt, scan.CompletedAt)
+	if err != nil {
+		return 0, fmt.Errorf("insert scan: %w", err)
+	}
+	scanID, err := result.LastInsertId()
+	if err != nil {
+		return 0, fmt.Errorf("read scan id: %w", err)
+	}
+	if err := insertDevicesAndSubdomains(ctx, tx, scanID, scan, devices, subdomains); err != nil {
+		return 0, err
+	}
+	for _, finding := range contentFindings {
+		if finding.DiscoveredAt == "" {
+			finding.DiscoveredAt = scan.CompletedAt
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO content_findings(scan_id, subdomain, path, status_code, response_length, discovered_at) VALUES(?, ?, ?, ?, ?, ?)`, scanID, finding.Subdomain, finding.Path, finding.StatusCode, finding.ResponseLength, finding.DiscoveredAt); err != nil {
+			return 0, fmt.Errorf("insert content finding: %w", err)
+		}
+	}
+	for _, finding := range jsFindings {
+		if finding.DiscoveredAt == "" {
+			finding.DiscoveredAt = scan.CompletedAt
+		}
+		if finding.FindingType == "secret" {
+			if finding.Confidence != "potential" {
+				return 0, errors.New("secret findings must use potential confidence")
+			}
+			if finding.Value != "REDACTED" && !strings.Contains(finding.Value, "…") {
+				return 0, errors.New("secret findings must be redacted before persistence")
+			}
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO js_findings(scan_id, subdomain, source_file, finding_type, value, confidence, discovered_at) VALUES(?, ?, ?, ?, ?, ?, ?)`, scanID, finding.Subdomain, finding.SourceFile, finding.FindingType, finding.Value, finding.Confidence, finding.DiscoveredAt); err != nil {
+			return 0, fmt.Errorf("insert JS finding: %w", err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("commit scan: %w", err)
+	}
+	return scanID, nil
+}
+
+func insertDevicesAndSubdomains(ctx context.Context, tx *sql.Tx, scanID int64, scan ScanRecord, devices []DeviceRecord, subdomains []SubdomainRecord) error {
+	for _, device := range devices {
+		ports := device.OpenPortsJSON
+		if ports == "" {
+			ports = "[]"
+		}
+		firstSeen, lastSeen := device.FirstSeen, device.LastSeen
+		if firstSeen == "" {
+			firstSeen = scan.StartedAt
+		}
+		if lastSeen == "" {
+			lastSeen = scan.CompletedAt
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO devices(scan_id, ip, mac, open_ports, os_guess, confidence, first_seen, last_seen) VALUES(?, ?, ?, ?, ?, ?, ?, ?)`, scanID, device.IP, device.MAC, ports, device.OSGuess, device.Confidence, firstSeen, lastSeen); err != nil {
+			return fmt.Errorf("insert device: %w", err)
+		}
+	}
+	for _, subdomain := range subdomains {
+		firstSeen, lastSeen := subdomain.FirstSeen, subdomain.LastSeen
+		if firstSeen == "" {
+			firstSeen = scan.StartedAt
+		}
+		if lastSeen == "" {
+			lastSeen = scan.CompletedAt
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO subdomains(scan_id, domain, subdomain, ip, status_code, title, server_header, tech_guess, first_seen, last_seen) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, scanID, subdomain.Domain, subdomain.Subdomain, subdomain.IP, subdomain.StatusCode, subdomain.Title, subdomain.ServerHeader, subdomain.TechGuess, firstSeen, lastSeen); err != nil {
+			return fmt.Errorf("insert subdomain: %w", err)
+		}
+	}
+	return nil
+}
+
+func (db *DB) LoadContentFindings(ctx context.Context, scanID int64) ([]ContentFindingRecord, error) {
+	rows, err := db.sql.QueryContext(ctx, `SELECT id, scan_id, subdomain, path, status_code, response_length, discovered_at FROM content_findings WHERE scan_id = ? ORDER BY subdomain, path`, scanID)
+	if err != nil {
+		return nil, fmt.Errorf("query content findings: %w", err)
+	}
+	defer rows.Close()
+	findings := make([]ContentFindingRecord, 0)
+	for rows.Next() {
+		var finding ContentFindingRecord
+		if err := rows.Scan(&finding.ID, &finding.ScanID, &finding.Subdomain, &finding.Path, &finding.StatusCode, &finding.ResponseLength, &finding.DiscoveredAt); err != nil {
+			return nil, fmt.Errorf("scan content finding: %w", err)
+		}
+		findings = append(findings, finding)
+	}
+	return findings, rows.Err()
+}
+
+func (db *DB) LoadJSFindings(ctx context.Context, scanID int64) ([]JSFindingRecord, error) {
+	rows, err := db.sql.QueryContext(ctx, `SELECT id, scan_id, subdomain, source_file, finding_type, value, confidence, discovered_at FROM js_findings WHERE scan_id = ? ORDER BY subdomain, source_file, finding_type, value`, scanID)
+	if err != nil {
+		return nil, fmt.Errorf("query JS findings: %w", err)
+	}
+	defer rows.Close()
+	findings := make([]JSFindingRecord, 0)
+	for rows.Next() {
+		var finding JSFindingRecord
+		if err := rows.Scan(&finding.ID, &finding.ScanID, &finding.Subdomain, &finding.SourceFile, &finding.FindingType, &finding.Value, &finding.Confidence, &finding.DiscoveredAt); err != nil {
+			return nil, fmt.Errorf("scan JS finding: %w", err)
+		}
+		findings = append(findings, finding)
+	}
+	return findings, rows.Err()
 }

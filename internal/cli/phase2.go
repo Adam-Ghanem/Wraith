@@ -15,15 +15,17 @@ import (
 const DefaultDatabasePath = "wraith.db"
 
 type ScanOptions struct {
-	Domain         string
-	DatabasePath   string
-	Authorized     bool
-	JSON           bool
-	Verbose        bool
-	DNSConcurrency int
-	DNSRate        int
-	DNSTimeout     time.Duration
-	Web            probe.WebConfig
+	Domain               string
+	DatabasePath         string
+	Authorized           bool
+	JSON                 bool
+	Verbose              bool
+	DNSConcurrency       int
+	DNSRate              int
+	DNSTimeout           time.Duration
+	Web                  probe.WebConfig
+	SkipContentDiscovery bool
+	SkipJSAnalysis       bool
 }
 
 type HistoryOptions struct {
@@ -56,6 +58,8 @@ func parseScanOptions(args []string) (ScanOptions, error) {
 	webTimeout := fs.Duration("web-timeout", 5*time.Second, "HTTP probe timeout")
 	webMaxBytes := fs.Int64("web-max-bytes", 2<<20, "maximum HTTP response bytes")
 	webRedirects := fs.Int("web-redirects", 5, "maximum HTTP redirect hops")
+	skipContentDiscovery := fs.Bool("skip-content-discovery", false, "skip Phase 3 content discovery")
+	skipJSAnalysis := fs.Bool("skip-js-analysis", false, "skip Phase 3 JavaScript analysis")
 	if err := fs.Parse(args[1:]); err != nil {
 		return ScanOptions{}, fmt.Errorf("scan usage: %w", err)
 	}
@@ -76,7 +80,7 @@ func parseScanOptions(args []string) (ScanOptions, error) {
 	if err := webConfig.Validate(); err != nil {
 		return ScanOptions{}, err
 	}
-	options := ScanOptions{Domain: domain, DatabasePath: *databasePath, Authorized: *authorized, JSON: *jsonOutput, Verbose: verbose, DNSConcurrency: *dnsConcurrency, DNSRate: *dnsRate, DNSTimeout: *dnsTimeout, Web: webConfig}
+	options := ScanOptions{Domain: domain, DatabasePath: *databasePath, Authorized: *authorized, JSON: *jsonOutput, Verbose: verbose, DNSConcurrency: *dnsConcurrency, DNSRate: *dnsRate, DNSTimeout: *dnsTimeout, Web: webConfig, SkipContentDiscovery: *skipContentDiscovery, SkipJSAnalysis: *skipJSAnalysis}
 	if options.DNSConcurrency < 1 || options.DNSConcurrency > 50 || options.DNSRate < 1 || options.DNSRate > 20 || options.DNSTimeout <= 0 || options.DNSTimeout > 30*time.Second {
 		return ScanOptions{}, errors.New("DNS options are outside bounded Phase 2 limits")
 	}

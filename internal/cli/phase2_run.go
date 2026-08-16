@@ -12,7 +12,9 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/Adam-Ghanem/Wraith/internal/contentdiscovery"
 	"github.com/Adam-Ghanem/Wraith/internal/enum"
+	"github.com/Adam-Ghanem/Wraith/internal/jsanalysis"
 	"github.com/Adam-Ghanem/Wraith/internal/probe"
 	"github.com/Adam-Ghanem/Wraith/internal/storage"
 )
@@ -66,13 +68,39 @@ func runScan(ctx context.Context, args []string, stdout, stderr io.Writer) error
 	}
 	webResults := probe.ProbeSubdomains(ctx, enumNames(enumResults), options.Web, http.DefaultClient)
 	records := mergeSubdomainRecords(options.Domain, enumResults, webResults, startedAt)
+	preferred := preferredWebResults(webResults)
+	contentFindings, jsFindings := make([]contentdiscovery.Finding, 0), make([]jsanalysis.Finding, 0)
+	for _, webResult := range preferred {
+		baseURL := webBaseURL(webResult)
+		if !options.SkipContentDiscovery {
+			findings, discoveryErr := contentdiscovery.Discover(ctx, baseURL, contentConfig(options), http.DefaultClient)
+			if discoveryErr != nil {
+				logger.Warn("content discovery failed; continuing", "subdomain", webResult.Subdomain, "error", discoveryErr)
+			} else {
+				for _, finding := range findings {
+					finding.Subdomain = webResult.Subdomain
+					contentFindings = append(contentFindings, finding)
+				}
+			}
+		}
+		if !options.SkipJSAnalysis {
+			analysis, analysisErr := jsanalysis.AnalyzePage(ctx, webResult.Subdomain, baseURL, jsConfig(options), http.DefaultClient)
+			if analysisErr != nil {
+				logger.Warn("JavaScript analysis failed; continuing", "subdomain", webResult.Subdomain, "error", analysisErr)
+			} else {
+				jsFindings = append(jsFindings, analysis.Findings...)
+			}
+		}
+	}
 	completedAt := time.Now().UTC().Format(time.RFC3339)
-	scanID, err := database.SaveScan(ctx, storage.ScanRecord{Target: options.Domain, ScanType: "web", StartedAt: startedAt, CompletedAt: completedAt}, nil, records)
+	contentRecords := contentFindingRecords(contentFindings, completedAt)
+	jsRecords := jsFindingRecords(jsFindings, completedAt)
+	scanID, err := database.SaveScanWithFindings(ctx, storage.ScanRecord{Target: options.Domain, ScanType: "web", StartedAt: startedAt, CompletedAt: completedAt}, nil, records, contentRecords, jsRecords)
 	if err != nil {
-		logger.Error("save Phase 2 scan failed", "error", err)
+		logger.Error("save Phase 3 scan failed", "error", err)
 		return err
 	}
-	return renderScanOutput(stdout, options.JSON, scanOutput{ScanID: scanID, Target: options.Domain, Subdomains: records, SourceErrors: sourceErrorStrings(sourceErrors)})
+	return renderScanOutput(stdout, options.JSON, scanOutput{ScanID: scanID, Target: options.Domain, Subdomains: records, ContentFindings: contentRecords, JSFindings: jsRecords, SourceErrors: sourceErrorStrings(sourceErrors)})
 }
 
 func runHistory(ctx context.Context, args []string, stdout, stderr io.Writer) error {
@@ -106,8 +134,24 @@ func runHistory(ctx context.Context, args []string, stdout, stderr io.Writer) er
 	if err != nil {
 		return err
 	}
+	currentContentRecords, err := database.LoadContentFindings(ctx, scans[0].ID)
+	if err != nil {
+		return err
+	}
+	previousContentRecords, err := database.LoadContentFindings(ctx, scans[1].ID)
+	if err != nil {
+		return err
+	}
+	currentJSRecords, err := database.LoadJSFindings(ctx, scans[0].ID)
+	if err != nil {
+		return err
+	}
+	previousJSRecords, err := database.LoadJSFindings(ctx, scans[1].ID)
+	if err != nil {
+		return err
+	}
 	changes := storage.DiffSubdomains(previous, current)
-	return renderHistoryOutput(stdout, options.JSON, historyOutput{Target: options.Domain, PreviousScan: scans[1], CurrentScan: scans[0], Changes: changes})
+	return renderHistoryOutput(stdout, options.JSON, historyOutput{Target: options.Domain, PreviousScan: scans[1], CurrentScan: scans[0], Changes: changes, ContentChanges: storage.DiffContentFindings(contentSnapshots(previousContentRecords), contentSnapshots(currentContentRecords)), JSChanges: storage.DiffJSFindings(jsSnapshots(previousJSRecords), jsSnapshots(currentJSRecords))})
 }
 
 func phase2Logger(stderr io.Writer, verbose bool) *slog.Logger {
@@ -122,17 +166,21 @@ func phase2Logger(stderr io.Writer, verbose bool) *slog.Logger {
 }
 
 type scanOutput struct {
-	ScanID       int64                     `json:"scan_id"`
-	Target       string                    `json:"target"`
-	Subdomains   []storage.SubdomainRecord `json:"subdomains"`
-	SourceErrors []string                  `json:"source_errors,omitempty"`
+	ScanID          int64                          `json:"scan_id"`
+	Target          string                         `json:"target"`
+	Subdomains      []storage.SubdomainRecord      `json:"subdomains"`
+	ContentFindings []storage.ContentFindingRecord `json:"content_findings,omitempty"`
+	JSFindings      []storage.JSFindingRecord      `json:"js_findings,omitempty"`
+	SourceErrors    []string                       `json:"source_errors,omitempty"`
 }
 
 type historyOutput struct {
-	Target       string                    `json:"target"`
-	PreviousScan storage.ScanRecord        `json:"previous_scan"`
-	CurrentScan  storage.ScanRecord        `json:"current_scan"`
-	Changes      []storage.SubdomainChange `json:"changes"`
+	Target         string                         `json:"target"`
+	PreviousScan   storage.ScanRecord             `json:"previous_scan"`
+	CurrentScan    storage.ScanRecord             `json:"current_scan"`
+	Changes        []storage.SubdomainChange      `json:"changes"`
+	ContentChanges []storage.ContentFindingChange `json:"content_changes"`
+	JSChanges      []storage.JSFindingChange      `json:"js_changes"`
 }
 
 func renderScanOutput(w io.Writer, asJSON bool, output scanOutput) error {
@@ -150,7 +198,36 @@ func renderScanOutput(w io.Writer, asJSON bool, output scanOutput) error {
 			return err
 		}
 	}
-	return table.Flush()
+	if err := table.Flush(); err != nil {
+		return err
+	}
+	if len(output.ContentFindings) > 0 {
+		if _, err := fmt.Fprintln(w, "\nCONTENT FINDINGS\nPATH\tSUBDOMAIN\tSTATUS\tRESPONSE LENGTH"); err != nil {
+			return err
+		}
+		contentTable := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
+		for _, finding := range output.ContentFindings {
+			if _, err := fmt.Fprintf(contentTable, "%s\t%s\t%d\t%d\n", finding.Path, finding.Subdomain, finding.StatusCode, finding.ResponseLength); err != nil {
+				return err
+			}
+		}
+		if err := contentTable.Flush(); err != nil {
+			return err
+		}
+	}
+	if len(output.JSFindings) > 0 {
+		if _, err := fmt.Fprintln(w, "\nJS FINDINGS\nSUBDOMAIN\tSOURCE FILE\tTYPE\tVALUE\tCONFIDENCE"); err != nil {
+			return err
+		}
+		jsTable := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
+		for _, finding := range output.JSFindings {
+			if _, err := fmt.Fprintf(jsTable, "%s\t%s\t%s\t%s\t%s\n", finding.Subdomain, finding.SourceFile, finding.FindingType, finding.Value, finding.Confidence); err != nil {
+				return err
+			}
+		}
+		return jsTable.Flush()
+	}
+	return nil
 }
 
 func renderHistoryOutput(w io.Writer, asJSON bool, output historyOutput) error {
@@ -175,7 +252,36 @@ func renderHistoryOutput(w io.Writer, asJSON bool, output historyOutput) error {
 			return err
 		}
 	}
-	return table.Flush()
+	if err := table.Flush(); err != nil {
+		return err
+	}
+	if len(output.ContentChanges) > 0 {
+		if _, err := fmt.Fprintln(w, "\nNEW CONTENT FINDINGS\nKIND\tSUBDOMAIN\tPATH\tSTATUS\tRESPONSE LENGTH"); err != nil {
+			return err
+		}
+		contentTable := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
+		for _, change := range output.ContentChanges {
+			if _, err := fmt.Fprintf(contentTable, "%s\t%s\t%s\t%d\t%d\n", change.Kind, change.Current.Subdomain, change.Current.Path, change.Current.StatusCode, change.Current.ResponseLength); err != nil {
+				return err
+			}
+		}
+		if err := contentTable.Flush(); err != nil {
+			return err
+		}
+	}
+	if len(output.JSChanges) > 0 {
+		if _, err := fmt.Fprintln(w, "\nNEW JS FINDINGS\nKIND\tSUBDOMAIN\tSOURCE FILE\tTYPE\tVALUE\tCONFIDENCE"); err != nil {
+			return err
+		}
+		jsTable := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
+		for _, change := range output.JSChanges {
+			if _, err := fmt.Fprintf(jsTable, "%s\t%s\t%s\t%s\t%s\t%s\n", change.Kind, change.Current.Subdomain, change.Current.SourceFile, change.Current.FindingType, change.Current.Value, change.Current.Confidence); err != nil {
+				return err
+			}
+		}
+		return jsTable.Flush()
+	}
+	return nil
 }
 
 func enumNames(results []enum.EnumResult) []string {

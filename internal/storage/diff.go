@@ -81,3 +81,59 @@ func DiffSubdomains(previous, current []SubdomainSnapshot) []SubdomainChange {
 	})
 	return changes
 }
+
+func DiffContentFindings(previous, current []ContentFindingSnapshot) []ContentFindingChange {
+	before := make(map[string]struct{}, len(previous))
+	for _, finding := range previous {
+		before[contentFindingKey(finding)] = struct{}{}
+	}
+	changes := make([]ContentFindingChange, 0)
+	seen := make(map[string]struct{}, len(current))
+	for _, finding := range current {
+		key := contentFindingKey(finding)
+		if _, exists := before[key]; exists {
+			continue
+		}
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		changes = append(changes, ContentFindingChange{Kind: ChangeNew, Current: finding})
+	}
+	sort.Slice(changes, func(i, j int) bool {
+		return contentFindingKey(changes[i].Current) < contentFindingKey(changes[j].Current)
+	})
+	return changes
+}
+
+func DiffJSFindings(previous, current []JSFindingSnapshot) []JSFindingChange {
+	before := make(map[string]struct{}, len(previous))
+	for _, finding := range previous {
+		before[jsFindingKey(finding)] = struct{}{}
+	}
+	changes := make([]JSFindingChange, 0)
+	seen := make(map[string]struct{}, len(current))
+	for _, finding := range current {
+		key := jsFindingKey(finding)
+		if _, exists := before[key]; exists {
+			continue
+		}
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		changes = append(changes, JSFindingChange{Kind: ChangeNew, Current: finding})
+	}
+	sort.Slice(changes, func(i, j int) bool {
+		return jsFindingKey(changes[i].Current) < jsFindingKey(changes[j].Current)
+	})
+	return changes
+}
+
+func contentFindingKey(finding ContentFindingSnapshot) string {
+	return finding.Subdomain + "\x00" + finding.Path
+}
+
+func jsFindingKey(finding JSFindingSnapshot) string {
+	return finding.Subdomain + "\x00" + finding.SourceFile + "\x00" + finding.FindingType + "\x00" + finding.Value
+}

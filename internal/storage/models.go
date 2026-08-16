@@ -70,3 +70,49 @@ type SubdomainChange struct {
 	Previous  *SubdomainSnapshot `json:"previous,omitempty"`
 	Current   *SubdomainSnapshot `json:"current,omitempty"`
 }
+
+type ContentFindingRecord struct {
+	ID             int64  `json:"id"`
+	ScanID         int64  `json:"scan_id"`
+	Subdomain      string `json:"subdomain"`
+	Path           string `json:"path"`
+	StatusCode     int    `json:"status_code"`
+	ResponseLength int64  `json:"response_length"`
+	DiscoveredAt   string `json:"discovered_at"`
+}
+
+type JSFindingRecord struct {
+	ID           int64  `json:"id"`
+	ScanID       int64  `json:"scan_id"`
+	Subdomain    string `json:"subdomain"`
+	SourceFile   string `json:"source_file"`
+	FindingType  string `json:"finding_type"`
+	Value        string `json:"value"`
+	Confidence   string `json:"confidence"`
+	DiscoveredAt string `json:"discovered_at"`
+}
+
+type ContentFindingSnapshot struct {
+	Subdomain      string `json:"subdomain"`
+	Path           string `json:"path"`
+	StatusCode     int    `json:"status_code"`
+	ResponseLength int64  `json:"response_length"`
+}
+
+type JSFindingSnapshot struct {
+	Subdomain   string `json:"subdomain"`
+	SourceFile  string `json:"source_file"`
+	FindingType string `json:"finding_type"`
+	Value       string `json:"value"`
+	Confidence  string `json:"confidence"`
+}
+
+type ContentFindingChange struct {
+	Kind    ChangeKind             `json:"kind"`
+	Current ContentFindingSnapshot `json:"current"`
+}
+
+type JSFindingChange struct {
+	Kind    ChangeKind        `json:"kind"`
+	Current JSFindingSnapshot `json:"current"`
+}

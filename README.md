@@ -81,7 +81,20 @@ The default database is `wraith.db` in the current working directory. Inspect it
 
 VirusTotal is optional and is used only when `VT_API_KEY` is present. If it is absent, Wraith logs that the optional source was skipped and continues with crt.sh and bounded DNS enumeration. A source failure does not abort the complete scan.
 
-Phase 2 deliberately does not add content discovery, JavaScript analysis, port scanning of enumerated subdomains, Nmap/Nuclei wrappers, REST APIs, dashboards, PDF/CSV export, scheduling, or multi-tenancy.
+Phase 2 deliberately does not add port scanning of enumerated subdomains, Nmap/Nuclei wrappers, REST APIs, dashboards, PDF/CSV export, scheduling, or multi-tenancy.
+
+## Phase 3 content discovery and JavaScript analysis
+
+Phase 3 runs only as part of an authorized `wraith scan`. Content discovery tests a small curated list of high-value paths after recording a random-path soft-404 baseline; it reports only meaningful 200, 301, 302, or baseline-different 403 responses. JavaScript analysis parses script URLs from live HTML, resolves same-host relative references, fetches bounded files, extracts API-like endpoints, and identifies potential secret-shaped strings.
+
+Both analyses run by default after Phase 2 HTTP probing. They can be disabled independently:
+
+```bash
+./bin/wraith scan -d example.com --authorized --db wraith.db --skip-content-discovery
+./bin/wraith scan -d example.com --authorized --db wraith.db --skip-js-analysis
+```
+
+Secret findings are pattern matches only. They are always labeled `potential`, shown in redacted form, and never validated, used, or exfiltrated. A finding may be a false positive; operators must handle any suspected credential through an authorized incident-response process without giving Wraith the value.
 
 ## Safe testing
 
@@ -96,3 +109,4 @@ Do not use random public hosts, shared networks, employer networks, bug-bounty t
 - [`docs/project-plan.md`](docs/project-plan.md) — skill gaps, resources, AI-assistance guidance, Phase 1 build order, and future roadmap.
 - [`docs/phase-1-prompt-reconciliation.md`](docs/phase-1-prompt-reconciliation.md) — reconciliation of the attached build prompt with the frozen Phase 1 boundary.
 - [`docs/phase-2-implementation.md`](docs/phase-2-implementation.md) — Phase 2 architecture, migrations, limits, and authorized testing instructions.
+- [`docs/phase-3-implementation.md`](docs/phase-3-implementation.md) — Phase 3 content-discovery and JavaScript-analysis boundaries, limits, and testing notes.
