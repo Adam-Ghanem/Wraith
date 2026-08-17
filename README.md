@@ -1,5 +1,8 @@
 # Wraith
 
+[![CI](https://github.com/Adam-Ghanem/Wraith/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Adam-Ghanem/Wraith/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 Wraith is a security research and defensive/offensive security tooling project. It is being built in deliberate phases with explicit safety boundaries.
 
 ## Status
@@ -31,7 +34,7 @@ Phase 2 and Phase 3 provide a bounded web reconnaissance workflow for domains th
 | Content discovery | A curated path list with a random soft-404 baseline; findings are limited to meaningful 200, 301, 302, and baseline-different 403 observations. |
 | JavaScript analysis | Same-host script extraction and bounded file analysis for API-like endpoints and redacted potential-secret pattern matches. |
 | Storage and diffing | Versioned SQLite migrations, transactional scan persistence, and pure NEW/REMOVED/CHANGED history diffs. |
-| Explicit exclusions | No subdomain port scanning, Nmap/Nuclei wrappers, vulnerability correlation, REST API, dashboard, PDF/CSV export, scheduling, or multi-tenancy. |
+| Explicit exclusions | No subdomain port scanning, cross-finding vulnerability correlation, REST API, PDF/CSV export, scheduling, or multi-tenancy. Nmap/Nuclei enrichment and the static local dashboard are documented separately below. |
 
 ## Build and test
 
@@ -160,6 +163,14 @@ pnpm dev
 
 The repository includes sanitized sample fixtures for local interface testing. Replace them only through the authorized export command or with your own appropriately redacted fixture copies. The browser UI is an evidence viewer, not a security assessment.
 
+## Phase 6 hardening, CI, and packaging
+
+The repository runs a blocking [CI workflow](.github/workflows/ci.yml) on pull requests to `main` and pushes to `main`. The Go job verifies module checksums and formatting, runs `go vet`, unit tests, race-detector tests, `golangci-lint`, and `go build`. The web job installs the locked dependency graph, checks TypeScript, runs frontend tests, builds the static dashboard, audits production dependencies, and verifies dependency-review coverage.
+
+Release artifacts can be built with `make release`; the target uses `-trimpath` and embeds version, commit, and date build metadata. Run `make sha256sums` to generate `SHA256SUMS` for release artifacts. Artifacts are checksummed, **not signed**; the release process does not claim signing or provenance attestation. See the [release process](docs/release-process.md) for the exact commands and publication limitations.
+
+The [dependency and license review](docs/dependency-review.md) covers the active Go and pnpm graphs and is checked in CI. Wraith is released under the [MIT License](LICENSE). Security issues have a [responsible-disclosure process](SECURITY.md), while the [threat model](docs/threat-model.md) and [support matrix](docs/support-matrix.md) document the current trust boundaries, supported environment, capability requirements, and non-guarantees.
+
 ## Safe testing
 
 Use an isolated lab network, Linux network namespaces, disposable virtual machines, or devices that you own and are authorized to test. Begin with unit tests and interface inspection. Then verify ARP and TCP behavior against a small lab CIDR containing a known listener and a closed port. Confirm the selected interface and CIDR before each run, and stop if the result is incomplete or scope is ambiguous.
@@ -177,3 +188,8 @@ Do not use random public hosts, shared networks, employer networks, bug-bounty t
 - [`docs/phase-3-implementation.md`](docs/phase-3-implementation.md) — Phase 3 content-discovery and JavaScript-analysis boundaries, limits, and testing notes.
 - [`docs/phase-2-3-real-target-verification.md`](docs/phase-2-3-real-target-verification.md) — Redacted record of the authorized Phase 2+3 live verification and its limitations.
 - [`docs/phase-5-implementation.md`](docs/phase-5-implementation.md) — Static fixture dashboard, export command, hard exclusions, and Phase 5 testing limitations.
+- [`docs/dependency-review.md`](docs/dependency-review.md) — Reviewed Go and pnpm dependency inventory, license evidence, exceptions, and CI update control.
+- [`docs/release-process.md`](docs/release-process.md) — Reproducible build commands, checksum process, and unsigned-release limitations.
+- [`SECURITY.md`](SECURITY.md) — Security issue scope, responsible-disclosure route, and handling expectations.
+- [`docs/threat-model.md`](docs/threat-model.md) — Current trust boundaries, assets, assumptions, and mitigations.
+- [`docs/support-matrix.md`](docs/support-matrix.md) — Supported platforms, prerequisites, privileges, and behavior when capabilities are missing.
