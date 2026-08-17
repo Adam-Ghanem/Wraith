@@ -47,7 +47,7 @@ jobs:
       - name: Build all Go packages
         run: go build ./...
       - name: Check dependency review coverage
-        run: bash scripts/check-dependency-review.sh
+        run: bash scripts/check-dependency-review.sh go
 
   web-quality:
     name: Web quality
@@ -75,4 +75,4 @@ jobs:
       - name: Audit production dependencies
         run: pnpm --dir web audit --prod
       - name: Check dependency review coverage
-        run: bash scripts/check-dependency-review.sh
+        run: bash scripts/check-dependency-review.sh web

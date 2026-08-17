@@ -13,7 +13,7 @@ The review does **not** represent that Wraith has selected an open-source licens
 
 ## Change control
 
-The CI workflow runs `bash scripts/check-dependency-review.sh` in both the Go and web jobs. The script compares the live `go list -m all` graph and installed locked pnpm package manifests to the literal module/package-and-version records in this document. A newly added or version-changed dependency fails CI until this review is updated. The check intentionally verifies **coverage**, not the legal correctness of a license classification.
+The CI workflow runs `bash scripts/check-dependency-review.sh go` in the Go job and `bash scripts/check-dependency-review.sh web` in the web job. The script compares the live `go list -m all` graph and installed locked pnpm package manifests to the literal module/package-and-version records in this document. A newly added or version-changed dependency fails CI until this review is updated. The check intentionally verifies **coverage**, not the legal correctness of a license classification.
 
 For local validation, install the locked web dependency tree and run:
 
