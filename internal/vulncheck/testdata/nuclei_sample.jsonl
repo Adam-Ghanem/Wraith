@@ -1,0 +1,2 @@
+{"template-id":"exposed-panel","info":{"name":"Exposed Admin Panel","severity":"medium","description":"A protected administrative panel was identified by a non-intrusive template."},"matched-at":"https://app.example.com/admin","host":"app.example.com","type":"http","timestamp":"2026-08-17T00:00:00Z"}
+{"template-id":"old-cve","info":{"name":"Example Legacy Advisory","severity":"high","description":"A fixture-only advisory description."},"matched-at":"https://www.example.com/legacy","host":"www.example.com","type":"http","timestamp":"2026-08-17T00:00:01Z"}
