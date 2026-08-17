@@ -94,7 +94,7 @@ The default database is `wraith.db` in the current working directory. Inspect it
 
 VirusTotal is optional and is used only when `VT_API_KEY` is present. If it is absent, Wraith logs that the optional source was skipped and continues with crt.sh and bounded DNS enumeration. A source failure does not abort the complete scan.
 
-Phase 2 deliberately does not add port scanning of enumerated subdomains, Nmap/Nuclei wrappers, REST APIs, dashboards, PDF/CSV export, scheduling, or multi-tenancy.
+Phase 2 itself does not add port scanning of enumerated subdomains, REST APIs, dashboards, PDF/CSV export, scheduling, or multi-tenancy. Optional Nmap/Nuclei enrichment is documented separately as Phase 4 below.
 
 ## Phase 3 content discovery and JavaScript analysis
 
@@ -113,6 +113,28 @@ Both analyses run by default after Phase 2 HTTP probing. They can be disabled in
 ```
 
 Secret findings are pattern matches only. They are always labeled `potential`, shown in redacted form, and never validated, used, or exfiltrated. A finding may be a false positive; operators must handle any suspected credential through an authorized incident-response process without giving Wraith the value.
+
+## Phase 4 optional Nmap and Nuclei enrichment
+
+Phase 4 adds two opt-in enrichment wrappers for an authorized `wraith scan`. Both flags are off by default and require the existing `--authorized` gate. Wraith passes only targets discovered and probed during the same scan; it does not accept arbitrary Nmap or Nuclei target injection.
+
+```bash
+./bin/wraith scan -d example.com --authorized --use-nmap --db wraith.db
+./bin/wraith scan -d example.com --authorized --use-nuclei --json --db wraith.db > scan-with-vulns.json
+./bin/wraith scan -d example.com --authorized --use-nmap --use-nuclei --db wraith.db
+```
+
+Nmap is invoked, when installed, with a conservative TCP-connect profile: `-sT -n -Pn -T3 --top-ports 1000 --max-retries 2 --open -oX -`. Wraith deliberately does not enable `-A`, OS detection, service-version detection, NSE scripts, UDP scanning, or aggressive timing. Each discovered IP target has a five-minute context timeout, and XML output is parsed directly with a bounded output limit.
+
+Nuclei is invoked, when installed, against the live HTTP(S) hosts selected by Wraith’s same-scan web probing. The wrapper selects only the `cves,exposures,misconfiguration` template tags, applies a five-request-per-second built-in rate limit, emits JSONL without raw request/response bodies, disables redirects and interactsh, and blocks local/private network access. Fuzzing, DAST, code, headless, AI, and other intrusive modes are not enabled. Each scan has a ten-minute context timeout.
+
+Nmap and Nuclei are optional external dependencies. If either binary is absent, the corresponding enrichment is skipped with a diagnostic message and the scan continues. Install Nmap from the [official Nmap downloads page](https://nmap.org/download.html). Install Nuclei by following the [official ProjectDiscovery installation guide](https://docs.projectdiscovery.io/opensource/nuclei/install). For example, a Go-based installation is available through the official Nuclei module:
+
+```bash
+go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest
+```
+
+Port findings record the observed source (`nmap` or `native`) and read-only service evidence. Nuclei findings preserve the severity reported by the selected template and include the template ID, matched URL, and description. Wraith reports these observations only; it never validates, exploits, follows up on, or invents severity for a vulnerability finding.
 
 ## Safe testing
 
