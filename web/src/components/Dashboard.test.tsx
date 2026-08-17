@@ -53,14 +53,17 @@ describe("Dashboard", () => {
     expect(document.querySelector("img[src='x']")).toBeNull();
   });
 
-  it("renders a factual evidence-console summary without inventing a threat score", () => {
+  it("renders a restrained factual light evidence workspace without decorative risk visuals", () => {
     render(<Dashboard scan={scan} history={history} />);
 
-    expect(screen.getByRole("heading", { name: "Evidence console" })).toBeVisible();
+    expect(screen.getByTestId("evidence-workspace")).toHaveAttribute("data-theme", "light");
+    expect(screen.getByRole("heading", { name: "Evidence workspace" })).toBeVisible();
     expect(screen.getByText("Fixture-backed / read only")).toBeVisible();
     expect(screen.getByText("5 evidence groups")).toBeVisible();
     expect(screen.getByText("1 source issue")).toBeVisible();
-    expect(screen.getByLabelText("Evidence coverage")).toBeVisible();
+    expect(screen.getByText("Observation ledger")).toBeVisible();
+    expect(screen.queryByLabelText("Evidence coverage")).toBeNull();
+    expect(screen.getByText("Read-only fixture viewer")).toBeVisible();
     expect(screen.getByText("Observations are not a security assessment.")).toBeVisible();
     expect(screen.queryByText(/risk score/i)).toBeNull();
   });
