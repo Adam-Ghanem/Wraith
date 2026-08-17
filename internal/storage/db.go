@@ -4,22 +4,28 @@ import (
 	"context"
 	"database/sql"
 	"embed"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
+	"github.com/Adam-Ghanem/Wraith/internal/policy"
 	_ "modernc.org/sqlite"
 )
 
 //go:embed migrations/*.sql
 var migrationFS embed.FS
 
-const CurrentSchemaVersion = 3
+const CurrentSchemaVersion = 4
 
-var ErrInvalidMigration = errors.New("invalid storage migration")
+var (
+	ErrInvalidMigration         = errors.New("invalid storage migration")
+	ErrPolicyScopeVersionExists = errors.New("policy scope version already exists")
+)
 
 type DB struct {
 	sql *sql.DB
@@ -444,4 +450,204 @@ func (db *DB) LoadVulnFindings(ctx context.Context, scanID int64) ([]VulnFinding
 		findings = append(findings, finding)
 	}
 	return findings, rows.Err()
+}
+
+// SaveProjectScope stores an immutable scope document and atomically makes it
+// the active scope for its project. Reusing a version identifier is rejected;
+// callers must create a new version to change policy.
+func (db *DB) SaveProjectScope(ctx context.Context, scope policy.ProjectScope) error {
+	if db == nil || db.sql == nil {
+		return errors.New("storage database is not initialized")
+	}
+	if err := policy.ValidateProjectScope(scope); err != nil {
+		return fmt.Errorf("validate policy scope: %w", err)
+	}
+	actionsJSON, err := json.Marshal(scope.Authorization.ApprovedActions)
+	if err != nil {
+		return fmt.Errorf("marshal authorization actions: %w", err)
+	}
+	tx, err := db.sql.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin policy scope transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	var existing string
+	err = tx.QueryRowContext(ctx, `SELECT version_id FROM project_scope_versions WHERE version_id = ?`, scope.VersionID).Scan(&existing)
+	if err == nil {
+		return ErrPolicyScopeVersionExists
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("check policy scope version: %w", err)
+	}
+	_, err = tx.ExecContext(ctx, `INSERT INTO project_scope_versions(version_id, project_id, authorization_id, authorization_owner_id, authorization_actions_json, authorization_expires_at, authorization_revoked_at, authorization_created_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?)`,
+		scope.VersionID,
+		scope.ProjectID,
+		scope.Authorization.ID,
+		scope.Authorization.OwnerID,
+		string(actionsJSON),
+		formatPolicyTime(scope.Authorization.ExpiresAt),
+		formatPolicyTime(scope.Authorization.RevokedAt),
+		formatRequiredPolicyTime(scope.Authorization.CreatedAt),
+	)
+	if err != nil {
+		return fmt.Errorf("insert policy scope version: %w", err)
+	}
+	for _, rule := range scope.Rules {
+		portsJSON, err := json.Marshal(rule.Ports)
+		if err != nil {
+			return fmt.Errorf("marshal policy rule ports: %w", err)
+		}
+		protocolsJSON, err := json.Marshal(rule.Protocols)
+		if err != nil {
+			return fmt.Errorf("marshal policy rule protocols: %w", err)
+		}
+		_, err = tx.ExecContext(ctx, `INSERT INTO scope_rules(scope_version_id, id, project_id, effect, target_type, value, ports_json, protocols_json, expires_at, revoked_at, created_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			scope.VersionID,
+			rule.ID,
+			rule.ProjectID,
+			rule.Effect,
+			rule.TargetType,
+			rule.Value,
+			string(portsJSON),
+			string(protocolsJSON),
+			formatPolicyTime(rule.ExpiresAt),
+			formatPolicyTime(rule.RevokedAt),
+			formatRequiredPolicyTime(rule.CreatedAt),
+		)
+		if err != nil {
+			return fmt.Errorf("insert policy scope rule: %w", err)
+		}
+	}
+	_, err = tx.ExecContext(ctx, `INSERT INTO active_project_scopes(project_id, scope_version_id, activated_at) VALUES(?, ?, ?) ON CONFLICT(project_id) DO UPDATE SET scope_version_id = excluded.scope_version_id, activated_at = excluded.activated_at`, scope.ProjectID, scope.VersionID, formatRequiredPolicyTime(scope.Authorization.CreatedAt))
+	if err != nil {
+		return fmt.Errorf("activate policy scope: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit policy scope: %w", err)
+	}
+	return nil
+}
+
+// LoadProjectScope returns the single active immutable scope version for the
+// requested project. It has no cross-project fallback.
+func (db *DB) LoadProjectScope(ctx context.Context, projectID string) (policy.ProjectScope, error) {
+	if db == nil || db.sql == nil {
+		return policy.ProjectScope{}, errors.New("storage database is not initialized")
+	}
+	if strings.TrimSpace(projectID) == "" {
+		return policy.ProjectScope{}, policy.ErrNoScope
+	}
+	var (
+		scope                    policy.ProjectScope
+		authorizationActionsJSON string
+		authorizationExpiresAt   sql.NullString
+		authorizationRevokedAt   sql.NullString
+		authorizationCreatedAt   string
+	)
+	err := db.sql.QueryRowContext(ctx, `SELECT scope.version_id, scope.project_id, scope.authorization_id, scope.authorization_owner_id, scope.authorization_actions_json, scope.authorization_expires_at, scope.authorization_revoked_at, scope.authorization_created_at FROM active_project_scopes active JOIN project_scope_versions scope ON scope.version_id = active.scope_version_id WHERE active.project_id = ?`, projectID).Scan(
+		&scope.VersionID,
+		&scope.ProjectID,
+		&scope.Authorization.ID,
+		&scope.Authorization.OwnerID,
+		&authorizationActionsJSON,
+		&authorizationExpiresAt,
+		&authorizationRevokedAt,
+		&authorizationCreatedAt,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return policy.ProjectScope{}, policy.ErrNoScope
+	}
+	if err != nil {
+		return policy.ProjectScope{}, fmt.Errorf("load active policy scope: %w", err)
+	}
+	scope.Authorization.ProjectID = scope.ProjectID
+	scope.Authorization.ScopeVersionID = scope.VersionID
+	if err := json.Unmarshal([]byte(authorizationActionsJSON), &scope.Authorization.ApprovedActions); err != nil {
+		return policy.ProjectScope{}, fmt.Errorf("decode authorization actions: %w", err)
+	}
+	createdAt, err := parseRequiredPolicyTime(authorizationCreatedAt)
+	if err != nil {
+		return policy.ProjectScope{}, fmt.Errorf("decode authorization creation time: %w", err)
+	}
+	scope.Authorization.CreatedAt = createdAt
+	if scope.Authorization.ExpiresAt, err = parseOptionalPolicyTime(authorizationExpiresAt); err != nil {
+		return policy.ProjectScope{}, fmt.Errorf("decode authorization expiration: %w", err)
+	}
+	if scope.Authorization.RevokedAt, err = parseOptionalPolicyTime(authorizationRevokedAt); err != nil {
+		return policy.ProjectScope{}, fmt.Errorf("decode authorization revocation: %w", err)
+	}
+
+	rows, err := db.sql.QueryContext(ctx, `SELECT id, project_id, effect, target_type, value, ports_json, protocols_json, expires_at, revoked_at, created_at FROM scope_rules WHERE scope_version_id = ? ORDER BY id`, scope.VersionID)
+	if err != nil {
+		return policy.ProjectScope{}, fmt.Errorf("load policy rules: %w", err)
+	}
+	defer rows.Close()
+	scope.Rules = make([]policy.ScopeRule, 0)
+	for rows.Next() {
+		var (
+			rule          policy.ScopeRule
+			portsJSON     string
+			protocolsJSON string
+			expiresAt     sql.NullString
+			revokedAt     sql.NullString
+			created       string
+		)
+		if err := rows.Scan(&rule.ID, &rule.ProjectID, &rule.Effect, &rule.TargetType, &rule.Value, &portsJSON, &protocolsJSON, &expiresAt, &revokedAt, &created); err != nil {
+			return policy.ProjectScope{}, fmt.Errorf("scan policy rule: %w", err)
+		}
+		if err := json.Unmarshal([]byte(portsJSON), &rule.Ports); err != nil {
+			return policy.ProjectScope{}, fmt.Errorf("decode policy rule ports: %w", err)
+		}
+		if err := json.Unmarshal([]byte(protocolsJSON), &rule.Protocols); err != nil {
+			return policy.ProjectScope{}, fmt.Errorf("decode policy rule protocols: %w", err)
+		}
+		var parseErr error
+		if rule.CreatedAt, parseErr = parseRequiredPolicyTime(created); parseErr != nil {
+			return policy.ProjectScope{}, fmt.Errorf("decode policy rule creation time: %w", parseErr)
+		}
+		if rule.ExpiresAt, parseErr = parseOptionalPolicyTime(expiresAt); parseErr != nil {
+			return policy.ProjectScope{}, fmt.Errorf("decode policy rule expiration: %w", parseErr)
+		}
+		if rule.RevokedAt, parseErr = parseOptionalPolicyTime(revokedAt); parseErr != nil {
+			return policy.ProjectScope{}, fmt.Errorf("decode policy rule revocation: %w", parseErr)
+		}
+		scope.Rules = append(scope.Rules, rule)
+	}
+	if err := rows.Err(); err != nil {
+		return policy.ProjectScope{}, fmt.Errorf("iterate policy rules: %w", err)
+	}
+	if err := policy.ValidateProjectScope(scope); err != nil {
+		return policy.ProjectScope{}, fmt.Errorf("validate loaded policy scope: %w", err)
+	}
+	return scope, nil
+}
+
+func formatPolicyTime(value *time.Time) any {
+	if value == nil {
+		return nil
+	}
+	return formatRequiredPolicyTime(*value)
+}
+
+func formatRequiredPolicyTime(value time.Time) string {
+	return value.UTC().Format(time.RFC3339Nano)
+}
+
+func parseOptionalPolicyTime(value sql.NullString) (*time.Time, error) {
+	if !value.Valid {
+		return nil, nil
+	}
+	parsed, err := parseRequiredPolicyTime(value.String)
+	if err != nil {
+		return nil, err
+	}
+	return &parsed, nil
+}
+
+func parseRequiredPolicyTime(value string) (time.Time, error) {
+	parsed, err := time.Parse(time.RFC3339Nano, value)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return parsed.UTC(), nil
 }

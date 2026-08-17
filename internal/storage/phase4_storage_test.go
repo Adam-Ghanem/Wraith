@@ -15,8 +15,8 @@ func TestPhase4MigrationPersistenceAndIDs(t *testing.T) {
 	if err := db.Migrate(ctx); err != nil {
 		t.Fatalf("migrate storage: %v", err)
 	}
-	if version := db.CurrentSchemaVersion(ctx); version != 3 {
-		t.Fatalf("schema version=%d, want 3", version)
+	if version := db.CurrentSchemaVersion(ctx); version != CurrentSchemaVersion {
+		t.Fatalf("schema version=%d, want %d", version, CurrentSchemaVersion)
 	}
 	ports := []PortFindingRecord{{SubdomainOrIP: "app.example.com", Port: 443, Protocol: "tcp", Service: "https", Source: "nmap", DiscoveredAt: "end"}}
 	vulns := []VulnFindingRecord{{Subdomain: "app.example.com", TemplateID: "fixture-exposure", Severity: "medium", MatchedURL: "https://app.example.com/admin", Description: "fixture", DiscoveredAt: "end"}}
@@ -80,7 +80,7 @@ func TestPhase4MigrationUpgradesSchemaVersion2(t *testing.T) {
 	if err := db.Migrate(ctx); err != nil {
 		t.Fatalf("initial migrate: %v", err)
 	}
-	if _, err := db.sql.ExecContext(ctx, `DROP TABLE port_findings; DROP TABLE vuln_findings; DELETE FROM schema_migrations WHERE version = 3`); err != nil {
+	if _, err := db.sql.ExecContext(ctx, `DROP TABLE active_project_scopes; DROP TABLE scope_rules; DROP TABLE project_scope_versions; DROP TABLE port_findings; DROP TABLE vuln_findings; DELETE FROM schema_migrations WHERE version >= 3`); err != nil {
 		t.Fatalf("simulate schema version 2: %v", err)
 	}
 	if version := db.CurrentSchemaVersion(ctx); version != 2 {
@@ -89,8 +89,8 @@ func TestPhase4MigrationUpgradesSchemaVersion2(t *testing.T) {
 	if err := db.Migrate(ctx); err != nil {
 		t.Fatalf("upgrade migration: %v", err)
 	}
-	if version := db.CurrentSchemaVersion(ctx); version != 3 {
-		t.Fatalf("upgraded schema version=%d, want 3", version)
+	if version := db.CurrentSchemaVersion(ctx); version != CurrentSchemaVersion {
+		t.Fatalf("upgraded schema version=%d, want %d", version, CurrentSchemaVersion)
 	}
 	if _, err := db.LoadPortFindings(ctx, 1); err != nil {
 		t.Fatalf("port findings table after upgrade: %v", err)
