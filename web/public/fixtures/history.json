@@ -1,0 +1,16 @@
+{
+  "target": "example.test",
+  "previous_scan": {"id": 41, "target": "example.test", "scan_type": "web", "started_at": "2026-08-16T10:00:00Z", "completed_at": "2026-08-16T10:00:05Z"},
+  "current_scan": {"id": 42, "target": "example.test", "scan_type": "web", "started_at": "2026-08-17T10:00:00Z", "completed_at": "2026-08-17T10:00:05Z"},
+  "changes": [
+    {"kind": "NEW", "subdomain": "new.example.test", "current": {"subdomain": "new.example.test", "ip": "198.51.100.25", "status_code": 200, "tech_guess": "unknown"}},
+    {"kind": "REMOVED", "subdomain": "old.example.test", "previous": {"subdomain": "old.example.test", "ip": "198.51.100.23", "status_code": 200, "tech_guess": "unknown"}},
+    {"kind": "CHANGED", "subdomain": "app.example.test", "previous": {"subdomain": "app.example.test", "ip": "198.51.100.24", "status_code": 301, "tech_guess": "unknown"}, "current": {"subdomain": "app.example.test", "ip": "198.51.100.24", "status_code": 200, "tech_guess": "unknown"}}
+  ],
+  "content_changes": [
+    {"kind": "NEW", "current": {"subdomain": "app.example.test", "path": "/robots.txt", "status_code": 200, "response_length": 98}}
+  ],
+  "js_changes": [],
+  "port_changes": [],
+  "vuln_changes": []
+}

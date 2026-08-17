@@ -136,6 +136,30 @@ go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest
 
 Port findings record the observed source (`nmap` or `native`) and read-only service evidence. Nuclei findings preserve the severity reported by the selected template and include the template ID, matched URL, and description. Wraith reports these observations only; it never validates, exploits, follows up on, or invents severity for a vulnerability finding.
 
+## Phase 5 static fixture dashboard
+
+Phase 5 adds a local, read-only React dashboard under [`web/`](web/). It reads static `scan.json` and `history.json` fixtures only; it does not use a backend server, REST API, live SQLite connection, network polling, authentication, sessions, or write actions. The dashboard preserves the original evidence state: it displays per-row scan ID and observation time, source failures, explicit “none observed” text for empty finding types, and distinct `NEW`, `REMOVED`, and `CHANGED` history groups. It does not calculate risk scores, aggregate severity, or render scanner-derived values as HTML.
+
+Generate fixtures using the existing authorized scan and history JSON paths:
+
+```bash
+./bin/wraith export-fixtures \
+  -d example.com \
+  --db wraith.db \
+  --out web/public/fixtures \
+  --authorized
+```
+
+The export writes `scan.json` first. If fewer than two completed scans exist, it leaves `scan.json` in place, does not retain `history.json`, prints an explanatory note to stderr, and returns the existing history error. After two scans, run the static dashboard locally:
+
+```bash
+cd web
+pnpm install --frozen-lockfile
+pnpm dev
+```
+
+The repository includes sanitized sample fixtures for local interface testing. Replace them only through the authorized export command or with your own appropriately redacted fixture copies. The browser UI is an evidence viewer, not a security assessment.
+
 ## Safe testing
 
 Use an isolated lab network, Linux network namespaces, disposable virtual machines, or devices that you own and are authorized to test. Begin with unit tests and interface inspection. Then verify ARP and TCP behavior against a small lab CIDR containing a known listener and a closed port. Confirm the selected interface and CIDR before each run, and stop if the result is incomplete or scope is ambiguous.
@@ -152,3 +176,4 @@ Do not use random public hosts, shared networks, employer networks, bug-bounty t
 - [`docs/phase-2-premerge-review.md`](docs/phase-2-premerge-review.md) — Phase 2 pre-merge review findings, decisions, and verification notes.
 - [`docs/phase-3-implementation.md`](docs/phase-3-implementation.md) — Phase 3 content-discovery and JavaScript-analysis boundaries, limits, and testing notes.
 - [`docs/phase-2-3-real-target-verification.md`](docs/phase-2-3-real-target-verification.md) — Redacted record of the authorized Phase 2+3 live verification and its limitations.
+- [`docs/phase-5-implementation.md`](docs/phase-5-implementation.md) — Static fixture dashboard, export command, hard exclusions, and Phase 5 testing limitations.
