@@ -9,7 +9,7 @@ This review records every third-party Go module in the active module graph and e
 | Go modules | 33 | MIT, BSD-3-Clause, and Apache-2.0 only. No GPL-family or other strong-copyleft module was found. |
 | Web pnpm packages | 116 | Predominantly permissive. Three `lightningcss` packages declare MPL-2.0, a file-level weak-copyleft license; see the exception note below. |
 
-The review does **not** represent that Wraith has selected an open-source license. The repository currently contains a license-decision notice, not a license grant; see [`../LICENSE`](../LICENSE).
+Wraith is licensed under the MIT License; see [`../LICENSE`](../LICENSE). This review covers third-party dependency licenses only and does not alter Wraith's own license terms.
 
 ## Change control
 

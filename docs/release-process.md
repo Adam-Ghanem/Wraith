@@ -38,7 +38,7 @@ The `release` target passes `-trimpath` and `-buildvcs=false` to `go build`, the
 
 ## Publication checklist
 
-Before a project owner publishes an artifact, they should verify that the checkout is clean, record the exact commit, inspect `wraith version`, regenerate `SHA256SUMS`, and publish the checksum through a channel that recipients can independently trust. They should also replace the license-decision notice with the selected license text and publish a private reporting channel in [`SECURITY.md`](../SECURITY.md).
+Before a project owner publishes an artifact, they should verify that the checkout is clean, record the exact commit, inspect `wraith version`, regenerate `SHA256SUMS`, and publish the checksum through a channel that recipients can independently trust. They should also confirm [`LICENSE`](../LICENSE) still reflects the intended terms and publish a private reporting channel in [`SECURITY.md`](../SECURITY.md).
 
 ## References
 
