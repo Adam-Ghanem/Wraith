@@ -4,7 +4,7 @@ Wraith is a security research and defensive/offensive security tooling project. 
 
 ## Status
 
-Phase 1 is implemented as a Linux-first, local-network discovery tool. It is a standalone CLI for authorized local IPv4 inventory and is intentionally not an internet scanner, vulnerability scanner, exploitation framework, or web reconnaissance platform.
+Phase 1 is implemented as a Linux-first, local-network discovery tool. It is a standalone CLI for authorized local IPv4 inventory and remains intentionally local-only; Phase 1 itself is not an internet scanner, vulnerability scanner, exploitation framework, or web reconnaissance platform. Phase 2 and Phase 3 add scoped, authorized web reconnaissance capabilities described below.
 
 > **Legal Notice — `--authorized` is a self-attestation only.** This flag is a checkbox supplied by the operator, not technical verification. Wraith does not verify domain ownership, WHOIS records, or authorization in any way. You are 100% legally responsible for confirming real authorization—through ownership, written permission, or an in-scope bug bounty program—before running any scan against a target. Misuse against unauthorized targets may be illegal in your jurisdiction.
 
@@ -19,6 +19,19 @@ The current implementation provides the core contracts and pipeline for:
 - Fail-closed validation for scope, authorization, limits, and port-list changes.
 
 The Linux ARP adapter may require raw or packet-socket privileges. If packet access is denied, Wraith returns an operator-readable error that identifies the possible `CAP_NET_RAW`/`CAP_NET_ADMIN` or controlled elevated-execution requirement; it does not silently fall back to another scanner. Prefer the least-privilege capability or controlled elevated execution required by the host configuration. Do not run against a network you do not own or have explicit permission to test.
+
+## Phase 2/3 Status
+
+Phase 2 and Phase 3 provide a bounded web reconnaissance workflow for domains that the operator owns or is explicitly authorized to test. Every `scan` and `history` operation requires the `--authorized` self-attestation gate; Wraith does not technically verify ownership or permission. All network activity remains bounded by timeout, concurrency, rate, response-size, redirect, and persistence controls.
+
+| Capability | Boundary |
+| --- | --- |
+| Subdomain enumeration | crt.sh passive certificate discovery, optional VirusTotal enrichment when `VT_API_KEY` is configured, and bounded DNS enumeration. |
+| HTTP/HTTPS probing | Bounded requests with same-host redirect limits, response-size caps, technology guesses, and read-only metadata. |
+| Content discovery | A curated path list with a random soft-404 baseline; findings are limited to meaningful 200, 301, 302, and baseline-different 403 observations. |
+| JavaScript analysis | Same-host script extraction and bounded file analysis for API-like endpoints and redacted potential-secret pattern matches. |
+| Storage and diffing | Versioned SQLite migrations, transactional scan persistence, and pure NEW/REMOVED/CHANGED history diffs. |
+| Explicit exclusions | No subdomain port scanning, Nmap/Nuclei wrappers, vulnerability correlation, REST API, dashboard, PDF/CSV export, scheduling, or multi-tenancy. |
 
 ## Build and test
 
@@ -89,6 +102,11 @@ Phase 3 runs only as part of an authorized `wraith scan`. Content discovery test
 
 Both analyses run by default after Phase 2 HTTP probing. They can be disabled independently:
 
+| Flag | Effect |
+| --- | --- |
+| `--skip-content-discovery` | Skip Phase 3 content discovery while retaining the rest of the authorized scan. |
+| `--skip-js-analysis` | Skip Phase 3 JavaScript analysis while retaining the rest of the authorized scan. |
+
 ```bash
 ./bin/wraith scan -d example.com --authorized --db wraith.db --skip-content-discovery
 ./bin/wraith scan -d example.com --authorized --db wraith.db --skip-js-analysis
@@ -109,4 +127,6 @@ Do not use random public hosts, shared networks, employer networks, bug-bounty t
 - [`docs/project-plan.md`](docs/project-plan.md) — skill gaps, resources, AI-assistance guidance, Phase 1 build order, and future roadmap.
 - [`docs/phase-1-prompt-reconciliation.md`](docs/phase-1-prompt-reconciliation.md) — reconciliation of the attached build prompt with the frozen Phase 1 boundary.
 - [`docs/phase-2-implementation.md`](docs/phase-2-implementation.md) — Phase 2 architecture, migrations, limits, and authorized testing instructions.
+- [`docs/phase-2-premerge-review.md`](docs/phase-2-premerge-review.md) — Phase 2 pre-merge review findings, decisions, and verification notes.
 - [`docs/phase-3-implementation.md`](docs/phase-3-implementation.md) — Phase 3 content-discovery and JavaScript-analysis boundaries, limits, and testing notes.
+- [`docs/phase-2-3-real-target-verification.md`](docs/phase-2-3-real-target-verification.md) — Redacted record of the authorized Phase 2+3 live verification and its limitations.
