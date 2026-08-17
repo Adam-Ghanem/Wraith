@@ -7,11 +7,18 @@
 
 Most reconnaissance tools optimize for reach. Wraith is intentionally narrow: each phase makes its target boundary, authorization gate, limits, evidence model, and exclusions visible. The result is an inspectable local-network and web-reconnaissance workflow—not an exploitation framework or a claim that observed output is a security verdict.
 
+## Product preview
+
+![Wraith Evidence workspace product showcase](docs/assets/wraith-evidence-showcase.png)
+
+> The framed workspace is a real render of the bundled, sanitized Phase 5 fixtures. The surrounding grid and product frame are presentation only; they do not imply a live service, risk calculation, or validated security finding.
+
 > **Legal Notice — `--authorized` is a self-attestation only.** This flag is a checkbox supplied by the operator, not technical verification. Wraith does not verify domain ownership, WHOIS records, or authorization in any way. You are 100% legally responsible for confirming real authorization—through ownership, written permission, or an in-scope bug bounty program—before running any scan against a target. Misuse against unauthorized targets may be illegal in your jurisdiction.
 
 ## Table of contents
 
 - [At a glance](#at-a-glance)
+- [Product preview](#product-preview)
 - [Quick start: inspect real sample output without scanning](#quick-start-inspect-real-sample-output-without-scanning)
 - [Visual proof: Phase 5 fixture dashboard](#visual-proof-phase-5-fixture-dashboard)
 - [Phase details](#phase-details)
@@ -44,7 +51,7 @@ Open the local URL printed by Vite. The dashboard renders `web/public/fixtures/s
 
 ## Visual proof: Phase 5 fixture dashboard
 
-The image below is an actual render of the bundled sanitized fixtures, captured from the local Phase 5 application. It shows the dashboard’s provenance-aware snapshot view, including a recorded source failure and redacted potential-secret display.
+The product preview above presents the actual dashboard inside a static showcase frame. The direct render below is captured from the local Phase 5 application using its bundled sanitized fixtures. It shows the white, provenance-aware workspace with its recorded source failure and redacted potential-secret display.
 
 ![Wraith Evidence Ledger rendering the bundled fixture-backed snapshot evidence](docs/assets/wraith-dashboard-sample.webp)
 

@@ -1,6 +1,8 @@
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { cleanup, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it } from "vitest";
 import { Dashboard } from "./Dashboard";
+
+afterEach(cleanup);
 
 const scan = {
   scan_id: 2,
@@ -49,6 +51,21 @@ describe("Dashboard", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("crt: temporary failure");
     expect(screen.getByText("<img src=x onerror=alert(1)>")).toBeVisible();
     expect(document.querySelector("img[src='x']")).toBeNull();
+  });
+
+  it("renders a restrained factual light evidence workspace without decorative risk visuals", () => {
+    render(<Dashboard scan={scan} history={history} />);
+
+    expect(screen.getByTestId("evidence-workspace")).toHaveAttribute("data-theme", "light");
+    expect(screen.getByRole("heading", { name: "Evidence workspace" })).toBeVisible();
+    expect(screen.getByText("Fixture-backed / read only")).toBeVisible();
+    expect(screen.getByText("5 evidence groups")).toBeVisible();
+    expect(screen.getByText("1 source issue")).toBeVisible();
+    expect(screen.getByText("Observation ledger")).toBeVisible();
+    expect(screen.queryByLabelText("Evidence coverage")).toBeNull();
+    expect(screen.getByText("Read-only fixture viewer")).toBeVisible();
+    expect(screen.getByText("Observations are not a security assessment.")).toBeVisible();
+    expect(screen.queryByText(/risk score/i)).toBeNull();
   });
 
   it("keeps NEW, REMOVED, and CHANGED diff records distinct and shows a changed comparison", async () => {

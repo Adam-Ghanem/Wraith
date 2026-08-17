@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Wraith — Evidence workspace</title>
+    <style>
+      :root { color-scheme: dark; font-family: ui-sans-serif, system-ui, sans-serif; }
+      * { box-sizing: border-box; }
+      body { margin: 0; background: #090a0c; color: #f5f7fa; }
+      .showcase { min-height: 100vh; overflow: hidden; padding: 70px clamp(36px, 7vw, 140px) 86px; background-image: linear-gradient(rgba(255,255,255,.07) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.07) 1px, transparent 1px), radial-gradient(circle at 28% 49%, rgba(76,93,225,.22), transparent 23rem), radial-gradient(circle at 78% 48%, rgba(217,77,126,.16), transparent 24rem); background-size: 72px 72px, 72px 72px, auto, auto; }
+      .topline { display: flex; align-items: center; gap: 18px; color: #e9edf5; font-size: 21px; font-weight: 720; }
+      .mark { width: 38px; height: 38px; position: relative; border: 2px solid #e9edf5; border-radius: 8px; }
+      .mark::before, .mark::after { content: ""; position: absolute; background: #e9edf5; }
+      .mark::before { width: 14px; height: 2px; left: -7px; top: 10px; box-shadow: 0 7px 0 #e9edf5, 0 14px 0 #e9edf5; }
+      .mark::after { width: 8px; height: 8px; right: 8px; top: 13px; border-radius: 50%; }
+      .badge { margin-left: 4px; padding: 8px 15px; border-radius: 999px; background: #f5f6f8; color: #171a1f; font-size: 14px; font-weight: 760; letter-spacing: .02em; }
+      .intro { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 40px; max-width: 1280px; margin: 78px auto 42px; }
+      h1 { margin: 0; max-width: 10ch; font-size: clamp(54px, 7.3vw, 126px); line-height: .91; letter-spacing: -.07em; }
+      .intro p { max-width: 430px; margin: 0 0 10px; color: #b6c0cf; font-size: clamp(16px, 1.7vw, 24px); line-height: 1.45; }
+      .product-frame { max-width: 1440px; margin: auto; padding: 10px; border: 1px solid rgba(255,255,255,.18); border-radius: 21px; background: rgba(9,11,14,.82); box-shadow: 0 32px 78px rgba(0,0,0,.55), 0 0 55px rgba(126,95,243,.2); }
+      .product-bar { height: 42px; padding: 0 15px; display: flex; align-items: center; gap: 8px; color: #aeb7c5; font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; }
+      .dot { width: 8px; height: 8px; border-radius: 50%; background: #6dbb9c; box-shadow: 0 0 11px rgba(109,187,156,.7); }
+      .product-bar strong { color: #e9edf5; font-family: ui-sans-serif, system-ui, sans-serif; font-size: 13px; }
+      .product-bar span:last-child { margin-left: auto; }
+      img { display: block; width: 100%; border: 1px solid rgba(255,255,255,.13); border-radius: 12px; }
+      @media (max-width: 760px) { .showcase { padding: 34px 20px 45px; background-size: 44px 44px, 44px 44px, auto, auto; }.topline { gap: 12px; font-size: 17px; }.mark { width: 30px; height: 30px; }.mark::before { transform: scale(.75); transform-origin: left top; }.mark::after { transform: scale(.75); transform-origin: top right; }.badge { padding: 6px 10px; font-size: 11px; }.intro { display: block; margin: 54px 0 28px; }.intro p { margin-top: 20px; font-size: 16px; }.product-frame { padding: 6px; border-radius: 13px; }.product-bar { height: 31px; font-size: 8px; }.product-bar strong { font-size: 10px; } }
+    </style>
+  </head>
+  <body>
+    <main class="showcase">
+      <div class="topline"><span class="mark" aria-hidden="true"></span><span>Wraith</span><span class="badge">Evidence workspace</span></div>
+      <section class="intro"><h1>Evidence, not hype.</h1><p>A factual, fixture-backed workspace for authorized reconnaissance evidence—source state, observation time, and provenance in one calm view.</p></section>
+      <!-- The frame intentionally embeds the real bundled-fixture dashboard render, not a fabricated UI mockup. -->
+      <section class="product-frame"><div class="product-bar"><span class="dot"></span><strong>Wraith / Evidence workspace</strong><span>fixture-backed · read only</span></div><img src="wraith-evidence-workspace.webp" alt="Wraith light evidence workspace rendering bundled fixture data" /></section>
+    </main>
+  </body>
+</html>
