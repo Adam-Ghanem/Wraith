@@ -1,6 +1,9 @@
 package storage
 
-import "sort"
+import (
+	"sort"
+	"strconv"
+)
 
 func DiffDevices(previous, current []DeviceSnapshot) []DeviceChange {
 	before := make(map[string]DeviceSnapshot, len(previous))
@@ -136,4 +139,56 @@ func contentFindingKey(finding ContentFindingSnapshot) string {
 
 func jsFindingKey(finding JSFindingSnapshot) string {
 	return finding.Subdomain + "\x00" + finding.SourceFile + "\x00" + finding.FindingType + "\x00" + finding.Value
+}
+
+func DiffPortFindings(previous, current []PortFindingSnapshot) []PortFindingChange {
+	before := make(map[string]struct{}, len(previous))
+	for _, finding := range previous {
+		before[portFindingKey(finding)] = struct{}{}
+	}
+	changes := make([]PortFindingChange, 0)
+	seen := make(map[string]struct{}, len(current))
+	for _, finding := range current {
+		key := portFindingKey(finding)
+		if _, exists := before[key]; exists {
+			continue
+		}
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		changes = append(changes, PortFindingChange{Kind: ChangeNew, Current: finding})
+	}
+	sort.Slice(changes, func(i, j int) bool { return portFindingKey(changes[i].Current) < portFindingKey(changes[j].Current) })
+	return changes
+}
+
+func DiffVulnFindings(previous, current []VulnFindingSnapshot) []VulnFindingChange {
+	before := make(map[string]struct{}, len(previous))
+	for _, finding := range previous {
+		before[vulnFindingKey(finding)] = struct{}{}
+	}
+	changes := make([]VulnFindingChange, 0)
+	seen := make(map[string]struct{}, len(current))
+	for _, finding := range current {
+		key := vulnFindingKey(finding)
+		if _, exists := before[key]; exists {
+			continue
+		}
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		changes = append(changes, VulnFindingChange{Kind: ChangeNew, Current: finding})
+	}
+	sort.Slice(changes, func(i, j int) bool { return vulnFindingKey(changes[i].Current) < vulnFindingKey(changes[j].Current) })
+	return changes
+}
+
+func portFindingKey(finding PortFindingSnapshot) string {
+	return finding.SubdomainOrIP + "\x00" + strconv.Itoa(finding.Port) + "\x00" + finding.Protocol + "\x00" + finding.Source
+}
+
+func vulnFindingKey(finding VulnFindingSnapshot) string {
+	return finding.Subdomain + "\x00" + finding.TemplateID + "\x00" + finding.MatchedURL
 }

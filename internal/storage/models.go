@@ -116,3 +116,53 @@ type JSFindingChange struct {
 	Kind    ChangeKind        `json:"kind"`
 	Current JSFindingSnapshot `json:"current"`
 }
+
+type PortFindingRecord struct {
+	ID            int64  `json:"id"`
+	ScanID        int64  `json:"scan_id"`
+	SubdomainOrIP string `json:"subdomain_or_ip"`
+	Port          int    `json:"port"`
+	Protocol      string `json:"protocol"`
+	Service       string `json:"service"`
+	Banner        string `json:"banner"`
+	Source        string `json:"source"`
+	DiscoveredAt  string `json:"discovered_at"`
+}
+
+type VulnFindingRecord struct {
+	ID           int64  `json:"id"`
+	ScanID       int64  `json:"scan_id"`
+	Subdomain    string `json:"subdomain"`
+	TemplateID   string `json:"template_id"`
+	Severity     string `json:"severity"`
+	MatchedURL   string `json:"matched_url"`
+	Description  string `json:"description"`
+	DiscoveredAt string `json:"discovered_at"`
+}
+
+type PortFindingSnapshot struct {
+	SubdomainOrIP string `json:"subdomain_or_ip"`
+	Port          int    `json:"port"`
+	Protocol      string `json:"protocol"`
+	Service       string `json:"service"`
+	Banner        string `json:"banner"`
+	Source        string `json:"source"`
+}
+
+type VulnFindingSnapshot struct {
+	Subdomain   string `json:"subdomain"`
+	TemplateID  string `json:"template_id"`
+	Severity    string `json:"severity"`
+	MatchedURL  string `json:"matched_url"`
+	Description string `json:"description"`
+}
+
+type PortFindingChange struct {
+	Kind    ChangeKind          `json:"kind"`
+	Current PortFindingSnapshot `json:"current"`
+}
+
+type VulnFindingChange struct {
+	Kind    ChangeKind          `json:"kind"`
+	Current VulnFindingSnapshot `json:"current"`
+}

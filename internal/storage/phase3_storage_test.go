@@ -14,8 +14,8 @@ func TestPhase3MigrationAndFindingPersistence(t *testing.T) {
 	if err := db.Migrate(context.Background()); err != nil {
 		t.Fatalf("migrate storage: %v", err)
 	}
-	if version := db.CurrentSchemaVersion(context.Background()); version != 2 {
-		t.Fatalf("schema version=%d, want 2", version)
+	if version := db.CurrentSchemaVersion(context.Background()); version != 3 {
+		t.Fatalf("schema version=%d, want 3", version)
 	}
 	scanID, err := db.SaveScanWithFindings(context.Background(), ScanRecord{Target: "example.com", ScanType: "phase3", StartedAt: "2026-08-15T00:00:00Z", CompletedAt: "2026-08-15T00:01:00Z"}, nil, nil, []ContentFindingRecord{{Subdomain: "app.example.com", Path: "/admin", StatusCode: 403, ResponseLength: 12, DiscoveredAt: "2026-08-15T00:00:00Z"}}, []JSFindingRecord{{Subdomain: "app.example.com", SourceFile: "https://app.example.com/app.js", FindingType: "secret", Value: "abcd…mnop", Confidence: "potential", DiscoveredAt: "2026-08-15T00:00:00Z"}})
 	if err != nil {
