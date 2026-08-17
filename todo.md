@@ -1,0 +1,8 @@
+- [x] Create `phase-6-hardening-ci` from current main and inventory version, dependency, release, and documentation state.
+- [x] Add fully pinned GitHub CI checks for Go and the static dashboard, including dependency-review enforcement.
+- [x] Add reproducible release targets, checksum generation, and accurate unsigned-release documentation.
+- [x] Produce a complete dependency and license review with an enforced update check.
+- [x] Update responsible-use, threat-model, support, privilege, and disclosure documentation without fabricating claims.
+- [x] Run local quality gates, validate workflow syntax and scope.
+- [ ] Commit and push Phase 6.
+- [ ] Observe the actual GitHub Actions result and report whether CI ran and passed.
