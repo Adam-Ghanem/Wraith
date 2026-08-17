@@ -251,15 +251,23 @@ func (db *DB) SaveScanWithFindings(ctx context.Context, scan ScanRecord, devices
 	if err := insertDevicesAndSubdomains(ctx, tx, scanID, scan, devices, subdomains); err != nil {
 		return 0, err
 	}
-	for _, finding := range contentFindings {
+	for index := range contentFindings {
+		finding := &contentFindings[index]
 		if finding.DiscoveredAt == "" {
 			finding.DiscoveredAt = scan.CompletedAt
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO content_findings(scan_id, subdomain, path, status_code, response_length, discovered_at) VALUES(?, ?, ?, ?, ?, ?)`, scanID, finding.Subdomain, finding.Path, finding.StatusCode, finding.ResponseLength, finding.DiscoveredAt); err != nil {
+		result, err := tx.ExecContext(ctx, `INSERT INTO content_findings(scan_id, subdomain, path, status_code, response_length, discovered_at) VALUES(?, ?, ?, ?, ?, ?)`, scanID, finding.Subdomain, finding.Path, finding.StatusCode, finding.ResponseLength, finding.DiscoveredAt)
+		if err != nil {
 			return 0, fmt.Errorf("insert content finding: %w", err)
 		}
+		finding.ID, err = result.LastInsertId()
+		if err != nil {
+			return 0, fmt.Errorf("read content finding id: %w", err)
+		}
+		finding.ScanID = scanID
 	}
-	for _, finding := range jsFindings {
+	for index := range jsFindings {
+		finding := &jsFindings[index]
 		if finding.DiscoveredAt == "" {
 			finding.DiscoveredAt = scan.CompletedAt
 		}
@@ -271,9 +279,15 @@ func (db *DB) SaveScanWithFindings(ctx context.Context, scan ScanRecord, devices
 				return 0, errors.New("secret findings must be redacted before persistence")
 			}
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO js_findings(scan_id, subdomain, source_file, finding_type, value, confidence, discovered_at) VALUES(?, ?, ?, ?, ?, ?, ?)`, scanID, finding.Subdomain, finding.SourceFile, finding.FindingType, finding.Value, finding.Confidence, finding.DiscoveredAt); err != nil {
+		result, err := tx.ExecContext(ctx, `INSERT INTO js_findings(scan_id, subdomain, source_file, finding_type, value, confidence, discovered_at) VALUES(?, ?, ?, ?, ?, ?, ?)`, scanID, finding.Subdomain, finding.SourceFile, finding.FindingType, finding.Value, finding.Confidence, finding.DiscoveredAt)
+		if err != nil {
 			return 0, fmt.Errorf("insert JS finding: %w", err)
 		}
+		finding.ID, err = result.LastInsertId()
+		if err != nil {
+			return 0, fmt.Errorf("read JS finding id: %w", err)
+		}
+		finding.ScanID = scanID
 	}
 	if err := tx.Commit(); err != nil {
 		return 0, fmt.Errorf("commit scan: %w", err)
@@ -282,7 +296,8 @@ func (db *DB) SaveScanWithFindings(ctx context.Context, scan ScanRecord, devices
 }
 
 func insertDevicesAndSubdomains(ctx context.Context, tx *sql.Tx, scanID int64, scan ScanRecord, devices []DeviceRecord, subdomains []SubdomainRecord) error {
-	for _, device := range devices {
+	for index := range devices {
+		device := &devices[index]
 		ports := device.OpenPortsJSON
 		if ports == "" {
 			ports = "[]"
@@ -294,11 +309,18 @@ func insertDevicesAndSubdomains(ctx context.Context, tx *sql.Tx, scanID int64, s
 		if lastSeen == "" {
 			lastSeen = scan.CompletedAt
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO devices(scan_id, ip, mac, open_ports, os_guess, confidence, first_seen, last_seen) VALUES(?, ?, ?, ?, ?, ?, ?, ?)`, scanID, device.IP, device.MAC, ports, device.OSGuess, device.Confidence, firstSeen, lastSeen); err != nil {
+		result, err := tx.ExecContext(ctx, `INSERT INTO devices(scan_id, ip, mac, open_ports, os_guess, confidence, first_seen, last_seen) VALUES(?, ?, ?, ?, ?, ?, ?, ?)`, scanID, device.IP, device.MAC, ports, device.OSGuess, device.Confidence, firstSeen, lastSeen)
+		if err != nil {
 			return fmt.Errorf("insert device: %w", err)
 		}
+		device.ID, err = result.LastInsertId()
+		if err != nil {
+			return fmt.Errorf("read device id: %w", err)
+		}
+		device.ScanID = scanID
 	}
-	for _, subdomain := range subdomains {
+	for index := range subdomains {
+		subdomain := &subdomains[index]
 		firstSeen, lastSeen := subdomain.FirstSeen, subdomain.LastSeen
 		if firstSeen == "" {
 			firstSeen = scan.StartedAt
@@ -306,9 +328,15 @@ func insertDevicesAndSubdomains(ctx context.Context, tx *sql.Tx, scanID int64, s
 		if lastSeen == "" {
 			lastSeen = scan.CompletedAt
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO subdomains(scan_id, domain, subdomain, ip, status_code, title, server_header, tech_guess, first_seen, last_seen) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, scanID, subdomain.Domain, subdomain.Subdomain, subdomain.IP, subdomain.StatusCode, subdomain.Title, subdomain.ServerHeader, subdomain.TechGuess, firstSeen, lastSeen); err != nil {
+		result, err := tx.ExecContext(ctx, `INSERT INTO subdomains(scan_id, domain, subdomain, ip, status_code, title, server_header, tech_guess, first_seen, last_seen) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, scanID, subdomain.Domain, subdomain.Subdomain, subdomain.IP, subdomain.StatusCode, subdomain.Title, subdomain.ServerHeader, subdomain.TechGuess, firstSeen, lastSeen)
+		if err != nil {
 			return fmt.Errorf("insert subdomain: %w", err)
 		}
+		subdomain.ID, err = result.LastInsertId()
+		if err != nil {
+			return fmt.Errorf("read subdomain id: %w", err)
+		}
+		subdomain.ScanID = scanID
 	}
 	return nil
 }
