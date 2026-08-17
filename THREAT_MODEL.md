@@ -48,9 +48,9 @@ Each boundary is disabled until separately configured and reviewed.
 
 | Threat | Scenario | Required control before enabling the related subsystem |
 | --- | --- | --- |
-| Scope bypass | A user, redirect, plugin, worker, or discovered value submits a target outside approval. | Central deny-overrides-allow evaluator; immutable scope snapshot; target/redirect/DNS revalidation; no worker override. |
-| SSRF and DNS rebinding | A URL resolves or redirects to private, link-local, metadata, or otherwise unapproved addresses. | One egress gateway with parse/resolve/check/request flow, redirect checks, resolution pinning policy, tests. |
-| Authorization expiry or replay | A schedule or retry uses stale approval after a project/scope changes. | Expiring authorization record, execution-time revalidation, cancellation/revocation, audit event. |
+| Scope bypass | A user, redirect, plugin, worker, or discovered value submits a target outside approval. | **R1:** central deterministic deny-overrides-allow evaluator with immutable SQLite scope versions, project isolation, expiry, revocation, and decision traces. Every future consumer must use it. |
+| SSRF and DNS rebinding | A URL resolves or redirects to private, link-local, metadata, or otherwise unapproved addresses. | **R1 boundary only:** redirect and post-resolution destinations require independent policy decisions. R3 must supply parse/resolve/check/request flow, private/reserved-address policy, resolution pinning, and transport enforcement. |
+| Authorization expiry or replay | A schedule or retry uses stale approval after a project/scope changes. | **R1:** expiring/revocable authorization record is evaluated at decision time. Job-level revalidation, cancellation, and audit events remain deferred until R7. |
 | Tenant data leakage | API query, export, cache, WebSocket event, worker, or report crosses project boundaries. | Object-level authorization at every read/write/event path; project-filtered queries; isolation tests. |
 | Sensitive evidence exposure | Raw fixture/scan result, potential secret, cloud metadata, or report is read by an unauthorized party. | Data classification, redaction, retention, export policy, encryption decision, access logging, incident procedures. |
 | Unsafe external tool execution | Plugin or adapter interpolates shell data, uses arbitrary flags/targets, or exceeds scope. | Argument-array execution, validated parameters, capability declaration, timeout/output/resource caps, scope recheck, test fixtures. |
@@ -79,4 +79,4 @@ This platform evolution excludes destructive exploitation, credential guessing/r
 
 ## Current implementation alignment
 
-The existing Phase 1–6 controls already demonstrate several desired patterns: explicit scope validation for local discovery, `--authorized` gates, bounded collection, optional-tool flags, redacted potential-secret persistence, local-first SQLite evidence, fixture-only dashboard rendering, pinned CI actions, and documented non-guarantees. The next implementation must extend those controls rather than treating the full-spectrum roadmap as permission to remove them.
+The existing Phase 1–6 controls already demonstrate several desired patterns: explicit scope validation for local discovery, `--authorized` gates, bounded collection, optional-tool flags, redacted potential-secret persistence, local-first SQLite evidence, fixture-only dashboard rendering, pinned CI actions, and documented non-guarantees. R1 now adds a policy evaluator and SQLite-backed immutable project scope records, but it does not change Phase 1–6 scanner semantics or yet enforce a shared transport gateway. The next implementation must extend those controls rather than treating the full-spectrum roadmap as permission to remove them.

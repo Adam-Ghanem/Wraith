@@ -1,14 +1,15 @@
 # Wraith Architecture Audit
 
-**Audit status:** Baseline assessment of the repository as of the Phase 1–6 implementation. This document describes **what is implemented today** and a modular evolution path; it does not claim that proposed subsystems already exist.
+**Audit status:** Baseline assessment of the Phase 1–6 implementation, with an R1 Policy Core addendum on `feature/r1-policy-core`. This document distinguishes implemented boundary contracts from later proposed subsystems.
 
 ## Executive architecture summary
 
-Wraith is currently a **local-first Go CLI with an embedded SQLite evidence store and a static React fixture viewer**. Its implemented focus is bounded, operator-authorized reconnaissance evidence rather than a hosted multi-user platform. The current architecture has a useful separation between local discovery, web collection, parsing, persistence, optional subprocess wrappers, and presentation. It does not currently provide a REST API, authentication, tenant isolation, scheduler, queue, worker fleet, remote dashboard backend, PostgreSQL, Redis, plugins, cloud connectors, reporting service, or an AI subsystem.
+Wraith is currently a **local-first Go CLI with an embedded SQLite evidence store, a static React fixture viewer, and an R1 policy package**. Its implemented focus is bounded, operator-authorized reconnaissance evidence rather than a hosted multi-user platform. R1 adds a non-networking, fail-closed policy decision boundary but does not wire existing collectors through it. The architecture still does not provide a REST API, authentication, tenant isolation, scheduler, queue, worker fleet, remote dashboard backend, PostgreSQL, Redis, plugins, cloud connectors, reporting service, or an AI subsystem.
 
 | Layer | Current implementation | Important boundary |
 | --- | --- | --- |
 | CLI | `discover`, `scan`, `history`, `export-fixtures`, and `version` dispatch through `internal/cli`. | Active workflows require operator-supplied authorization flags; no remote API command surface exists. |
+| Policy | `internal/policy` evaluates immutable project scope versions with target normalization, allow/deny rules, expiry/revocation, and decision traces. | The evaluator has no network I/O. Existing collectors have not yet been migrated to it; that transport work remains R3. |
 | Local discovery | Linux-first interface/CIDR validation, bounded ARP candidates, curated TCP checks, and limited metadata. | Phase 1 rejects public CIDRs and requires an explicit selected local IPv4 boundary. |
 | Domain/web collection | Certificate-transparency/DNS enumeration, bounded HTTP probing, content discovery, and JavaScript analysis. | Existing policy requires an explicitly authorized domain/origin and treats output-derived targets as untrusted. |
 | Optional enrichment | Nmap and Nuclei wrappers. | Both are opt-in, optional external binaries; they do not become enabled by discovery output. |
@@ -24,8 +25,9 @@ cmd/wraith
   └── process entry point
 
 internal/
-  ├── cli                command parsing, orchestration, terminal/JSON contracts
-  ├── config             local IPv4 scope validation and limits
+	├── cli                command parsing, orchestration, terminal/JSON contracts
+	├── config             local IPv4 scope validation and limits
+	├── policy             R1 target normalization, scope evaluation, and outbound authorization seam
   ├── discovery          Linux ARP/interface behavior
   ├── ports, probe       bounded TCP and HTTP probing
   ├── enum               certificate/DNS and optional VirusTotal enumeration
@@ -115,8 +117,8 @@ Wraith application boundary
 
 | Contract | Why it is needed | Must be true before an implementation is enabled |
 | --- | --- | --- |
-| `ScopeEvaluator` | Replaces scalar authorization flags with evaluated project/domain/CIDR/URL/port policy. | Deny-overrides-allow behavior, redirect/DNS/IP validation, decision trace, and exhaustive tests exist. |
-| `TargetGateway` | Centralizes every outbound network request. | URL parsing, DNS rebinding defense, private/reserved-address policy, redirect revalidation, rate limits, and budgets are enforced in one path. |
+| `PolicyEvaluator` | Replaces a future scalar authorization gate with evaluated project/domain/CIDR/URL/port policy. | **R1 implemented:** deterministic deny-overrides-allow logic, expiry/revocation, decision trace, SQLite scope version persistence, and parser/security tests exist. Existing scanners still preserve their original behavior. |
+| `OutboundTargetGateway` | Centralizes every future outbound network request. | **R1 seam implemented:** redirect and resolved destinations must be independently authorized. DNS rebinding defense, private/reserved-address policy, redirect transport revalidation, rate limits, and budgets remain R3 work. |
 | `Observation` | Normalizes raw collection facts without converting them into conclusions. | Every observation includes stable subject identity, source, observed time, run ID, evidence payload bounds, and retention classification. |
 | `Finding` | Represents an analyst-visible conclusion separately from raw observation. | Severity, confidence, rule/source version, evidence reference, and lifecycle semantics are explicit; version strings alone cannot become confirmed vulnerabilities. |
 | `Job` | Makes later scheduling/worker execution cancellable and auditable. | Immutable scope snapshot, authorization record, resource budget, requester identity, status, cancellation, and idempotency contract exist. |
@@ -129,7 +131,7 @@ The next data model should add normalized, project-scoped entities while preserv
 | Needed entity | Intended role | Not implemented today |
 | --- | --- | --- |
 | Organization and project | Ownership, data-isolation, and authorization boundary. | Yes |
-| Scope rule and scope version | Allow/deny policy with immutable evaluation context. | Yes |
+| Scope rule and scope version | Allow/deny policy with immutable evaluation context. | **R1:** SQLite-backed project scope versions, active version pointer, rule validation, and authorization lifecycle. Organization-level ownership remains deferred. |
 | Asset and asset identity | Deduplicated Domain, Subdomain, IP, Host, URL, Port, Service, Certificate, Technology, and Application records. | Yes |
 | Asset observation | Time-bounded source record linked to an asset and run. | Partially represented only as scan-specific rows. |
 | Finding and finding observation | Evidence-backed security-relevant record with confidence and lifecycle. | Current Nuclei rows are observations, not a general finding lifecycle. |

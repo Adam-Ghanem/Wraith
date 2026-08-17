@@ -7,3 +7,4 @@
 - [x] Commit and push Phase 6.
 - [x] Complete GitHub authorization with `workflow` scope and push the branch.
 - [x] Observe the actual GitHub Actions result and report whether CI ran and passed (run 32073773616 on commit 92773ff passed).
+- [x] Implement R1 Policy Core: project-scoped, deterministic, fail-closed authorization with normalization, deny precedence, expiry/revocation, SQLite persistence, outbound gateway seam, and security test coverage; no scanner changes.

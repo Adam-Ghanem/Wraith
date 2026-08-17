@@ -1,6 +1,6 @@
 # Wraith Full-Spectrum Platform Roadmap
 
-**Status:** Proposed incremental roadmap based on the repository audit. It is deliberately staged so the project does not convert from a bounded local tool into an unsafe scanner fleet through a single rewrite.
+**Status:** Proposed incremental roadmap based on the repository audit. R1 Policy Core is implemented on `feature/r1-policy-core` and remains unmerged at the time of this update. The roadmap deliberately prevents a bounded local tool from becoming an unsafe scanner fleet through a single rewrite.
 
 ## Product direction
 
@@ -21,7 +21,7 @@ Every future stage must preserve these non-negotiable rules:
 | Stage | Outcome | Adds active network behavior? | Exit criteria |
 | --- | --- | ---: | --- |
 | R0 — Audit baseline | Architecture, technical debt, roadmap, and platform threat model. | No | The present documents are reviewed and accepted. |
-| R1 — Policy core | Versioned project scope, allow/deny rules, authorization records, and deterministic target evaluator. | No | Domain/CIDR/URL/port matching, redirects, DNS, IPv6, SSRF cases, expiry, and deny precedence have high-confidence tests. |
+| R1 — Policy core | Versioned project scope, allow/deny rules, authorization records, and deterministic target evaluator. | No | **Implemented on feature branch:** domain/CIDR/URL/port matching, normalized targets, expiry, revocation, project isolation, deny precedence, redirect/post-resolution design tests, fuzzing, and SQLite persistence. Existing scanners remain unchanged. |
 | R2 — Evidence model | Unified asset identity, observations, provenance, normalized findings, and migration/import plan. | No | SQLite migrations preserve existing evidence; no risk or vulnerability claim is fabricated. |
 | R3 — Egress gateway | Central outbound DNS/HTTP/TLS validation, budget policy, and source/provider interface. | Not beyond existing paths | Every existing web path moves through the gateway and tests prove blocked redirects/private targets cannot bypass policy. |
 | R4 — Safe intelligence expansion | Passive DNS/certificate/TLS/API-documentation/fingerprint collection through approved providers. | Only separately approved bounded collection | Each provider has terms review, data-classification, cache/rate policy, fixtures, and source-error output. |
@@ -33,7 +33,7 @@ Every future stage must preserve these non-negotiable rules:
 
 ## First approved implementation slice: R1
 
-The next code change should be **R1 — Policy core**, not a REST API, crawler, scheduler, PostgreSQL migration, worker queue, or generic plugin system. R1 is intentionally non-scanning. It should introduce:
+The next code change after audit was **R1 — Policy core**, not a REST API, crawler, scheduler, PostgreSQL migration, worker queue, or generic plugin system. R1 remains intentionally non-scanning. It introduced:
 
 | Deliverable | Required behavior |
 | --- | --- |
@@ -43,6 +43,8 @@ The next code change should be **R1 — Policy core**, not a REST API, crawler, 
 | Target normalization | Canonicalizes user input without using output to infer new scope. |
 | Test corpus | Wildcards, suffix confusion, punycode/normalization, IPv4/IPv6, CIDR boundaries, port cases, URL parsing, redirects, DNS-rebinding fixtures, and expired/revoked authorization records. |
 | Compatibility boundary | Existing Phase 1–4 commands preserve their documented behavior until a reviewed migration adopts the new policy core. |
+
+R1 does not mark the egress boundary complete: transport-level DNS validation, resolution pinning, private/reserved-address policy, redirect handling, request budgets, and migration of existing collectors remain **R3** work. R2 remains the recommended next implementation slice because an asset/observation model can be added without expanding active network behavior.
 
 ## Deferred module plans
 
