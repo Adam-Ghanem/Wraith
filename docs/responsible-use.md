@@ -1,110 +1,133 @@
 # Wraith Responsible Use Policy
 
-**Status:** Frozen for Phase 1
+**Status:** Active for the implemented Phase 1–5 feature set; review this policy before every run.
 
 **Document owner:** Wraith project
 
-**Applies to:** Wraith Phase 1 local-network discovery
+**Applies to:** Wraith Phase 1 local-network discovery; Phases 2–4 authorized domain and web-surface workflows; and Phase 5 local export-fixture and static-dashboard workflows.
 
 **Normative terms:** The terms **MUST**, **MUST NOT**, **SHOULD**, and **MAY** state requirements for authorized use and implementation. **MUST NOT** is an absolute prohibition.
 
 ## 1. Policy statement
 
-Wraith Phase 1 is a narrowly bounded tool for authorized, local IPv4 network inventory. It is designed to help an operator identify reachable devices and expose limited service metadata on a specifically selected local interface and CIDR. It is not a general reconnaissance platform, vulnerability scanner, exploitation tool, credential-testing tool, or internet-scanning service.
+Wraith is an authorization-bound asset inventory and reconnaissance support tool. Phase 1 is narrowly bounded local IPv4 discovery. Phases 2–4 add authorized domain, HTTP/content, JavaScript, and optional subprocess enrichment workflows. Phase 5 adds a local export fixture and a static dashboard. Wraith is not an exploitation tool, credential-testing tool, internet-wide scanning service, security guarantee, or an unattended scanning platform.
 
-Use of Wraith is permitted only when every target is owned by the operator or is covered by explicit, current authorization from the owner. Local network visibility, technical reachability, employment access, Wi-Fi access, or possession of an IP address does not by itself establish authorization to discover or probe a target.
+Use of Wraith is permitted only when every target, domain, network, web origin, fixture, and output recipient is owned by the operator or covered by explicit, current authorization from the owner. Local network visibility, technical reachability, employment access, Wi-Fi access, possession of an IP address, a public hostname, a DNS record, a browser response, or a search result does not by itself establish authorization.
 
-The operator is responsible for confirming permission, selecting the correct local interface and CIDR, staying within the frozen Phase 1 boundary, protecting output, and stopping the run if scope or authorization becomes uncertain.
+The operator is responsible for confirming permission, selecting the correct scope, protecting output, using only features that the authorization covers, and stopping the run if scope or authorization becomes uncertain.
 
 ## 2. Authorized-use requirement
 
-Before each run, the operator MUST have a reasonable, documented basis to conclude that the selected local IPv4 network and all targets within the intended scope are authorized for bounded ARP discovery, TCP connect checks on the curated top-100 TCP list, and limited read-only service metadata collection.
-
-Authorization SHOULD identify the owner or responsible organization, the network or CIDR covered, the systems or target population covered, the permitted activity, the start and end of the authorization period, and any operational restrictions such as maintenance windows, rate limits, or excluded hosts. If the authorization is narrower than the selected CIDR, the operator MUST reduce the target scope or refrain from running Wraith.
+Before each run, the operator **MUST** have a reasonable, documented basis to conclude that the intended targets and planned activity are authorized. The authorization should identify the owner or responsible organization, the network/CIDR and/or domain scope, the systems or target population, the permitted activities, the authorization period, and operational restrictions such as maintenance windows, rate limits, authentication boundaries, excluded paths, tooling restrictions, and output handling.
 
 | Authorization condition | Required action |
 | --- | --- |
-| The operator owns or administers the entire selected network and the activity is permitted by applicable policy | The operator may proceed, subject to all Phase 1 limits. |
-| A third party owns some or all of the selected network | Obtain explicit authorization covering the intended discovery and probing before proceeding. |
-| Authorization excludes discovery, service probing, particular hosts, or the selected time | Do not run against the excluded scope; narrow the run or do not proceed. |
+| The operator owns or administers the complete intended scope and the activity is permitted by applicable policy | The operator may proceed only within the documented phase-specific controls. |
+| A third party owns any intended target, domain, origin, tenant, network, or application | Obtain explicit authorization covering each planned Wraith activity before proceeding. |
+| Authorization excludes discovery, probing, content access, JavaScript analysis, Nmap, Nuclei, particular hosts, paths, time periods, or output recipients | Do not perform the excluded activity. Narrow the run or do not proceed. |
 | Authorization is expired, ambiguous, verbal without a reliable record, or unavailable | Treat authorization as unconfirmed and fail closed. |
-| The selected CIDR contains unknown, guest, shared, or third-party systems | Do not scan those systems unless the authorization expressly covers them. |
+| A discovered target, redirect, hostname, virtual host, IP address, or web page falls outside the documented scope | Do not follow, scan, crawl, or enrich it. Record the omission where appropriate. |
 
-Wraith MUST NOT be used to test whether a network owner notices scanning, to discover systems for later unauthorized access, or to create evidence of “permission” from the fact that packets received a response.
+Wraith **MUST NOT** be used to test whether an owner notices scanning, to discover systems for later unauthorized access, or to create evidence of permission from the fact that a packet, DNS record, HTTP response, or banner was received.
 
-## 3. Permitted Phase 1 activity
+## 3. Phase-specific permitted activity
 
-Authorized operation is limited to one explicitly selected local IPv4 interface and its explicitly selected local IPv4 CIDR. Within that boundary, the operator may perform bounded ARP discovery, followed by bounded TCP connect checks against the versioned curated top-100 TCP port list. The operator may collect limited read-only service metadata when it is exposed through a conservative, bounded interaction that does not require credentials or change state.
-
-Results may be rendered to the terminal and serialized as JSON for local, authorized use. Output should identify the selected interface and CIDR, the scope and port-list versions, timestamps, observed outcomes, errors, omissions, and testing limitations so that a reader cannot mistake the result for an unrestricted or complete security assessment.
+| Phase | Permitted activity when expressly authorized | Additional boundary |
+| --- | --- | --- |
+| 1 | One explicitly selected local IPv4 interface and explicitly selected local IPv4 CIDR; bounded ARP discovery; TCP connect checks on the curated top-100 TCP list; limited read-only service metadata. | No public IP, external network, arbitrary port, credential, state-changing, or unbounded activity. |
+| 2 | Authorized domain-subdomain enumeration, DNS resolution, and bounded HTTP probing, with local storage and history comparison. | The operator must authorize the domain and any reachable in-scope targets; Wraith must not turn response data into a license to expand scope. |
+| 3 | Authorized bounded content-path discovery and JavaScript analysis associated with the approved web scope. | Access only the approved web scope and treat returned content, scripts, endpoints, URLs, and possible secrets as sensitive untrusted data. |
+| 4 | Optional Nmap and/or Nuclei enrichment through explicitly selected flags and separately authorized subprocess use. | Neither binary is required or implicitly enabled. The operator must approve each tool, its own configuration, and its network effects. |
+| 5 | Export of authorized local findings into local fixtures and offline use of the static React dashboard. | The dashboard has no backend or remote network API; fixture data must stay within the authorized audience. |
 
 ## 4. Prohibited use
 
-The following uses are prohibited under this policy, even when an operator can technically reach the target:
+The following uses are prohibited, even when an operator can technically reach the target.
 
 | Prohibited use | Explanation |
 | --- | --- |
-| Public-target or internet scanning | Do not scan public IP addresses, internet hosts, externally routed ranges, cloud-wide ranges, or any network outside the selected local IPv4 CIDR. |
-| Unauthorized discovery | Do not scan networks, hosts, tenants, guests, neighbors, customers, or third parties without explicit authorization. |
-| Exploitation or attack enablement | Do not use Wraith to deliver exploits, execute commands, alter state, gain persistence, evade detection, or prepare an unauthorized intrusion. |
-| Credential testing | Do not guess, spray, reuse, validate, or test passwords, keys, tokens, default credentials, or other authentication material. |
-| Nmap or Nuclei operation | Do not invoke, wrap, embed, or substitute Nmap or Nuclei within a Phase 1 run. |
-| Web reconnaissance | Do not crawl websites, enumerate URLs, directories, endpoints, forms, or web content. |
-| Vulnerability correlation | Do not turn Phase 1 output into CVE matches, exploitability conclusions, risk scores, or remediation claims. |
-| Unbounded probing | Do not replace the curated top-100 TCP list, bounded ARP process, or read-only metadata rules with arbitrary ports, protocols, retries, rates, or payloads. |
-| Data exfiltration or enrichment | Do not send results to external APIs, cloud services, telemetry systems, remote databases, or third-party enrichment services. |
-| Persistence and unattended execution | Do not use Phase 1 for scheduled scans, daemons, background jobs, event-triggered scans, or other unattended activity. |
-| Privacy-invasive collection | Do not seek sensitive content, credentials, personal records, protected resources, or data beyond the limited service metadata expressly permitted. |
+| Unauthorized discovery, probing, crawling, or enrichment | Do not scan networks, hosts, tenants, guest systems, domains, web paths, customers, neighbors, or third parties without explicit authorization. |
+| Internet-wide, public-target, or cloud-range scanning | Do not use Wraith to enumerate or probe public ranges, arbitrary domains, cloud-wide ranges, externally routed networks, or unapproved tenants. |
+| Exploitation or attack enablement | Do not deliver exploits, execute commands, alter state, gain persistence, evade detection, or prepare an unauthorized intrusion. |
+| Credential testing | Do not guess, spray, reuse, validate, or test passwords, keys, tokens, default credentials, sessions, or other authentication material. |
+| Scope expansion through discovery output | Do not follow an unapproved redirect, DNS result, JavaScript endpoint, discovered virtual host, page link, Nmap target, or Nuclei result into a new target scope. |
+| Sensitive-content collection or disclosure | Do not intentionally collect, publish, sell, or share credentials, private records, protected resources, or sensitive scan output outside the approved audience. |
+| Misrepresenting output | Do not label partial observations as a penetration test, vulnerability assessment, compliance certification, clean bill of health, or proof of exploitability. |
+| Unattended or externally integrated operation | Do not use Wraith as a scheduler, daemon, event-triggered scanner, remote API, telemetry service, output-export service, or a vehicle for unreviewed third-party data sources. Existing Phase 2 enumeration sources remain subject to their documented authorization and data-handling limits. |
 
 The exclusions are functional boundaries, not suggestions. A wrapper, plugin, shell command, remote service, or operator workflow that causes a prohibited activity remains prohibited even if the activity is not implemented inside Wraith itself.
 
 ## 5. Fail-closed operator rules
 
-The operator MUST stop before network activity when the selected interface, local IPv4 address, CIDR, target authorization, port-list version, or resource limits are missing, invalid, ambiguous, or inconsistent. The operator MUST NOT “try a nearby range,” use a default interface without confirming it, follow a route outside the CIDR, or continue after a boundary violation.
+The operator **MUST** stop before network activity when the selected interface, local IPv4 address, CIDR, domain scope, target authorization, tool authorization, resource limits, or output destination is missing, invalid, ambiguous, or inconsistent. The operator **MUST NOT** try a nearby range, use a default interface without confirming it, follow a route or redirect outside scope, infer permission from public availability, or continue after a boundary violation.
 
-The operator MUST treat hostnames, redirects, banners, service responses, imported target lists, and configuration values as untrusted data. They MUST NOT allow network-provided text to redefine the target boundary, activate a new protocol, add ports, invoke another tool, or create authorization. If an encountered target cannot be confirmed as within the selected authorized CIDR, the operator MUST omit it and report the reason.
+The operator **MUST** treat hostnames, redirects, banners, service responses, imported target lists, JavaScript, configuration values, and tool output as untrusted data. They **MUST NOT** allow network-provided text to redefine the target boundary, activate a new protocol, add ports, invoke another tool, or create authorization. If an encountered target cannot be confirmed as in scope, the operator **MUST** omit it and report the reason.
 
-If Wraith reports a fail-closed condition, an incomplete run, an authorization problem, an output failure, or an unsupported test limitation, the operator MUST preserve that status in any subsequent communication. They MUST NOT relabel incomplete observations as a clean result or imply that untested hosts and ports were verified.
+If Wraith reports a fail-closed condition, incomplete run, authorization problem, output failure, optional-tool skip, or unsupported test limitation, the operator **MUST** preserve that status in subsequent communication. They **MUST NOT** relabel incomplete observations as a clean result or imply that untested hosts, ports, paths, sources, or vulnerabilities were verified.
 
-## 6. Safe operating practices
+## 6. Phase-specific safeguards
 
-Authorized operators SHOULD perform runs during an approved maintenance or testing window, coordinate with the network owner, and use the least aggressive settings that satisfy the inventory purpose. They SHOULD avoid sensitive or operationally fragile environments unless the owner has expressly approved the activity and its limits. They SHOULD monitor for unexpected impact and stop immediately if the activity causes instability, alarms, service degradation, or other harm.
+### Phase 1 — local discovery
 
-The operator SHOULD keep a record of the authorization, selected interface and CIDR, run time, Wraith version, scope version, curated port-list version, and any deviations or failures. They SHOULD store JSON and terminal results according to the owner’s data-handling requirements and restrict access because service metadata may reveal operational details.
+The operator must explicitly select the local interface and IPv4 CIDR, ensure both match the authorization, and limit activity to bounded ARP, the curated top-100 TCP list, and conservative read-only metadata. A capability or permission error for ARP is a stop-and-remediate signal, not permission to bypass operating-system controls.
 
-Wraith output MUST be treated as potentially sensitive operational information. Operators MUST NOT publish, sell, or share results outside the authorized audience without the owner’s permission. They MUST redact or securely delete results when the authorization or retention period requires it.
+### Phase 2 — domain and HTTP workflow
 
-## 7. Interpretation of results
+Subdomain enumeration, DNS resolution, and HTTP probing can reveal third-party hosting, shared infrastructure, takeover candidates, redirects, or unrelated destinations. The operator must define the allowed domain and web-origin scope before running, avoid SSRF-like pivoting through supplied URLs or redirects, and not treat a resolved IP or external response as an authorized target by default. Storage output may contain operationally sensitive names, headers, and timestamps and must be protected accordingly.
 
-Wraith observations are limited and may be incomplete. An ARP non-response does not prove that a host is absent; a TCP timeout or filtered result does not prove that a service is absent; and a successful connection or banner does not prove that a service is secure, authorized, current, or vulnerable. A Phase 1 run MUST NOT be represented as a penetration test, vulnerability assessment, compliance certification, or assurance that a network is safe.
+### Phase 3 — content discovery and JavaScript analysis
 
-The operator MUST communicate material limitations, including VLAN or routing boundaries, wireless isolation, host firewalls, proxy ARP, sleeping systems, rate limiting, transient connectivity, incomplete port coverage, metadata truncation, and any fail-closed omissions. When a security conclusion is needed, the owner should use a separately authorized assessment process designed for that purpose.
+Content discovery and JavaScript analysis must remain bounded to approved origins and paths. Wraith output can surface strings that resemble credentials, tokens, internal URLs, or implementation details. Such output is a detection signal, not a guarantee that the value is real, active, exploitable, or safe to disclose. Operators must redact, minimize, securely store, and report possible secrets through the owner's approved handling process; they must not validate them by attempting authentication or reuse.
 
-## 8. Incident and unexpected-impact response
+### Phase 4 — optional Nmap and Nuclei enrichment
 
-If the operator discovers that a target was not authorized, the selected interface or CIDR was wrong, or the run exceeded the approved boundary, they MUST stop the run immediately, preserve relevant logs and authorization records, notify the appropriate owner or security contact, and follow the organization’s incident and disclosure procedures. They MUST NOT continue scanning to gather more evidence, attempt remediation through Wraith, or conceal the scope error.
+`--use-nmap` and `--use-nuclei` are opt-in subprocess actions. Before using either, the operator must have explicit authorization for that specific tool and its effect, confirm the executable and version being invoked, understand tool-specific flags/templates, and observe applicable rate, scheduling, and privilege limits. The absence, skip, or failure of either optional binary does not establish that a target is clean or that no vulnerability exists.
 
-If the activity appears to cause service disruption or other harm, the operator MUST stop the activity, notify the affected owner through the agreed channel, and document the observed time, scope, settings, and impact. Any later investigation or validation MUST be separately authorized and must not assume that Phase 1 permissions extend to new actions.
+### Phase 5 — export fixtures and static dashboard
 
-## 9. Governance and scope changes
+The export-fixtures command and dashboard are local, read-only presentation workflows, not an authorization bypass. Operators must export only data they may handle, use fixtures from authorized local scans, retain data only as allowed, and ensure the static dashboard is not served or shared with an unapproved audience. The dashboard does not contact a remote service, scan targets, authenticate users, or validate the truth of fixture contents.
 
-This policy is part of the frozen Phase 1 boundary. Any proposal to add public-target scanning, exploitation, credential testing, Nmap, Nuclei, web reconnaissance, vulnerability correlation, a database, a dashboard, scheduling, external APIs, additional protocols, broader address families, or unattended execution requires a separately reviewed phase and an explicit policy update.
+## 7. Safe operating practices
 
-No operator, configuration file, wrapper, test fixture, or deployment environment may silently broaden Phase 1. When a requirement is unclear, the correct policy decision is to pause and seek written clarification or authorization rather than infer permission.
+Authorized operators should perform runs during an approved maintenance or testing window, coordinate with the asset owner, and use the least aggressive settings that satisfy the stated inventory purpose. They should avoid sensitive or operationally fragile environments unless the owner expressly approves the activity and limits. They should monitor for unexpected impact and stop immediately if the activity causes instability, alarms, service degradation, or other harm.
 
-## 10. Operator checklist
+The operator should keep a record of the authorization, selected scope, Wraith version, phase/feature flags, source and tool versions, run time, scope version, port-list version, input provenance, output recipient, and any deviations or failures. They should store terminal results, JSON, databases, and fixtures according to the owner's data-handling requirements and restrict access because they may reveal operational details.
 
-Before starting, the operator MUST be able to answer “yes” to all of the following:
+## 8. What Wraith output does not prove
 
-- I own the targets or have explicit, current authorization covering the selected network and the planned Phase 1 activity.
-- I have explicitly selected the correct local IPv4 interface and CIDR, and I have verified that they match the authorization.
-- The run will remain within that CIDR and will use only bounded ARP, TCP connect checks on the curated top-100 list, and limited read-only service metadata.
-- I will not use public-target scanning, exploitation, credential testing, Nmap, Nuclei, web reconnaissance, vulnerability correlation, a database, a dashboard, scheduling, or external APIs.
-- I understand that the results are partial observations, not a vulnerability assessment or security guarantee.
-- I know how to stop the run and who to contact if authorization, scope, or service impact becomes uncertain.
+| Phase | Output does **not** prove |
+| --- | --- |
+| 1 | That a non-responsive host is absent; that a timeout proves a service is absent; that a successful connection/banner means a service is secure, authorized, current, or vulnerable; or that the network is safe. |
+| 2 | That all subdomains were found; that DNS/HTTP reachability establishes ownership or authorization; that a historical change is malicious; or that all assets and technologies are complete. |
+| 3 | That all paths or scripts were discovered; that a string is a valid secret; that a discovered endpoint is authorized to assess; or that content findings establish vulnerability or exploitability. |
+| 4 | That Nmap/Nuclei output is comprehensive, accurate, exploitable, or a substitute for an authorized vulnerability assessment; that an optional-tool skip or error means no issue exists. |
+| 5 | That fixture data is current, complete, authentic, secure to share, or a complete representation of a target's attack surface. |
+
+## 9. Incident and unexpected-impact response
+
+If the operator discovers that a target was not authorized, the selected scope was wrong, a redirect/pivot left scope, or the run exceeded approval, they **MUST** stop immediately, preserve relevant logs and authorization records, notify the appropriate owner or security contact, and follow the organization's incident and disclosure process. They **MUST NOT** continue scanning to gather more evidence, attempt remediation through Wraith, or conceal the scope error.
+
+If activity appears to cause service disruption or other harm, the operator **MUST** stop, notify the affected owner through the agreed channel, and document observed time, scope, settings, optional tools, and impact. Any later investigation or validation **MUST** be separately authorized and must not assume that an earlier Wraith permission extends to new actions.
+
+## 10. Governance and scope changes
+
+Any proposal to add exploitation, credential testing, remote APIs, external data exfiltration, new external data sources, unattended execution, scheduling, scanner fleets, public-target scanning, automated authorization inference, or broader scanning capability requires separate review and an explicit policy update. No operator, configuration file, wrapper, test fixture, deployment environment, or Phase 5 dashboard may silently broaden the approved scope. When a requirement is unclear, pause and seek written clarification or authorization rather than infer permission.
+
+## 11. Operator checklist
+
+Before starting, the operator must be able to answer “yes” to all of the following.
+
+| Check | Required answer |
+| --- | --- |
+| I own the targets or have explicit, current authorization for the exact planned phase and feature flags. | Yes |
+| I have verified the selected interface/CIDR or domain/origin/path scope matches that authorization. | Yes |
+| I have separately approved optional Nmap/Nuclei use, if I intend to select either flag. | Yes or not applicable |
+| I will not follow output-derived scope expansion, test credentials, exploit, or expose sensitive data. | Yes |
+| I understand that results are incomplete observations rather than an assurance or vulnerability finding. | Yes |
+| I know how to stop the run and whom to contact if scope, authorization, or service impact becomes uncertain. | Yes |
 
 If any answer is “no” or “not sure,” do not run Wraith.
 
 ## References
 
-This is an internal Wraith responsible-use policy. It intentionally relies on no external factual source; the authorization and operating requirements are defined above.
+This is the project's normative responsible-use policy. It intentionally relies on no external factual authority. Tool and privilege behavior is documented in [`support-matrix.md`](support-matrix.md); release and disclosure process limits are documented in [`release-process.md`](release-process.md) and [`SECURITY.md`](../SECURITY.md).
