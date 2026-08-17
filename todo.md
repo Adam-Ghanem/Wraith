@@ -4,5 +4,6 @@
 - [x] Produce a complete dependency and license review with an enforced update check.
 - [x] Update responsible-use, threat-model, support, privilege, and disclosure documentation without fabricating claims.
 - [x] Run local quality gates, validate workflow syntax and scope.
-- [ ] Commit and push Phase 6.
+- [x] Commit and push Phase 6.
+- [x] Complete GitHub authorization with `workflow` scope and push the branch.
 - [ ] Observe the actual GitHub Actions result and report whether CI ran and passed.
