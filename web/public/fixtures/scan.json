@@ -1,0 +1,70 @@
+{
+  "scan_id": 42,
+  "target": "example.test",
+  "subdomains": [
+    {
+      "id": 1001,
+      "scan_id": 42,
+      "domain": "example.test",
+      "subdomain": "app.example.test",
+      "ip": "198.51.100.24",
+      "status_code": 200,
+      "title": "Example application",
+      "server_header": "nginx",
+      "tech_guess": "unknown",
+      "first_seen": "2026-08-17T10:00:00Z",
+      "last_seen": "2026-08-17T10:00:01Z"
+    }
+  ],
+  "content_findings": [
+    {
+      "id": 1101,
+      "scan_id": 42,
+      "subdomain": "app.example.test",
+      "path": "/robots.txt",
+      "status_code": 200,
+      "response_length": 98,
+      "discovered_at": "2026-08-17T10:00:02Z"
+    }
+  ],
+  "js_findings": [
+    {
+      "id": 1201,
+      "scan_id": 42,
+      "subdomain": "app.example.test",
+      "source_file": "https://app.example.test/assets/app.js",
+      "finding_type": "secret",
+      "value": "abcd…wxyz",
+      "confidence": "potential",
+      "discovered_at": "2026-08-17T10:00:03Z"
+    }
+  ],
+  "port_findings": [
+    {
+      "id": 1301,
+      "scan_id": 42,
+      "subdomain_or_ip": "198.51.100.24",
+      "port": 443,
+      "protocol": "tcp",
+      "service": "https",
+      "banner": "",
+      "source": "nmap",
+      "discovered_at": "2026-08-17T10:00:04Z"
+    }
+  ],
+  "vuln_findings": [
+    {
+      "id": 1401,
+      "scan_id": 42,
+      "subdomain": "app.example.test",
+      "template_id": "example-template",
+      "severity": "unknown",
+      "matched_url": "https://app.example.test/",
+      "description": "Template match only; not validated.",
+      "discovered_at": "2026-08-17T10:00:05Z"
+    }
+  ],
+  "source_errors": [
+    "crt: temporary source failure (sanitized sample)"
+  ]
+}

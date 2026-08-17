@@ -28,6 +28,8 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 			return runScan(ctx, args, stdout, stderr)
 		case "history":
 			return runHistory(ctx, args, stdout, stderr)
+		case "export-fixtures":
+			return runExportFixtures(ctx, args, stdout, stderr)
 		}
 	}
 	return runDiscover(ctx, args, stdout, stderr)
