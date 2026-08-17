@@ -17,7 +17,7 @@ import (
 //go:embed migrations/*.sql
 var migrationFS embed.FS
 
-const CurrentSchemaVersion = 2
+const CurrentSchemaVersion = 3
 
 var ErrInvalidMigration = errors.New("invalid storage migration")
 
@@ -232,6 +232,10 @@ func (db *DB) CurrentSchemaVersion(ctx context.Context) int {
 }
 
 func (db *DB) SaveScanWithFindings(ctx context.Context, scan ScanRecord, devices []DeviceRecord, subdomains []SubdomainRecord, contentFindings []ContentFindingRecord, jsFindings []JSFindingRecord) (int64, error) {
+	return db.SaveScanWithAllFindings(ctx, scan, devices, subdomains, contentFindings, jsFindings, nil, nil)
+}
+
+func (db *DB) SaveScanWithAllFindings(ctx context.Context, scan ScanRecord, devices []DeviceRecord, subdomains []SubdomainRecord, contentFindings []ContentFindingRecord, jsFindings []JSFindingRecord, portFindings []PortFindingRecord, vulnFindings []VulnFindingRecord) (int64, error) {
 	if db == nil || db.sql == nil {
 		return 0, errors.New("storage database is not initialized")
 	}
@@ -286,6 +290,39 @@ func (db *DB) SaveScanWithFindings(ctx context.Context, scan ScanRecord, devices
 		finding.ID, err = result.LastInsertId()
 		if err != nil {
 			return 0, fmt.Errorf("read JS finding id: %w", err)
+		}
+		finding.ScanID = scanID
+	}
+	for index := range portFindings {
+		finding := &portFindings[index]
+		if finding.Source != "native" && finding.Source != "nmap" {
+			return 0, fmt.Errorf("invalid port finding source %q", finding.Source)
+		}
+		if finding.DiscoveredAt == "" {
+			finding.DiscoveredAt = scan.CompletedAt
+		}
+		result, err := tx.ExecContext(ctx, `INSERT INTO port_findings(scan_id, subdomain_or_ip, port, protocol, service, banner, source, discovered_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?)`, scanID, finding.SubdomainOrIP, finding.Port, finding.Protocol, finding.Service, finding.Banner, finding.Source, finding.DiscoveredAt)
+		if err != nil {
+			return 0, fmt.Errorf("insert port finding: %w", err)
+		}
+		finding.ID, err = result.LastInsertId()
+		if err != nil {
+			return 0, fmt.Errorf("read port finding id: %w", err)
+		}
+		finding.ScanID = scanID
+	}
+	for index := range vulnFindings {
+		finding := &vulnFindings[index]
+		if finding.DiscoveredAt == "" {
+			finding.DiscoveredAt = scan.CompletedAt
+		}
+		result, err := tx.ExecContext(ctx, `INSERT INTO vuln_findings(scan_id, subdomain, template_id, severity, matched_url, description, discovered_at) VALUES(?, ?, ?, ?, ?, ?, ?)`, scanID, finding.Subdomain, finding.TemplateID, finding.Severity, finding.MatchedURL, finding.Description, finding.DiscoveredAt)
+		if err != nil {
+			return 0, fmt.Errorf("insert vulnerability finding: %w", err)
+		}
+		finding.ID, err = result.LastInsertId()
+		if err != nil {
+			return 0, fmt.Errorf("read vulnerability finding id: %w", err)
 		}
 		finding.ScanID = scanID
 	}
@@ -369,6 +406,40 @@ func (db *DB) LoadJSFindings(ctx context.Context, scanID int64) ([]JSFindingReco
 		var finding JSFindingRecord
 		if err := rows.Scan(&finding.ID, &finding.ScanID, &finding.Subdomain, &finding.SourceFile, &finding.FindingType, &finding.Value, &finding.Confidence, &finding.DiscoveredAt); err != nil {
 			return nil, fmt.Errorf("scan JS finding: %w", err)
+		}
+		findings = append(findings, finding)
+	}
+	return findings, rows.Err()
+}
+
+func (db *DB) LoadPortFindings(ctx context.Context, scanID int64) ([]PortFindingRecord, error) {
+	rows, err := db.sql.QueryContext(ctx, `SELECT id, scan_id, subdomain_or_ip, port, protocol, service, banner, source, discovered_at FROM port_findings WHERE scan_id = ? ORDER BY subdomain_or_ip, port, protocol, source`, scanID)
+	if err != nil {
+		return nil, fmt.Errorf("query port findings: %w", err)
+	}
+	defer rows.Close()
+	findings := make([]PortFindingRecord, 0)
+	for rows.Next() {
+		var finding PortFindingRecord
+		if err := rows.Scan(&finding.ID, &finding.ScanID, &finding.SubdomainOrIP, &finding.Port, &finding.Protocol, &finding.Service, &finding.Banner, &finding.Source, &finding.DiscoveredAt); err != nil {
+			return nil, fmt.Errorf("scan port finding: %w", err)
+		}
+		findings = append(findings, finding)
+	}
+	return findings, rows.Err()
+}
+
+func (db *DB) LoadVulnFindings(ctx context.Context, scanID int64) ([]VulnFindingRecord, error) {
+	rows, err := db.sql.QueryContext(ctx, `SELECT id, scan_id, subdomain, template_id, severity, matched_url, description, discovered_at FROM vuln_findings WHERE scan_id = ? ORDER BY subdomain, template_id, matched_url`, scanID)
+	if err != nil {
+		return nil, fmt.Errorf("query vulnerability findings: %w", err)
+	}
+	defer rows.Close()
+	findings := make([]VulnFindingRecord, 0)
+	for rows.Next() {
+		var finding VulnFindingRecord
+		if err := rows.Scan(&finding.ID, &finding.ScanID, &finding.Subdomain, &finding.TemplateID, &finding.Severity, &finding.MatchedURL, &finding.Description, &finding.DiscoveredAt); err != nil {
+			return nil, fmt.Errorf("scan vulnerability finding: %w", err)
 		}
 		findings = append(findings, finding)
 	}

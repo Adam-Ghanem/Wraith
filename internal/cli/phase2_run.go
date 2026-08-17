@@ -15,8 +15,10 @@ import (
 	"github.com/Adam-Ghanem/Wraith/internal/contentdiscovery"
 	"github.com/Adam-Ghanem/Wraith/internal/enum"
 	"github.com/Adam-Ghanem/Wraith/internal/jsanalysis"
+	"github.com/Adam-Ghanem/Wraith/internal/portscan"
 	"github.com/Adam-Ghanem/Wraith/internal/probe"
 	"github.com/Adam-Ghanem/Wraith/internal/storage"
+	"github.com/Adam-Ghanem/Wraith/internal/vulncheck"
 )
 
 func Run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
@@ -92,15 +94,47 @@ func runScan(ctx context.Context, args []string, stdout, stderr io.Writer) error
 			}
 		}
 	}
+	portFindings := make([]portscan.Finding, 0)
+	if options.UseNmap {
+		nmapResult, nmapErr := portscan.Scan(ctx, nmapTargets(enumResults), portscan.Config{Timeout: portscan.DefaultTimeout, TopPorts: portscan.DefaultTopPorts})
+		if nmapErr != nil {
+			logger.Warn("optional Nmap enrichment failed; continuing", "error", nmapErr)
+		} else {
+			if nmapResult.Skipped {
+				logger.Info("optional Nmap enrichment skipped", "reason", nmapResult.Reason)
+			}
+			for _, scanError := range nmapResult.Errors {
+				logger.Warn("optional Nmap target failed; continuing", "error", scanError)
+			}
+			portFindings = nmapResult.Findings
+		}
+	}
+	vulnFindings := make([]vulncheck.Finding, 0)
+	if options.UseNuclei {
+		nucleiResult, nucleiErr := vulncheck.Scan(ctx, nucleiTargets(preferred), vulncheck.Config{Timeout: vulncheck.DefaultTimeout, RateLimit: vulncheck.DefaultRateLimit})
+		if nucleiErr != nil {
+			logger.Warn("optional Nuclei enrichment failed; continuing", "error", nucleiErr)
+		} else {
+			if nucleiResult.Skipped {
+				logger.Info("optional Nuclei enrichment skipped", "reason", nucleiResult.Reason)
+			}
+			for _, scanError := range nucleiResult.Errors {
+				logger.Warn("optional Nuclei enrichment failed; continuing", "error", scanError)
+			}
+			vulnFindings = nucleiResult.Findings
+		}
+	}
 	completedAt := time.Now().UTC().Format(time.RFC3339)
 	contentRecords := contentFindingRecords(contentFindings, completedAt)
 	jsRecords := jsFindingRecords(jsFindings, completedAt)
-	scanID, err := database.SaveScanWithFindings(ctx, storage.ScanRecord{Target: options.Domain, ScanType: "web", StartedAt: startedAt, CompletedAt: completedAt}, nil, records, contentRecords, jsRecords)
+	portRecords := portFindingRecords(portFindings, completedAt)
+	vulnRecords := vulnFindingRecords(vulnFindings, completedAt)
+	scanID, err := database.SaveScanWithAllFindings(ctx, storage.ScanRecord{Target: options.Domain, ScanType: "web", StartedAt: startedAt, CompletedAt: completedAt}, nil, records, contentRecords, jsRecords, portRecords, vulnRecords)
 	if err != nil {
-		logger.Error("save Phase 3 scan failed", "error", err)
+		logger.Error("save web scan failed", "error", err)
 		return err
 	}
-	return renderScanOutput(stdout, options.JSON, scanOutput{ScanID: scanID, Target: options.Domain, Subdomains: records, ContentFindings: contentRecords, JSFindings: jsRecords, SourceErrors: sourceErrorStrings(sourceErrors)})
+	return renderScanOutput(stdout, options.JSON, scanOutput{ScanID: scanID, Target: options.Domain, Subdomains: records, ContentFindings: contentRecords, JSFindings: jsRecords, PortFindings: portRecords, VulnFindings: vulnRecords, SourceErrors: sourceErrorStrings(sourceErrors)})
 }
 
 func runHistory(ctx context.Context, args []string, stdout, stderr io.Writer) error {
@@ -150,8 +184,24 @@ func runHistory(ctx context.Context, args []string, stdout, stderr io.Writer) er
 	if err != nil {
 		return err
 	}
+	currentPortRecords, err := database.LoadPortFindings(ctx, scans[0].ID)
+	if err != nil {
+		return err
+	}
+	previousPortRecords, err := database.LoadPortFindings(ctx, scans[1].ID)
+	if err != nil {
+		return err
+	}
+	currentVulnRecords, err := database.LoadVulnFindings(ctx, scans[0].ID)
+	if err != nil {
+		return err
+	}
+	previousVulnRecords, err := database.LoadVulnFindings(ctx, scans[1].ID)
+	if err != nil {
+		return err
+	}
 	changes := storage.DiffSubdomains(previous, current)
-	return renderHistoryOutput(stdout, options.JSON, historyOutput{Target: options.Domain, PreviousScan: scans[1], CurrentScan: scans[0], Changes: changes, ContentChanges: storage.DiffContentFindings(contentSnapshots(previousContentRecords), contentSnapshots(currentContentRecords)), JSChanges: storage.DiffJSFindings(jsSnapshots(previousJSRecords), jsSnapshots(currentJSRecords))})
+	return renderHistoryOutput(stdout, options.JSON, historyOutput{Target: options.Domain, PreviousScan: scans[1], CurrentScan: scans[0], Changes: changes, ContentChanges: storage.DiffContentFindings(contentSnapshots(previousContentRecords), contentSnapshots(currentContentRecords)), JSChanges: storage.DiffJSFindings(jsSnapshots(previousJSRecords), jsSnapshots(currentJSRecords)), PortChanges: storage.DiffPortFindings(portSnapshots(previousPortRecords), portSnapshots(currentPortRecords)), VulnChanges: storage.DiffVulnFindings(vulnSnapshots(previousVulnRecords), vulnSnapshots(currentVulnRecords))})
 }
 
 func phase2Logger(stderr io.Writer, verbose bool) *slog.Logger {
@@ -171,6 +221,8 @@ type scanOutput struct {
 	Subdomains      []storage.SubdomainRecord      `json:"subdomains"`
 	ContentFindings []storage.ContentFindingRecord `json:"content_findings,omitempty"`
 	JSFindings      []storage.JSFindingRecord      `json:"js_findings,omitempty"`
+	PortFindings    []storage.PortFindingRecord    `json:"port_findings,omitempty"`
+	VulnFindings    []storage.VulnFindingRecord    `json:"vuln_findings,omitempty"`
 	SourceErrors    []string                       `json:"source_errors,omitempty"`
 }
 
@@ -181,6 +233,8 @@ type historyOutput struct {
 	Changes        []storage.SubdomainChange      `json:"changes"`
 	ContentChanges []storage.ContentFindingChange `json:"content_changes"`
 	JSChanges      []storage.JSFindingChange      `json:"js_changes"`
+	PortChanges    []storage.PortFindingChange    `json:"port_changes"`
+	VulnChanges    []storage.VulnFindingChange    `json:"vuln_changes"`
 }
 
 func renderScanOutput(w io.Writer, asJSON bool, output scanOutput) error {
@@ -225,7 +279,37 @@ func renderScanOutput(w io.Writer, asJSON bool, output scanOutput) error {
 				return err
 			}
 		}
-		return jsTable.Flush()
+		if err := jsTable.Flush(); err != nil {
+			return err
+		}
+	}
+	if len(output.PortFindings) > 0 {
+		if _, err := fmt.Fprintln(w, "\nPORT FINDINGS\nTARGET\tPORT\tPROTOCOL\tSERVICE\tSOURCE"); err != nil {
+			return err
+		}
+		portTable := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
+		for _, finding := range output.PortFindings {
+			if _, err := fmt.Fprintf(portTable, "%s\t%d\t%s\t%s\t%s\n", finding.SubdomainOrIP, finding.Port, finding.Protocol, finding.Service, finding.Source); err != nil {
+				return err
+			}
+		}
+		if err := portTable.Flush(); err != nil {
+			return err
+		}
+	}
+	if len(output.VulnFindings) > 0 {
+		if _, err := fmt.Fprintln(w, "\nVULNERABILITY FINDINGS\nSUBDOMAIN\tTEMPLATE\tSEVERITY\tMATCHED URL"); err != nil {
+			return err
+		}
+		vulnTable := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
+		for _, finding := range output.VulnFindings {
+			if _, err := fmt.Fprintf(vulnTable, "%s\t%s\t%s\t%s\n", finding.Subdomain, finding.TemplateID, finding.Severity, finding.MatchedURL); err != nil {
+				return err
+			}
+		}
+		if err := vulnTable.Flush(); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -279,7 +363,37 @@ func renderHistoryOutput(w io.Writer, asJSON bool, output historyOutput) error {
 				return err
 			}
 		}
-		return jsTable.Flush()
+		if err := jsTable.Flush(); err != nil {
+			return err
+		}
+	}
+	if len(output.PortChanges) > 0 {
+		if _, err := fmt.Fprintln(w, "\nNEW PORT FINDINGS\nKIND\tTARGET\tPORT\tPROTOCOL\tSERVICE\tSOURCE"); err != nil {
+			return err
+		}
+		portTable := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
+		for _, change := range output.PortChanges {
+			if _, err := fmt.Fprintf(portTable, "%s\t%s\t%d\t%s\t%s\t%s\n", change.Kind, change.Current.SubdomainOrIP, change.Current.Port, change.Current.Protocol, change.Current.Service, change.Current.Source); err != nil {
+				return err
+			}
+		}
+		if err := portTable.Flush(); err != nil {
+			return err
+		}
+	}
+	if len(output.VulnChanges) > 0 {
+		if _, err := fmt.Fprintln(w, "\nNEW VULNERABILITY FINDINGS\nKIND\tSUBDOMAIN\tTEMPLATE\tSEVERITY\tMATCHED URL"); err != nil {
+			return err
+		}
+		vulnTable := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
+		for _, change := range output.VulnChanges {
+			if _, err := fmt.Fprintf(vulnTable, "%s\t%s\t%s\t%s\t%s\n", change.Kind, change.Current.Subdomain, change.Current.TemplateID, change.Current.Severity, change.Current.MatchedURL); err != nil {
+				return err
+			}
+		}
+		if err := vulnTable.Flush(); err != nil {
+			return err
+		}
 	}
 	return nil
 }

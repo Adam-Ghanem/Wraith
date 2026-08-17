@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<nmaprun scanner="nmap" args="nmap -sT -T3 --top-ports 1000">
+  <host>
+    <status state="up" />
+    <address addr="192.0.2.10" addrtype="ipv4" />
+    <ports>
+      <port protocol="tcp" portid="80">
+        <state state="open" />
+        <service name="http" product="nginx" version="1.24.0" extrainfo="fixture" />
+      </port>
+      <port protocol="tcp" portid="443">
+        <state state="open|filtered" />
+        <service name="https" />
+      </port>
+      <port protocol="tcp" portid="22">
+        <state state="closed" />
+        <service name="ssh" />
+      </port>
+    </ports>
+  </host>
+</nmaprun>

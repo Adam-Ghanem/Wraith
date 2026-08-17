@@ -26,6 +26,8 @@ type ScanOptions struct {
 	Web                  probe.WebConfig
 	SkipContentDiscovery bool
 	SkipJSAnalysis       bool
+	UseNmap              bool
+	UseNuclei            bool
 }
 
 type HistoryOptions struct {
@@ -60,6 +62,8 @@ func parseScanOptions(args []string) (ScanOptions, error) {
 	webRedirects := fs.Int("web-redirects", 5, "maximum HTTP redirect hops")
 	skipContentDiscovery := fs.Bool("skip-content-discovery", false, "skip Phase 3 content discovery")
 	skipJSAnalysis := fs.Bool("skip-js-analysis", false, "skip Phase 3 JavaScript analysis")
+	useNmap := fs.Bool("use-nmap", false, "run optional bounded Nmap enrichment")
+	useNuclei := fs.Bool("use-nuclei", false, "run optional bounded Nuclei enrichment")
 	if err := fs.Parse(args[1:]); err != nil {
 		return ScanOptions{}, fmt.Errorf("scan usage: %w", err)
 	}
@@ -80,7 +84,7 @@ func parseScanOptions(args []string) (ScanOptions, error) {
 	if err := webConfig.Validate(); err != nil {
 		return ScanOptions{}, err
 	}
-	options := ScanOptions{Domain: domain, DatabasePath: *databasePath, Authorized: *authorized, JSON: *jsonOutput, Verbose: verbose, DNSConcurrency: *dnsConcurrency, DNSRate: *dnsRate, DNSTimeout: *dnsTimeout, Web: webConfig, SkipContentDiscovery: *skipContentDiscovery, SkipJSAnalysis: *skipJSAnalysis}
+	options := ScanOptions{Domain: domain, DatabasePath: *databasePath, Authorized: *authorized, JSON: *jsonOutput, Verbose: verbose, DNSConcurrency: *dnsConcurrency, DNSRate: *dnsRate, DNSTimeout: *dnsTimeout, Web: webConfig, SkipContentDiscovery: *skipContentDiscovery, SkipJSAnalysis: *skipJSAnalysis, UseNmap: *useNmap, UseNuclei: *useNuclei}
 	if options.DNSConcurrency < 1 || options.DNSConcurrency > 50 || options.DNSRate < 1 || options.DNSRate > 20 || options.DNSTimeout <= 0 || options.DNSTimeout > 30*time.Second {
 		return ScanOptions{}, errors.New("DNS options are outside bounded Phase 2 limits")
 	}
