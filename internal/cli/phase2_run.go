@@ -12,6 +12,7 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/Adam-Ghanem/Wraith/internal/buildinfo"
 	"github.com/Adam-Ghanem/Wraith/internal/contentdiscovery"
 	"github.com/Adam-Ghanem/Wraith/internal/enum"
 	"github.com/Adam-Ghanem/Wraith/internal/jsanalysis"
@@ -30,6 +31,9 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 			return runHistory(ctx, args, stdout, stderr)
 		case "export-fixtures":
 			return runExportFixtures(ctx, args, stdout, stderr)
+		case "version":
+			_, err := fmt.Fprintln(stdout, buildinfo.String())
+			return err
 		}
 	}
 	return runDiscover(ctx, args, stdout, stderr)
