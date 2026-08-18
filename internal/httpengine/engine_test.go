@@ -3,6 +3,7 @@ package httpengine
 import (
 	"context"
 	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
@@ -72,6 +73,33 @@ func TestDestinationPolicyRejectsPrivateMappedAndLinkLocalAddresses(t *testing.T
 		if err := policy.Validate(netip.MustParseAddr(raw)); !errors.Is(err, ErrDestinationDenied) {
 			t.Errorf("Validate(%s) = %v, want ErrDestinationDenied", raw, err)
 		}
+	}
+}
+
+func TestEngineReusesIdleConnectionAcrossSeparateCalls(t *testing.T) {
+	var newConnections atomic.Int32
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		_, _ = writer.Write([]byte("ok"))
+	}))
+	server.Config.ConnState = func(_ net.Conn, state http.ConnState) {
+		if state == http.StateNew {
+			newConnections.Add(1)
+		}
+	}
+	server.Start()
+	defer server.Close()
+
+	engine := NewEngine(Config{Gateway: fakeGateway{}, DestinationPolicy: DestinationPolicy{AllowPrivate: true}})
+	for attempt := 0; attempt < 2; attempt++ {
+		if _, err := engine.Do(context.Background(), Request{ProjectID: "project-a", Method: http.MethodGet, URL: server.URL}); err != nil {
+			t.Fatalf("request %d: %v", attempt+1, err)
+		}
+	}
+	if newConnections.Load() != 1 {
+		t.Fatalf("new connections = %d, want one reusable idle connection", newConnections.Load())
+	}
+	if err := engine.CloseIdleConnections(); err != nil {
+		t.Fatalf("CloseIdleConnections: %v", err)
 	}
 }
 

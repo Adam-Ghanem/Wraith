@@ -10,3 +10,4 @@
 - [x] Implement R1 Policy Core: project-scoped, deterministic, fail-closed authorization with normalization, deny precedence, expiry/revocation, SQLite persistence, outbound gateway seam, and security test coverage; no scanner changes.
 - [x] Implement R2 Web Evidence / Asset Model: project-scoped canonical assets and immutable observations with SQLite persistence, repository contracts, migration compatibility, fuzzing, benchmarks, and no network engine or scanner expansion.
 - [ ] Implement R3 Unified HTTP Engine: policy-aware, destination-safe bounded HTTP(S) transport with controlled resolution/dialing, redirect reauthorization, R2 observation emission, minimal CLI validation, and local fixture coverage; stop before R4.
+- [ ] Complete R3 hardening: persistent transport lifecycle, bounded rate/retry/proxy contracts, full legacy collector migration review with documented decisions, completion tests, benchmarks, and security review; do not start R4.

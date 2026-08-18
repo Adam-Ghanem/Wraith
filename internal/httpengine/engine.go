@@ -13,6 +13,7 @@ import (
 	"net/netip"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Adam-Ghanem/Wraith/internal/evidence"
@@ -75,7 +76,12 @@ type Config struct {
 	UserAgent             string
 }
 
-type Engine struct{ config Config }
+type Engine struct {
+	config       Config
+	transport    *http.Transport
+	client       *http.Client
+	destinations sync.Map
+}
 
 func NewEngine(config Config) *Engine {
 	if config.Resolver == nil {
@@ -99,7 +105,34 @@ func NewEngine(config Config) *Engine {
 	if config.UserAgent == "" {
 		config.UserAgent = "Wraith/http-engine"
 	}
-	return &Engine{config: config}
+	engine := &Engine{config: config}
+	engine.transport = &http.Transport{Proxy: http.ProxyFromEnvironment, ForceAttemptHTTP2: true, TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12}, TLSHandshakeTimeout: config.TLSHandshakeTimeout, ResponseHeaderTimeout: config.ResponseHeaderTimeout, IdleConnTimeout: 30 * time.Second, MaxIdleConns: 32, MaxIdleConnsPerHost: 4}
+	engine.transport.DialContext = engine.dialContext
+	engine.client = &http.Client{Transport: engine.transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	return engine
+}
+
+func (engine *Engine) CloseIdleConnections() error {
+	if engine == nil || engine.transport == nil {
+		return ErrInvalidRequest
+	}
+	engine.transport.CloseIdleConnections()
+	return nil
+}
+
+func (engine *Engine) dialContext(ctx context.Context, network, address string) (net.Conn, error) {
+	mapped, exists := engine.destinations.Load(address)
+	if !exists {
+		return nil, ErrDestinationDenied
+	}
+	return (&net.Dialer{}).DialContext(ctx, network, mapped.(string))
+}
+
+func targetHost(target policy.Target) string {
+	if target.IP.IsValid() {
+		return target.IP.String()
+	}
+	return target.Hostname
 }
 
 func (engine *Engine) Do(ctx context.Context, request Request) (Response, error) {
@@ -158,20 +191,8 @@ func (engine *Engine) doOne(parent context.Context, request Request, rawURL stri
 	}
 	ctx, cancel := context.WithTimeout(parent, timeoutFor(request, engine.config))
 	defer cancel()
-	dialer := &net.Dialer{}
-	transport := &http.Transport{
-		Proxy:                 http.ProxyFromEnvironment,
-		ForceAttemptHTTP2:     true,
-		TLSClientConfig:       &tls.Config{MinVersion: tls.VersionTLS12},
-		TLSHandshakeTimeout:   engine.config.TLSHandshakeTimeout,
-		ResponseHeaderTimeout: engine.config.ResponseHeaderTimeout,
-		IdleConnTimeout:       30 * time.Second,
-		MaxIdleConns:          32, MaxIdleConnsPerHost: 4,
-		DialContext: func(dialCtx context.Context, network, _ string) (net.Conn, error) {
-			return dialer.DialContext(dialCtx, network, net.JoinHostPort(addresses[0].String(), fmt.Sprintf("%d", target.Port)))
-		},
-	}
-	client := &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	dialKey := net.JoinHostPort(targetHost(target), fmt.Sprintf("%d", target.Port))
+	engine.destinations.Store(dialKey, net.JoinHostPort(addresses[0].String(), fmt.Sprintf("%d", target.Port)))
 	httpRequest, err := http.NewRequestWithContext(ctx, request.Method, rawURL, strings.NewReader(string(request.Body)))
 	if err != nil {
 		return Response{Redirects: redirects}, "", fmt.Errorf("%w: %v", ErrInvalidRequest, err)
@@ -184,7 +205,7 @@ func (engine *Engine) doOne(parent context.Context, request Request, rawURL stri
 		httpRequest.Header.Set("User-Agent", engine.config.UserAgent)
 	}
 	started := time.Now()
-	native, err := client.Do(httpRequest)
+	native, err := engine.client.Do(httpRequest)
 	if err != nil {
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			return Response{Redirects: redirects}, "", context.DeadlineExceeded
