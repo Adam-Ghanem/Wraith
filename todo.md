@@ -19,3 +19,7 @@
 - [x] Create `feature/r5-endpoint-intelligence` from completed R4 and document a passive, bounded R5 specification; do not start R6.
 - [x] Implement deterministic project-scoped endpoint, method, parameter, form, API-reference, OpenAPI/Swagger, and GraphQL inventory from existing R2/R4 evidence with zero passive-analysis network I/O.
 - [x] Add `wraith endpoints` output, local tests, fuzzing, benchmarks, project-isolation/resource-limit checks, documentation, quality review, and feature-branch push; do not merge to `main`.
+- [x] Audit the completed R5 baseline, existing JavaScript analysis, R2 evidence contracts, R4 crawler output, and parser dependency options; create `feature/r6-js-intelligence` without modifying `main`.
+- [x] Implement a bounded, deterministic, static-only, zero-network JavaScript intelligence pipeline with project-scoped R2 evidence correlation, local-file/source-map support, and no JavaScript or subprocess execution.
+- [x] Add `wraith js` output; test fixtures, isolation, malformed-input and resource-limit coverage, bounded fuzzing and benchmarks; update R6 documentation, complete quality and egress review, commit and push the feature branch. R7 remains separately scoped and unstarted.
+- [ ] After R6 is completed and pushed, create `feature/r7-controlled-fuzzing` and implement only explicitly selected, R1-authorized, R3-transported, bounded generic parameter mutation; do not modify `main` or bypass policy/transport controls.
