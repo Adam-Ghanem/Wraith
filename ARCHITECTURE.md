@@ -8,13 +8,14 @@ Wraith is currently a **local-first Go CLI with an embedded SQLite scan ledger, 
 
 | Layer | Current implementation | Important boundary |
 | --- | --- | --- |
-| CLI | `discover`, `scan`, `crawl`, `endpoints`, `js`, `history`, `export-fixtures`, and `version` dispatch through `internal/cli`. | Active workflows require operator-supplied authorization flags; `endpoints` and `js` are project-scoped local evidence reads. No remote API command surface exists. |
+| CLI | `discover`, `scan`, `crawl`, `endpoints`, `js`, `fuzz`, `history`, `export-fixtures`, and `version` dispatch through `internal/cli`. | Active workflows require operator-supplied authorization flags; `fuzz` requires explicit project endpoint/parameter selection and routes every request through R3. |
 | Policy | `internal/policy` evaluates immutable project scope versions with target normalization, allow/deny rules, expiry/revocation, and decision traces. | The evaluator has no network I/O; R3 invokes it for every migrated HTTP target and resolved connection address. |
 | Evidence | `internal/evidence` canonicalizes URLs and models project-local assets, endpoints, parameters, and typed immutable observations. | R3 emits redacted HTTP metadata only after centralized egress validation. |
 | HTTP transport | `internal/httpengine` provides project-scoped HTTP(S), manual redirects, resolver pinning, destination safety, bounded reads, local pacing/concurrency, retries, explicit proxying, and reusable connections. | Target-web collectors must use this boundary; provider APIs and subprocesses remain explicit exceptions pending their own designs. |
 | Web crawler | `internal/crawler` provides bounded canonical URL discovery, HTML resource/form extraction, robots/sitemap/security.txt discovery, and R2 persistence. | Every fetch uses R3; same-origin filtering is an optimization while R1 remains the authorization boundary. |
 | Endpoint intelligence | `internal/endpointintelligence` creates a deterministic inventory from project-scoped R2 endpoints, parameters, and assets, with optional local OpenAPI/Swagger JSON parsing. | Passive only: no HTTP client, resolver, socket, JavaScript runtime, API execution, or new identity system. |
 | JavaScript intelligence | `internal/jsanalysis` adds a parser-backed, static-only projection over explicit local JS/source-map files and selected R2 JavaScript assets. | No runtime, browser, subprocess, download, socket, DNS, or HTTP path; it reuses R2/R5 identities and appends bounded client-side metadata only. |
+| Controlled fuzzing | `internal/fuzzing` creates deterministic, generic, explicit-parameter mutation plans, bounded local jobs, response metadata, and redacted R2 fuzz observations. | It has no transport of its own: non-dry-run work reaches the network only through R3 and therefore R1 authorization, destination safety, and redirect validation. It creates observations, not findings. |
 | Local discovery | Linux-first interface/CIDR validation, bounded ARP candidates, curated TCP checks, and limited metadata. | Phase 1 rejects public CIDRs and requires an explicit selected local IPv4 boundary. |
 | Domain/web collection | Certificate-transparency/DNS enumeration, bounded HTTP probing, content discovery, and JavaScript analysis. | `scan --project` routes target-web probes, paths, and scripts through R3; output-derived targets remain untrusted. |
 | Optional enrichment | Nmap and Nuclei wrappers. | Both are opt-in, optional external binaries; they do not become enabled by discovery output. |
@@ -34,7 +35,8 @@ internal/
 	├── config             local IPv4 scope validation and limits
 		├── policy             R1 target normalization, scope evaluation, and outbound authorization seam
 		├── evidence           R2 canonical web identities and typed immutable observations
-		├── httpengine         R3 controlled HTTP(S) transport and resource controls
+	  ├── httpengine         R3 controlled HTTP(S) transport and resource controls
+	  ├── fuzzing            R7 bounded generic mutation, local job, and response-intelligence logic
   ├── discovery          Linux ARP/interface behavior
   ├── ports, probe       bounded TCP and HTTP probing
   ├── enum               certificate/DNS and optional VirusTotal enumeration
@@ -53,7 +55,7 @@ docs/, README.md, SECURITY.md
   └── scope, responsible use, Phase implementation records, release, support, and threat documentation
 ```
 
-The current database schema has six embedded migrations and first-class tables for scans, devices, subdomains, content findings, JavaScript findings, port findings, Nuclei findings, policy scopes, R2 evidence, and bounded R6 client-side observations. This is a solid evidence ledger for the implemented CLI, but it is not yet a unified asset model.
+The current database schema has seven embedded migrations and first-class tables for scans, devices, subdomains, content findings, JavaScript findings, port findings, Nuclei findings, policy scopes, R2 evidence, bounded R6 client-side observations, and redacted R7 fuzz observations. This is a solid evidence ledger for the implemented CLI, but it is not yet a unified asset model.
 
 ## Current control flow
 
