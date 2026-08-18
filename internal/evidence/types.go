@@ -50,6 +50,7 @@ const (
 	ObservationKindClientSide ObservationKind = "client_side"
 	ObservationKindFuzz       ObservationKind = "fuzz"
 	ObservationKindContent    ObservationKind = "content_discovery"
+	ObservationKindValidation ObservationKind = "validation"
 )
 
 // WebAsset is a stable project-local subject. A URL and a JavaScript asset use
@@ -121,6 +122,7 @@ type APIEndpointEvidence struct{ Observation }
 type ClientSideEvidence struct{ Observation }
 type FuzzEvidence struct{ Observation }
 type ContentDiscoveryEvidence struct{ Observation }
+type ValidationEvidence struct{ Observation }
 
 func (observation HTTPObservation) Record() Observation          { return observation.Observation }
 func (observation TechnologyEvidence) Record() Observation       { return observation.Observation }
@@ -129,6 +131,7 @@ func (observation APIEndpointEvidence) Record() Observation      { return observ
 func (observation ClientSideEvidence) Record() Observation       { return observation.Observation }
 func (observation FuzzEvidence) Record() Observation             { return observation.Observation }
 func (observation ContentDiscoveryEvidence) Record() Observation { return observation.Observation }
+func (observation ValidationEvidence) Record() Observation       { return observation.Observation }
 
 type ClientSideEvidenceInput struct {
 	Source, Type, Reference, Confidence string
@@ -153,6 +156,11 @@ type ContentDiscoveryObservationInput struct {
 	StatusCode, RedirectCount                      int
 	ContentLength, DurationMS                      int64
 	BaselineSimilarity                             float64
+}
+
+type ValidationObservationInput struct {
+	Source, ValidatorID, RuleID, Lifecycle, ReproducibilityKey string
+	ObservedAt                                                 time.Time
 }
 
 // Repository is the R2 persistence boundary. It deliberately exposes no
@@ -301,6 +309,26 @@ func NewContentDiscoveryObservation(projectID string, endpoint Endpoint, input C
 		return ContentDiscoveryEvidence{}, err
 	}
 	return ContentDiscoveryEvidence{Observation: record}, nil
+}
+
+func NewValidationObservation(projectID string, endpoint Endpoint, input ValidationObservationInput) (ValidationEvidence, error) {
+	if err := validateSubject(projectID, endpoint.ProjectID, endpoint.Identity, input.Source, input.ObservedAt); err != nil {
+		return ValidationEvidence{}, err
+	}
+	if !strings.HasPrefix(input.Source, "validation.r8.") || !boundedText(input.ValidatorID, 128) || !boundedText(input.RuleID, 128) || input.Lifecycle != "observed" || !boundedText(input.ReproducibilityKey, 128) {
+		return ValidationEvidence{}, ErrInvalidEvidence
+	}
+	payload := struct {
+		ValidatorID        string `json:"validator_id"`
+		RuleID             string `json:"rule_id"`
+		Lifecycle          string `json:"lifecycle"`
+		ReproducibilityKey string `json:"reproducibility_key"`
+	}{input.ValidatorID, input.RuleID, input.Lifecycle, input.ReproducibilityKey}
+	record, err := newObservation(projectID, ObservationKindValidation, endpoint.Identity, input.Source, input.ObservedAt, payload, true)
+	if err != nil {
+		return ValidationEvidence{}, err
+	}
+	return ValidationEvidence{Observation: record}, nil
 }
 
 func NewTechnologyEvidence(projectID string, asset WebAsset, technology, source string, observedAt time.Time) (TechnologyEvidence, error) {

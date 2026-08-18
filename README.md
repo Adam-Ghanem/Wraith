@@ -37,6 +37,7 @@ Most reconnaissance tools optimize for reach. Wraith is intentionally narrow: ea
 | 6 | Implemented | Blocking CI, reproducible build metadata, checksums, dependency review, MIT licensing, disclosure, threat model, and support guidance | Release artifacts are checksummed, **not signed** |
 | R7 | Implemented on feature branch | Explicit bounded parameter/request fuzzing with R1/R3-only execution and redacted response evidence | Safe-method default; explicit target/parameter selection; no findings, credentials, or exploitation |
 | R7.5 | Implemented on feature branch | Bounded local-wordlist path and virtual-host discovery with soft-404 filtering | Explicit project-local base evidence, `--authorized`, R1/R3-only requests, hard budgets, redacted observations; no crawler expansion or validation |
+| R8 | In progress on feature branch | Evidence-led passive checks for security headers, CORS, cookies, error disclosure, and information disclosure | Explicit project endpoint, one bounded R1/R3 request, redacted validation observations; no payloads, credential testing, or exploitation |
 
 ## Quick start: inspect real sample output without scanning
 
@@ -127,6 +128,13 @@ Use `--dry-run` to validate the plan first. `content --depth` defaults to `0` an
 </details>
 
 <details>
+<summary><strong>R8 — evidence-led passive validation</strong></summary>
+
+`wraith validate` selects one existing endpoint from the named project and, unless `--dry-run` is supplied, refreshes it once through the same R1/R3 transport used by the other target-web modules. The current validator set only examines bounded response evidence for missing HSTS, unsafe wildcard-credential CORS metadata, missing cookie attributes, bounded stack/error indicators, and versioned server banners. It writes redacted validation observations, not exploit claims. See [`docs/r8-security-validation-spec.md`](docs/r8-security-validation-spec.md) for the exact contract and exclusions.
+
+</details>
+
+<details>
 <summary><strong>Phase 4 — optional Nmap and Nuclei enrichment</strong></summary>
 
 Phase 4 adds two opt-in enrichment wrappers for an authorized `wraith scan`. Both flags are off by default and require the existing `--authorized --project` scan gate. Wraith passes only targets discovered and probed during the same scan; it does not accept arbitrary Nmap or Nuclei target injection.
@@ -200,6 +208,7 @@ Do not use random public hosts, shared networks, employer networks, bug-bounty t
 - [`docs/phase-2-premerge-review.md`](docs/phase-2-premerge-review.md) — Phase 2 pre-merge review findings, decisions, and verification notes.
 - [`docs/phase-3-implementation.md`](docs/phase-3-implementation.md) — Phase 3 content-discovery and JavaScript-analysis boundaries, limits, and testing notes.
 - [`docs/content-discovery.md`](docs/content-discovery.md) — R7.5 bounded local-wordlist path and virtual-host discovery commands, controls, and exclusions.
+- [`docs/r8-security-validation-spec.md`](docs/r8-security-validation-spec.md) — R8 passive validation contract, lifecycle vocabulary, R1/R3 boundary, and exclusions.
 - [`docs/phase-2-3-real-target-verification.md`](docs/phase-2-3-real-target-verification.md) — redacted record of authorized Phase 2+3 live verification and its limitations.
 - [`docs/phase-5-implementation.md`](docs/phase-5-implementation.md) — static fixture dashboard, export command, hard exclusions, and Phase 5 testing limitations.
 - [`docs/dependency-review.md`](docs/dependency-review.md) — reviewed Go and pnpm dependency inventory, license evidence, exceptions, and CI update control.
