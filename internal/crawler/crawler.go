@@ -107,6 +107,9 @@ func (crawler Crawler) Crawl(ctx context.Context, config Config) (Result, error)
 			sitemaps = []string{startURL.ResolveReference(&url.URL{Path: "/sitemap.xml"}).String()}
 		}
 		for _, sitemap := range sitemaps {
+			if !crawler.allowed(sitemap, startURL, config) {
+				continue
+			}
 			for _, item := range crawler.fetchSitemap(ctx, config, sitemap, &result) {
 				enqueue(item, 1)
 			}

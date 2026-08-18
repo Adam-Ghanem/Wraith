@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -88,6 +89,23 @@ func TestCrawlBoundsQueryVariantsPerPath(t *testing.T) {
 	}
 	if pageRequests != 2 {
 		t.Fatalf("page requests=%d, want start plus one query variant", pageRequests)
+	}
+}
+
+func TestCrawlRobotsAndSitemapCannotQueueThirdPartyURLs(t *testing.T) {
+	client := &fakeClient{responses: map[string]httpengine.Response{
+		"https://example.com/robots.txt": {StatusCode: http.StatusOK, Body: []byte("Sitemap: https://other.example/sitemap.xml\n")},
+		"https://example.com/":           {StatusCode: http.StatusOK, ContentType: "text/html"},
+	}}
+	config := DefaultConfig("project-a", "https://example.com/")
+	_, err := (Crawler{Client: client}).Crawl(context.Background(), config)
+	if err != nil {
+		t.Fatalf("Crawl: %v", err)
+	}
+	for _, request := range client.requests {
+		if strings.Contains(request.URL, "other.example") {
+			t.Fatalf("third-party robots/sitemap URL fetched: %s", request.URL)
+		}
 	}
 }
 
