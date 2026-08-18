@@ -34,6 +34,8 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 			return runCrawl(ctx, args, stdout, stderr)
 		case "endpoints":
 			return runEndpoints(ctx, args, stdout, stderr)
+		case "js":
+			return runJS(ctx, args, stdout, stderr)
 		case "history":
 			return runHistory(ctx, args, stdout, stderr)
 		case "export-fixtures":

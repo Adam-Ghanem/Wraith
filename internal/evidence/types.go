@@ -47,6 +47,7 @@ const (
 	ObservationKindTechnology ObservationKind = "technology"
 	ObservationKindJavaScript ObservationKind = "javascript"
 	ObservationKindAPI        ObservationKind = "api_endpoint"
+	ObservationKindClientSide ObservationKind = "client_side"
 )
 
 // WebAsset is a stable project-local subject. A URL and a JavaScript asset use
@@ -115,11 +116,18 @@ type HTTPObservation struct {
 type TechnologyEvidence struct{ Observation }
 type JavaScriptEvidence struct{ Observation }
 type APIEndpointEvidence struct{ Observation }
+type ClientSideEvidence struct{ Observation }
 
 func (observation HTTPObservation) Record() Observation     { return observation.Observation }
 func (observation TechnologyEvidence) Record() Observation  { return observation.Observation }
 func (observation JavaScriptEvidence) Record() Observation  { return observation.Observation }
 func (observation APIEndpointEvidence) Record() Observation { return observation.Observation }
+func (observation ClientSideEvidence) Record() Observation  { return observation.Observation }
+
+type ClientSideEvidenceInput struct {
+	Source, Type, Reference, Confidence string
+	ObservedAt                          time.Time
+}
 
 // Repository is the R2 persistence boundary. It deliberately exposes no
 // scanner or HTTP-client behavior, and all reads carry an explicit project ID.
@@ -238,6 +246,25 @@ func NewJavaScriptEvidence(projectID string, asset WebAsset, source string, obse
 	return JavaScriptEvidence{Observation: record}, nil
 }
 
+// NewClientSideEvidence records bounded static metadata against an existing JavaScript asset identity.
+func NewClientSideEvidence(projectID string, asset WebAsset, input ClientSideEvidenceInput) (ClientSideEvidence, error) {
+	if err := validateSubject(projectID, asset.ProjectID, asset.Identity, input.Source, input.ObservedAt); err != nil {
+		return ClientSideEvidence{}, err
+	}
+	if asset.Kind != AssetKindJavaScript || !strings.HasPrefix(input.Source, "jsanalysis.") || !boundedText(input.Type, 256) || !boundedText(input.Reference, 1024) || !validConfidence(input.Confidence) {
+		return ClientSideEvidence{}, ErrInvalidEvidence
+	}
+	record, err := newObservation(projectID, ObservationKindClientSide, asset.Identity, input.Source, input.ObservedAt, struct {
+		Type       string `json:"type"`
+		Reference  string `json:"reference,omitempty"`
+		Confidence string `json:"confidence"`
+	}{strings.TrimSpace(input.Type), strings.TrimSpace(input.Reference), strings.TrimSpace(input.Confidence)}, false)
+	if err != nil {
+		return ClientSideEvidence{}, err
+	}
+	return ClientSideEvidence{Observation: record}, nil
+}
+
 func NewAPIEndpointEvidence(projectID string, endpoint Endpoint, source string, observedAt time.Time) (APIEndpointEvidence, error) {
 	if err := validateSubject(projectID, endpoint.ProjectID, endpoint.Identity, source, observedAt); err != nil {
 		return APIEndpointEvidence{}, err
@@ -340,4 +367,18 @@ func isParameterName(name string) bool {
 		return false
 	}
 	return name == strings.TrimSpace(name)
+}
+
+func boundedText(value string, maximum int) bool {
+	value = strings.TrimSpace(value)
+	return value != "" && len(value) <= maximum && !strings.ContainsAny(value, "\r\n\x00")
+}
+
+func validConfidence(value string) bool {
+	switch strings.TrimSpace(value) {
+	case "high", "medium", "low":
+		return true
+	default:
+		return false
+	}
 }
