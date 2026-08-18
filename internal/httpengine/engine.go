@@ -68,6 +68,7 @@ type Config struct {
 	Resolver              Resolver
 	DestinationPolicy     DestinationPolicy
 	ObservationSink       ObservationSink
+	RateLimiter           *RateLimiter
 	MaxResponseBytes      int64
 	MaxRedirects          int
 	RequestTimeout        time.Duration
@@ -184,6 +185,11 @@ func (engine *Engine) doOne(parent context.Context, request Request, rawURL stri
 	}
 	if _, err := engine.config.Gateway.Authorize(parent, request.ProjectID, target, policy.ActionHTTP); err != nil {
 		return Response{Redirects: redirects}, "", fmt.Errorf("%w: %v", ErrPolicyDenied, err)
+	}
+	if engine.config.RateLimiter != nil {
+		if err := engine.config.RateLimiter.Wait(parent); err != nil {
+			return Response{Redirects: redirects}, "", err
+		}
 	}
 	addresses, err := engine.resolveAndValidate(parent, request.ProjectID, target)
 	if err != nil {

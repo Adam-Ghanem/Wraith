@@ -103,6 +103,18 @@ func TestEngineReusesIdleConnectionAcrossSeparateCalls(t *testing.T) {
 	}
 }
 
+func TestLocalRateLimiterRespectsContextCancellation(t *testing.T) {
+	limiter := NewRateLimiter(10 * time.Second)
+	if err := limiter.Wait(context.Background()); err != nil {
+		t.Fatalf("first Wait: %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := limiter.Wait(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled Wait error = %v, want context.Canceled", err)
+	}
+}
+
 type fakeResolver struct {
 	addresses []netip.Addr
 	calls     atomic.Int32
