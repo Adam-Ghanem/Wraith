@@ -4,13 +4,13 @@
 
 Phase 3 extends an authorized `wraith scan` with bounded content discovery and JavaScript analysis. It does not alter the frozen Phase 1 local-network discovery behavior. It also does not add subdomain port scanning, Nmap, Nuclei, vulnerability correlation, REST APIs, dashboards, PDF/CSV export, scheduling, or multi-tenancy.
 
-The existing `--authorized` parser gate remains mandatory for `scan`. It is a self-attestation only: Wraith does not verify ownership or permission. The operator must confirm ownership, written permission, or an in-scope bug-bounty authorization before running a scan.
+The `--authorized --project PROJECT` parser gate is mandatory for `scan`. `--authorized` remains a self-attestation only: Wraith does not verify ownership or permission. The project identifier must reference an active R1 scope in the selected SQLite database before migrated target-web activity is allowed. The operator must confirm ownership, written permission, or an in-scope bug-bounty authorization before running a scan.
 
 ## Content discovery
 
 Content discovery uses a finite built-in list of approximately 100 high-value paths. It makes a baseline request to a generated random path on the same host before testing the wordlist. The baseline records status code, response length, and a SHA-256 body fingerprint. A candidate is reported only when its status is 200, 301, 302, or 403 and it differs from the baseline by status, response length, or body fingerprint. This removes common soft-404 pages that return 200 for every path while retaining meaningful redirects and protected resources.
 
-Requests use the existing Phase 2 `enum.RateLimiter`, not a second independent limiter. Each host receives at most 20 request starts per second, content workers are capped at 50, request timeouts are bounded, response bodies are capped at 4 MiB, and redirects are capped at five hops. Redirects to a different hostname are rejected. Invalid, absolute, and parent-directory-escaping paths are rejected before a request is made.
+Requests use the project-scoped R3 transport plus the existing collector per-host limiter. The scan-level R3 limiter defaults to 20 request starts per second and is configurable through bounded `--web-rate`; each host also receives at most 20 content request starts per second. Content workers are capped at 50, request timeouts are bounded, response bodies are capped at 4 MiB, and redirects are capped at five hops. Redirects to a different hostname are rejected. Invalid, absolute, and parent-directory-escaping paths are rejected before a request is made.
 
 ## JavaScript analysis
 
@@ -31,8 +31,8 @@ The diff engine reuses the Phase 2 typed snapshot pattern. Phase 3 diffs report 
 The default scan runs both analyses after Phase 2 HTTP probing. They can be disabled independently:
 
 ```bash
-./bin/wraith scan -d example.com --authorized --db wraith.db --skip-content-discovery
-./bin/wraith scan -d example.com --authorized --db wraith.db --skip-js-analysis
+./bin/wraith scan -d example.com --project project-a --authorized --db wraith.db --skip-content-discovery
+./bin/wraith scan -d example.com --project project-a --authorized --db wraith.db --skip-js-analysis
 ```
 
 The JSON scan output includes `content_findings` and `js_findings`. History output includes `content_changes` and `js_changes`.

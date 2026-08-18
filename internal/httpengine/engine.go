@@ -32,13 +32,17 @@ var (
 )
 
 type Request struct {
-	ProjectID string
-	Method    string
-	URL       string
-	Headers   http.Header
-	Body      []byte
-	Timeout   time.Duration
-	Source    string
+	ProjectID         string
+	Method            string
+	URL               string
+	Headers           http.Header
+	Body              []byte
+	Timeout           time.Duration
+	MaxResponseBytes  int64
+	MaxRedirects      *int
+	RetryPolicy       *RetryPolicy
+	Source            string
+	RedirectValidator func(currentURL, nextURL string) error
 }
 
 type Response struct {
@@ -69,13 +73,18 @@ type Config struct {
 	DestinationPolicy     DestinationPolicy
 	ObservationSink       ObservationSink
 	RateLimiter           *RateLimiter
+	MaxConcurrentRequests int
 	MaxResponseBytes      int64
 	MaxRedirects          int
 	RequestTimeout        time.Duration
 	TLSHandshakeTimeout   time.Duration
 	ResponseHeaderTimeout time.Duration
+	IdleConnTimeout       time.Duration
+	MaxIdleConns          int
+	MaxIdleConnsPerHost   int
 	UserAgent             string
 	ProxyURL              string
+	RetryPolicy           RetryPolicy
 }
 
 type Engine struct {
@@ -83,6 +92,9 @@ type Engine struct {
 	transport    *http.Transport
 	client       *http.Client
 	destinations sync.Map
+	proxyAddress string
+	requestSlots chan struct{}
+	configErr    error
 }
 
 func NewEngine(config Config) *Engine {
@@ -104,14 +116,43 @@ func NewEngine(config Config) *Engine {
 	if config.ResponseHeaderTimeout == 0 {
 		config.ResponseHeaderTimeout = 5 * time.Second
 	}
+	if config.IdleConnTimeout == 0 {
+		config.IdleConnTimeout = 30 * time.Second
+	}
+	if config.MaxIdleConns == 0 {
+		config.MaxIdleConns = 32
+	}
+	if config.MaxIdleConnsPerHost == 0 {
+		config.MaxIdleConnsPerHost = 4
+	}
 	if config.UserAgent == "" {
 		config.UserAgent = "Wraith/http-engine"
 	}
-	engine := &Engine{config: config}
-	engine.transport = &http.Transport{ForceAttemptHTTP2: true, TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12}, TLSHandshakeTimeout: config.TLSHandshakeTimeout, ResponseHeaderTimeout: config.ResponseHeaderTimeout, IdleConnTimeout: 30 * time.Second, MaxIdleConns: 32, MaxIdleConnsPerHost: 4}
+	if config.RetryPolicy.MaxAttempts == 0 {
+		config.RetryPolicy = DefaultRetryPolicy()
+	}
+	if config.RateLimiter == nil {
+		config.RateLimiter = NewRateLimiter(50 * time.Millisecond)
+	}
+	if config.MaxConcurrentRequests == 0 {
+		config.MaxConcurrentRequests = 10
+	}
+	var configErr error
+	if config.MaxConcurrentRequests < 1 || config.MaxConcurrentRequests > 50 {
+		configErr = errors.New("invalid HTTP engine configuration")
+		config.MaxConcurrentRequests = 1
+	}
+	engine := &Engine{config: config, requestSlots: make(chan struct{}, config.MaxConcurrentRequests), configErr: configErr}
+	engine.transport = &http.Transport{ForceAttemptHTTP2: true, TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12}, TLSHandshakeTimeout: config.TLSHandshakeTimeout, ResponseHeaderTimeout: config.ResponseHeaderTimeout, IdleConnTimeout: config.IdleConnTimeout, MaxIdleConns: config.MaxIdleConns, MaxIdleConnsPerHost: config.MaxIdleConnsPerHost}
 	if config.ProxyURL != "" {
-		if proxyURL, err := url.Parse(config.ProxyURL); err == nil && (proxyURL.Scheme == "http" || proxyURL.Scheme == "https") && proxyURL.Host != "" {
+		proxyURL, err := url.Parse(config.ProxyURL)
+		if err != nil || (proxyURL.Scheme != "http" && proxyURL.Scheme != "https") || proxyURL.Host == "" {
+			if engine.configErr == nil {
+				engine.configErr = errors.New("invalid explicit proxy configuration")
+			}
+		} else {
 			engine.transport.Proxy = http.ProxyURL(proxyURL)
+			engine.proxyAddress = proxyDialAddress(proxyURL)
 		}
 	}
 	engine.transport.DialContext = engine.dialContext
@@ -128,11 +169,26 @@ func (engine *Engine) CloseIdleConnections() error {
 }
 
 func (engine *Engine) dialContext(ctx context.Context, network, address string) (net.Conn, error) {
+	if engine.proxyAddress != "" && address == engine.proxyAddress {
+		return (&net.Dialer{}).DialContext(ctx, network, address)
+	}
 	mapped, exists := engine.destinations.Load(address)
 	if !exists {
 		return nil, ErrDestinationDenied
 	}
 	return (&net.Dialer{}).DialContext(ctx, network, mapped.(string))
+}
+
+func proxyDialAddress(proxyURL *url.URL) string {
+	port := proxyURL.Port()
+	if port == "" {
+		if proxyURL.Scheme == "https" {
+			port = "443"
+		} else {
+			port = "80"
+		}
+	}
+	return net.JoinHostPort(proxyURL.Hostname(), port)
 }
 
 func targetHost(target policy.Target) string {
@@ -146,6 +202,9 @@ func (engine *Engine) Do(ctx context.Context, request Request) (Response, error)
 	if engine == nil || engine.config.Gateway == nil {
 		return Response{}, fmt.Errorf("%w: missing policy gateway", ErrInvalidRequest)
 	}
+	if engine.configErr != nil {
+		return Response{}, fmt.Errorf("%w: %v", ErrInvalidRequest, engine.configErr)
+	}
 	if err := validateRequest(request, engine.config); err != nil {
 		return Response{}, fmt.Errorf("%w: %v", ErrInvalidRequest, err)
 	}
@@ -156,10 +215,25 @@ func (engine *Engine) Do(ctx context.Context, request Request) (Response, error)
 	if request.Source == "" {
 		request.Source = "http-engine/manual"
 	}
+	retryPolicy := requestRetryPolicy(request, engine.config)
+	for attempt := 1; attempt <= retryPolicy.MaxAttempts; attempt++ {
+		response, err := engine.doWithRedirects(ctx, request)
+		if attempt == retryPolicy.MaxAttempts || !retryPolicy.shouldRetry(response, err, request.Method) {
+			return response, err
+		}
+		if err := waitRetry(ctx, retryPolicy.backoff(attempt)); err != nil {
+			return response, err
+		}
+	}
+	return Response{}, ErrInvalidRequest
+}
+
+func (engine *Engine) doWithRedirects(ctx context.Context, request Request) (Response, error) {
 	current := request.URL
 	redirects := make([]string, 0)
+	maxRedirects := redirectLimit(request, engine.config)
 	for hop := 0; ; hop++ {
-		if hop > engine.config.MaxRedirects {
+		if hop > maxRedirects {
 			return Response{Redirects: redirects}, ErrRedirectLimit
 		}
 		response, location, err := engine.doOne(ctx, request, current, redirects)
@@ -172,12 +246,17 @@ func (engine *Engine) Do(ctx context.Context, request Request) (Response, error)
 		if location == "" {
 			return response, nil
 		}
-		if hop == engine.config.MaxRedirects {
+		if hop == maxRedirects {
 			return response, ErrRedirectLimit
 		}
 		next, err := responseURL(current, location)
 		if err != nil {
 			return response, fmt.Errorf("%w: %v", ErrRedirectDenied, err)
+		}
+		if request.RedirectValidator != nil {
+			if err := request.RedirectValidator(current, next); err != nil {
+				return response, fmt.Errorf("%w: %v", ErrRedirectDenied, err)
+			}
 		}
 		redirects = append(redirects, next)
 		current = next
@@ -197,6 +276,10 @@ func (engine *Engine) doOne(parent context.Context, request Request, rawURL stri
 			return Response{Redirects: redirects}, "", err
 		}
 	}
+	if err := engine.acquireRequestSlot(parent); err != nil {
+		return Response{Redirects: redirects}, "", err
+	}
+	defer engine.releaseRequestSlot()
 	addresses, err := engine.resolveAndValidate(parent, request.ProjectID, target)
 	if err != nil {
 		return Response{Redirects: redirects}, "", err
@@ -225,7 +308,7 @@ func (engine *Engine) doOne(parent context.Context, request Request, rawURL stri
 		return Response{Redirects: redirects}, "", err
 	}
 	defer native.Body.Close()
-	body, truncated, err := readBounded(native.Body, engine.config.MaxResponseBytes)
+	body, truncated, err := readBounded(native.Body, responseByteLimit(request, engine.config))
 	if err != nil {
 		return Response{Redirects: redirects}, "", err
 	}
@@ -278,11 +361,52 @@ func (engine *Engine) resolveAndValidate(ctx context.Context, projectID string, 
 }
 
 func validateRequest(request Request, config Config) error {
-	if strings.TrimSpace(request.ProjectID) == "" || strings.TrimSpace(request.Method) == "" || strings.TrimSpace(request.URL) == "" || request.Timeout < 0 || config.MaxResponseBytes < 1 || config.MaxResponseBytes > 16<<20 || config.MaxRedirects < 0 || config.MaxRedirects > 10 || config.RequestTimeout <= 0 {
+	if strings.TrimSpace(request.ProjectID) == "" || strings.TrimSpace(request.Method) == "" || strings.TrimSpace(request.URL) == "" || request.Timeout < 0 || request.MaxResponseBytes < 0 || request.MaxResponseBytes > 16<<20 || request.MaxRedirects != nil && (*request.MaxRedirects < 0 || *request.MaxRedirects > 10) || config.MaxConcurrentRequests < 1 || config.MaxConcurrentRequests > 50 || config.MaxResponseBytes < 1 || config.MaxResponseBytes > 16<<20 || config.MaxRedirects < 0 || config.MaxRedirects > 10 || config.RequestTimeout <= 0 || config.IdleConnTimeout <= 0 || config.IdleConnTimeout > 5*time.Minute || config.MaxIdleConns < 1 || config.MaxIdleConns > 256 || config.MaxIdleConnsPerHost < 1 || config.MaxIdleConnsPerHost > config.MaxIdleConns {
 		return errors.New("missing or out-of-bounds request configuration")
+	}
+	if err := config.RetryPolicy.validate(); err != nil {
+		return err
+	}
+	if request.RetryPolicy != nil {
+		return request.RetryPolicy.validate()
 	}
 	return nil
 }
+
+func requestRetryPolicy(request Request, config Config) RetryPolicy {
+	if request.RetryPolicy != nil {
+		return *request.RetryPolicy
+	}
+	return config.RetryPolicy
+}
+
+func responseByteLimit(request Request, config Config) int64 {
+	if request.MaxResponseBytes > 0 {
+		return request.MaxResponseBytes
+	}
+	return config.MaxResponseBytes
+}
+
+func redirectLimit(request Request, config Config) int {
+	if request.MaxRedirects != nil {
+		return *request.MaxRedirects
+	}
+	return config.MaxRedirects
+}
+
+func (engine *Engine) acquireRequestSlot(ctx context.Context) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case engine.requestSlots <- struct{}{}:
+		return nil
+	}
+}
+
+func (engine *Engine) releaseRequestSlot() {
+	<-engine.requestSlots
+}
+
 func timeoutFor(request Request, config Config) time.Duration {
 	if request.Timeout > 0 {
 		return request.Timeout
@@ -326,16 +450,38 @@ func (netResolver) Resolve(ctx context.Context, host string) ([]netip.Addr, erro
 
 type DestinationPolicy struct{ AllowPrivate bool }
 
+var reservedDestinationPrefixes = []netip.Prefix{
+	netip.MustParsePrefix("0.0.0.0/8"),
+	netip.MustParsePrefix("100.64.0.0/10"),
+	netip.MustParsePrefix("127.0.0.0/8"),
+	netip.MustParsePrefix("169.254.0.0/16"),
+	netip.MustParsePrefix("192.0.0.0/24"),
+	netip.MustParsePrefix("192.0.2.0/24"),
+	netip.MustParsePrefix("192.88.99.0/24"),
+	netip.MustParsePrefix("198.18.0.0/15"),
+	netip.MustParsePrefix("198.51.100.0/24"),
+	netip.MustParsePrefix("203.0.113.0/24"),
+	netip.MustParsePrefix("224.0.0.0/4"),
+	netip.MustParsePrefix("240.0.0.0/4"),
+	netip.MustParsePrefix("2001:db8::/32"),
+}
+
 func (policy DestinationPolicy) Validate(address netip.Addr) error {
 	address = address.Unmap()
 	if !address.IsValid() {
 		return ErrDestinationDenied
 	}
-	if !policy.AllowPrivate && (address.IsUnspecified() || address.IsLoopback() || address.IsLinkLocalUnicast() || address.IsLinkLocalMulticast() || address.IsMulticast() || address.IsPrivate() || address.Is4() && isCGNAT(address)) {
+	if !policy.AllowPrivate && (address.IsUnspecified() || address.IsLoopback() || address.IsLinkLocalUnicast() || address.IsLinkLocalMulticast() || address.IsMulticast() || address.IsPrivate() || isReservedDestination(address)) {
 		return ErrDestinationDenied
 	}
 	return nil
 }
-func isCGNAT(address netip.Addr) bool {
-	return netip.MustParsePrefix("100.64.0.0/10").Contains(address)
+
+func isReservedDestination(address netip.Addr) bool {
+	for _, prefix := range reservedDestinationPrefixes {
+		if prefix.Contains(address) {
+			return true
+		}
+	}
+	return false
 }

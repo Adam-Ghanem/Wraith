@@ -8,6 +8,9 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/Adam-Ghanem/Wraith/internal/httpengine"
+	"github.com/Adam-Ghanem/Wraith/internal/policy"
 )
 
 func TestBaselineComparisonFiltersSoft404sAndKeepsMeaningfulFindings(t *testing.T) {
@@ -48,7 +51,7 @@ func TestDiscoverUsesBoundedConcurrencyAndPerHostRate(t *testing.T) {
 	}))
 	defer server.Close()
 	config := Config{Concurrency: 2, PerHostPerSecond: 20, Timeout: time.Second, MaxBodyBytes: 1024, MaxRedirects: 5, Wordlist: []string{"a", "b", "c", "d"}}
-	findings, err := Discover(context.Background(), server.URL, config, server.Client())
+	findings, err := Discover(context.Background(), server.URL, config, "project-a", newContentTestClient())
 	if err != nil {
 		t.Fatalf("discover: %v", err)
 	}
@@ -82,4 +85,14 @@ func TestNormalizePathRejectsAbsoluteOrEscapingPaths(t *testing.T) {
 	if normalized, err := NormalizePath("admin"); err != nil || normalized != "/admin" {
 		t.Fatalf("normalize admin: %q %v", normalized, err)
 	}
+}
+
+func newContentTestClient() httpengine.Client {
+	return httpengine.NewEngine(httpengine.Config{Gateway: contentAllowGateway{}, DestinationPolicy: httpengine.DestinationPolicy{AllowPrivate: true}})
+}
+
+type contentAllowGateway struct{}
+
+func (contentAllowGateway) Authorize(_ context.Context, projectID string, target policy.Target, action policy.Action) (policy.Decision, error) {
+	return policy.Decision{Allowed: true, ProjectID: projectID, Target: target, Action: action}, nil
 }

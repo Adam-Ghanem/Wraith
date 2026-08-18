@@ -39,7 +39,7 @@ The parser rejects whitespace, userinfo, non-HTTP URL schemes, percent-encoded h
 
 ## Redirects, SSRF, and DNS rebinding
 
-R1 introduces `OutboundTargetGateway`, currently an authorization-only seam over `PolicyEvaluator`. A redirect destination has no inherited approval: every redirect target must call `Authorize` independently. Likewise, the hostname decision and a later resolved IP decision are distinct inputs. R3 must reauthorize every resolved destination immediately before connection and introduce DNS resolution pinning/private-reserved-address policy in the transport layer.
+R1 introduces `OutboundTargetGateway`, currently an authorization-only seam over `PolicyEvaluator`. A redirect destination has no inherited approval: every redirect target must call `Authorize` independently. Likewise, the hostname decision and a later resolved IP decision are distinct inputs. R3 now reauthorizes every resolved destination immediately before connection and supplies DNS resolution pinning/private-reserved-address policy in the migrated target-web
 
 This boundary deliberately does **not** claim that DNS rebinding or SSRF is solved in R1. The current result is architectural: future network code has a single policy contract and tests demonstrate that a hostname allow does not automatically authorize `127.0.0.1`, a redirect target, or an unrelated IP.
 

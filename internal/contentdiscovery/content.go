@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	pathpkg "path"
@@ -17,6 +16,7 @@ import (
 	"time"
 
 	"github.com/Adam-Ghanem/Wraith/internal/enum"
+	"github.com/Adam-Ghanem/Wraith/internal/httpengine"
 )
 
 type Config struct {
@@ -52,9 +52,7 @@ type Response struct {
 	Body       []byte
 }
 
-func (r Response) ResponseLength() int64 {
-	return int64(len(r.Body))
-}
+func (r Response) ResponseLength() int64 { return int64(len(r.Body)) }
 
 type Baseline struct {
 	StatusCode     int
@@ -113,7 +111,9 @@ func NormalizePath(raw string) (string, error) {
 	return cleaned, nil
 }
 
-func Discover(ctx context.Context, baseURL string, config Config, client *http.Client) ([]Finding, error) {
+// Discover compares bounded same-host paths through the shared R3 transport.
+// projectID is mandatory to keep every outbound request inside the R1 boundary.
+func Discover(ctx context.Context, baseURL string, config Config, projectID string, client httpengine.Client) ([]Finding, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
@@ -124,14 +124,14 @@ func Discover(ctx context.Context, baseURL string, config Config, client *http.C
 	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Hostname() == "" || parsed.User != nil {
 		return nil, errors.New("content base URL must use http or https and contain a hostname without userinfo")
 	}
+	if strings.TrimSpace(projectID) == "" || client == nil {
+		return nil, errors.New("project-scoped HTTP transport is required")
+	}
 	parsed.Path = "/"
 	parsed.RawPath = ""
 	parsed.RawQuery = ""
 	parsed.Fragment = ""
 	base := parsed.String()
-	if client == nil {
-		client = http.DefaultClient
-	}
 	limiter, err := enum.NewRateLimiter(config.PerHostPerSecond)
 	if err != nil {
 		return nil, err
@@ -144,7 +144,7 @@ func Discover(ctx context.Context, baseURL string, config Config, client *http.C
 	if err := limiter.Wait(ctx); err != nil {
 		return nil, fmt.Errorf("content baseline rate limit: %w", err)
 	}
-	baselineResponse, err := fetch(ctx, base, baselinePath, config, client)
+	baselineResponse, err := fetch(ctx, base, baselinePath, config, projectID, client)
 	if err != nil {
 		return nil, fmt.Errorf("content baseline request: %w", err)
 	}
@@ -181,7 +181,7 @@ func Discover(ctx context.Context, baseURL string, config Config, client *http.C
 				if err := limiter.Wait(ctx); err != nil {
 					continue
 				}
-				response, requestErr := fetch(ctx, base, paths[index], config, client)
+				response, requestErr := fetch(ctx, base, paths[index], config, projectID, client)
 				if requestErr != nil || !IsMeaningfulFinding(response, baseline) {
 					continue
 				}
@@ -211,7 +211,7 @@ func Discover(ctx context.Context, baseURL string, config Config, client *http.C
 	return findings, nil
 }
 
-func fetch(ctx context.Context, baseURL, requestPath string, config Config, client *http.Client) (Response, error) {
+func fetch(ctx context.Context, baseURL, requestPath string, config Config, projectID string, client httpengine.Client) (Response, error) {
 	parsedBase, err := url.Parse(baseURL)
 	if err != nil {
 		return Response{}, err
@@ -225,36 +225,28 @@ func fetch(ctx context.Context, baseURL, requestPath string, config Config, clie
 	requestURL.RawPath = ""
 	requestURL.RawQuery = ""
 	requestURL.Fragment = ""
-	requestCtx, cancel := context.WithTimeout(ctx, config.Timeout)
-	defer cancel()
-	requestClient := &http.Client{Transport: client.Transport, Jar: client.Jar, Timeout: client.Timeout}
-	redirects := 0
-	requestClient.CheckRedirect = func(next *http.Request, _ []*http.Request) error {
-		redirects++
-		if redirects > config.MaxRedirects {
-			return fmt.Errorf("redirect limit exceeded: %d", config.MaxRedirects)
-		}
-		if !strings.EqualFold(next.URL.Hostname(), parsedBase.Hostname()) {
-			return errors.New("redirect target outside authorized hostname boundary")
-		}
-		return nil
-	}
-	request, err := http.NewRequestWithContext(requestCtx, http.MethodGet, requestURL.String(), nil)
+	response, err := client.Do(ctx, httpengine.Request{
+		ProjectID:        projectID,
+		Method:           http.MethodGet,
+		URL:              requestURL.String(),
+		Headers:          http.Header{"User-Agent": []string{"Wraith/Phase3-authorized-content"}},
+		Timeout:          config.Timeout,
+		MaxResponseBytes: config.MaxBodyBytes,
+		MaxRedirects:     &config.MaxRedirects,
+		Source:           "phase3/content-discovery",
+		RedirectValidator: func(_, nextURL string) error {
+			next, parseErr := url.Parse(nextURL)
+			if parseErr != nil || !strings.EqualFold(next.Hostname(), parsedBase.Hostname()) {
+				return errors.New("redirect target outside authorized hostname boundary")
+			}
+			return nil
+		},
+	})
 	if err != nil {
 		return Response{}, err
 	}
-	request.Header.Set("User-Agent", "Wraith/Phase3-authorized-content")
-	response, err := requestClient.Do(request)
-	if err != nil {
-		return Response{}, err
-	}
-	defer response.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(response.Body, config.MaxBodyBytes+1))
-	if err != nil {
-		return Response{}, err
-	}
-	if int64(len(body)) > config.MaxBodyBytes {
+	if response.Truncated {
 		return Response{}, errors.New("content response exceeded body-size limit")
 	}
-	return Response{StatusCode: response.StatusCode, Body: body}, nil
+	return Response{StatusCode: response.StatusCode, Body: response.Body}, nil
 }

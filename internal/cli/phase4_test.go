@@ -12,7 +12,7 @@ import (
 )
 
 func TestParseScanOptionsAcceptsPhase4Flags(t *testing.T) {
-	options, err := parseScanOptions([]string{"scan", "-d", "example.com", "--authorized", "--use-nmap", "--use-nuclei"})
+	options, err := parseScanOptions([]string{"scan", "-d", "example.com", "--project", "project-a", "--authorized", "--use-nmap", "--use-nuclei"})
 	if err != nil {
 		t.Fatalf("parse Phase 4 flags: %v", err)
 	}

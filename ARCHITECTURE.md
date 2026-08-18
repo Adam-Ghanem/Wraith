@@ -1,18 +1,19 @@
 # Wraith Architecture Audit
 
-**Audit status:** Baseline assessment of the Phase 1–6 implementation, with R1 Policy Core and R2 Web Evidence addenda on their respective feature branches. This document distinguishes implemented boundary contracts from later proposed subsystems.
+**Audit status:** Baseline assessment of the Phase 1–6 implementation with R1 Policy Core, R2 Web Evidence, and R3 Unified HTTP Engine addenda on their respective feature branches. This document distinguishes implemented boundary contracts from later proposed subsystems.
 
 ## Executive architecture summary
 
-Wraith is currently a **local-first Go CLI with an embedded SQLite scan ledger, R1 policy package, R2 canonical web-evidence package, and static React fixture viewer**. Its direction is a modular, scriptable Web and API security toolkit—not a hosted multi-user product. R1 adds a non-networking, fail-closed policy decision boundary; R2 adds a non-networking canonical asset and append-only evidence model. Existing collectors are not yet wired through either new boundary. A REST API, enterprise tenancy/RBAC, scheduler, queue, worker fleet, remote dashboard backend, PostgreSQL, Redis, cloud control plane, and AI subsystem remain out of scope.
+Wraith is currently a **local-first Go CLI with an embedded SQLite scan ledger, R1 policy package, R2 canonical web-evidence package, R3 policy-aware HTTP(S) transport, and static React fixture viewer**. Its direction is a modular, scriptable Web and API security toolkit—not a hosted multi-user product. R1 supplies a non-networking, fail-closed policy decision boundary; R2 supplies canonical asset and append-only evidence records; R3 moves Phase 2–3 target-web collectors through the evaluated transport. A REST API, enterprise tenancy/RBAC, scheduler, queue, worker fleet, remote dashboard backend, PostgreSQL, Redis, cloud control plane, and AI subsystem remain out of scope.
 
 | Layer | Current implementation | Important boundary |
 | --- | --- | --- |
 | CLI | `discover`, `scan`, `history`, `export-fixtures`, and `version` dispatch through `internal/cli`. | Active workflows require operator-supplied authorization flags; no remote API command surface exists. |
-| Policy | `internal/policy` evaluates immutable project scope versions with target normalization, allow/deny rules, expiry/revocation, and decision traces. | The evaluator has no network I/O. Existing collectors have not yet been migrated to it; that transport work remains R3. |
-| Evidence | `internal/evidence` canonicalizes URLs and models project-local assets, endpoints, parameters, and typed immutable observations. | It has no network I/O and does not claim findings; R3 must create its observations only after centralized egress validation. |
+| Policy | `internal/policy` evaluates immutable project scope versions with target normalization, allow/deny rules, expiry/revocation, and decision traces. | The evaluator has no network I/O; R3 invokes it for every migrated HTTP target and resolved connection address. |
+| Evidence | `internal/evidence` canonicalizes URLs and models project-local assets, endpoints, parameters, and typed immutable observations. | R3 emits redacted HTTP metadata only after centralized egress validation. |
+| HTTP transport | `internal/httpengine` provides project-scoped HTTP(S), manual redirects, resolver pinning, destination safety, bounded reads, local pacing/concurrency, retries, explicit proxying, and reusable connections. | Target-web collectors must use this boundary; provider APIs and subprocesses remain explicit exceptions pending their own designs. |
 | Local discovery | Linux-first interface/CIDR validation, bounded ARP candidates, curated TCP checks, and limited metadata. | Phase 1 rejects public CIDRs and requires an explicit selected local IPv4 boundary. |
-| Domain/web collection | Certificate-transparency/DNS enumeration, bounded HTTP probing, content discovery, and JavaScript analysis. | Existing policy requires an explicitly authorized domain/origin and treats output-derived targets as untrusted. |
+| Domain/web collection | Certificate-transparency/DNS enumeration, bounded HTTP probing, content discovery, and JavaScript analysis. | `scan --project` routes target-web probes, paths, and scripts through R3; output-derived targets remain untrusted. |
 | Optional enrichment | Nmap and Nuclei wrappers. | Both are opt-in, optional external binaries; they do not become enabled by discovery output. |
 | Persistence | SQLite through `modernc.org/sqlite`, embedded SQL migrations, and per-scan findings. | Single-user local storage; no encrypted-at-rest, remote, or tenant-aware data service. |
 | History | Pure in-memory NEW/REMOVED/CHANGED diff functions over persisted scan snapshots. | Current finding-level diffs are presence-oriented and are not an asset graph or risk engine. |
@@ -30,6 +31,7 @@ internal/
 	├── config             local IPv4 scope validation and limits
 		├── policy             R1 target normalization, scope evaluation, and outbound authorization seam
 		├── evidence           R2 canonical web identities and typed immutable observations
+		├── httpengine         R3 controlled HTTP(S) transport and resource controls
   ├── discovery          Linux ARP/interface behavior
   ├── ports, probe       bounded TCP and HTTP probing
   ├── enum               certificate/DNS and optional VirusTotal enumeration
@@ -48,7 +50,7 @@ docs/, README.md, SECURITY.md
   └── scope, responsible use, Phase implementation records, release, support, and threat documentation
 ```
 
-The current database schema has three embedded migrations and first-class tables for scans, devices, subdomains, content findings, JavaScript findings, port findings, and Nuclei findings. This is a solid evidence ledger for the implemented CLI, but it is not yet a unified asset model.
+The current database schema has five embedded migrations and first-class tables for scans, devices, subdomains, content findings, JavaScript findings, port findings, Nuclei findings, policy scopes, and R2 evidence. This is a solid evidence ledger for the implemented CLI, but it is not yet a unified asset model.
 
 ## Current control flow
 
@@ -116,7 +118,7 @@ Wraith application boundary
 | Contract | Why it is needed | Must be true before an implementation is enabled |
 | --- | --- | --- |
 | `PolicyEvaluator` | Replaces a future scalar authorization gate with evaluated project/domain/CIDR/URL/port policy. | **R1 implemented:** deterministic deny-overrides-allow logic, expiry/revocation, decision trace, SQLite scope version persistence, and parser/security tests exist. Existing scanners still preserve their original behavior. |
-| `OutboundTargetGateway` | Centralizes every future outbound network request. | **R1 seam implemented:** redirect and resolved destinations must be independently authorized. DNS rebinding defense, private/reserved-address policy, redirect transport revalidation, rate limits, and budgets remain R3 work. |
+| `OutboundTargetGateway` | Centralizes every future outbound network request. | **R3 implemented for target-web collectors:** request and resolved-address authorization, pinned resolution, private/reserved filtering, manual redirect reauthorization, bounded resources, and explicit proxy routing are enforced. Provider/subprocess adapters remain separate exceptions. |
 | `Observation` | Normalizes raw collection facts without converting them into conclusions. | **R2 implemented:** stable project-local subject identity, source, UTC observation time, bounded typed payload, append-only ID, and sensitive-header redaction. Run linkage and retention classification remain later work. |
 | `Finding` | Represents an analyst-visible conclusion separately from raw observation. | Severity, confidence, rule/source version, evidence reference, and lifecycle semantics are explicit; version strings alone cannot become confirmed vulnerabilities. |
 | `Job` | Makes later scheduling/worker execution cancellable and auditable. | Immutable scope snapshot, authorization record, resource budget, requester identity, status, cancellation, and idempotency contract exist. |

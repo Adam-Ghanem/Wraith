@@ -1,6 +1,6 @@
 # Wraith CLI-First Web Pentesting Toolkit Roadmap
 
-**Status:** CLI-first incremental roadmap. R1 Policy Core and R2 Web Evidence are implemented on separate feature branches and remain unmerged at the time of this update. The roadmap deliberately prevents a bounded local tool from becoming an unsafe scanner fleet or an unnecessary SaaS platform through a single rewrite.
+**Status:** CLI-first incremental roadmap. R1 Policy Core, R2 Web Evidence, and R3 Unified HTTP Engine are implemented on separate feature branches and remain unmerged at the time of this update. The roadmap deliberately prevents a bounded local tool from becoming an unsafe scanner fleet or an unnecessary SaaS platform through a single rewrite.
 
 ## Product direction
 
@@ -23,7 +23,7 @@ Every future stage must preserve these non-negotiable rules:
 | R0 — Audit baseline | Architecture, technical debt, roadmap, and platform threat model. | No | The present documents are reviewed and accepted. |
 | R1 — Policy core | Versioned project scope, allow/deny rules, authorization records, and deterministic target evaluator. | No | **Implemented on feature branch:** domain/CIDR/URL/port matching, normalized targets, expiry, revocation, project isolation, deny precedence, redirect/post-resolution design tests, fuzzing, and SQLite persistence. Existing scanners remain unchanged. |
 | R2 — Web evidence / asset model | Canonical web asset identity, endpoints, parameters, typed observations, provenance, and migration/import plan. | No | **Implemented on feature branch:** project-isolated canonical URL/JavaScript assets, endpoint and parameter identities, append-only typed HTTP/technology/JS/API observations, sensitive-header redaction, SQLite persistence, migration compatibility tests, fuzzing, and benchmarks. No risk or vulnerability claim is fabricated. |
-| R3 — Unified HTTP engine | Central outbound HTTP transport, R1 enforcement, DNS destination validation, redirect reauthorization, budgets, and source interface. | Not beyond existing paths | Existing web paths move through one policy-aware engine and tests prove redirects/private targets cannot bypass it. |
+| R3 — Unified HTTP engine | Central outbound HTTP transport, R1 enforcement, DNS destination validation, redirect reauthorization, budgets, and source interface. | Not beyond existing paths | **Implemented on feature branch:** Phase 2–3 target-web paths use one project-scoped engine with pinned resolution, destination checks, redacted R2 observations, reusable connections, local rate/concurrency bounds, safe retries, and explicit proxy controls. |
 | R4 — Web crawler | Bounded, same-policy link/form/script/redirect/sitemap collection. | Approved bounded HTTP only | Canonical deduplication, budgets, fixtures, and redirect/DNS policy tests pass. |
 | R5 — Endpoint discovery | Method, path, and parameter extraction from existing evidence/crawl results. | No new protocol | Every subject is canonical, deduplicated, and project-scoped. |
 | R6 — JS and API intelligence | JavaScript, OpenAPI, and safe GraphQL evidence analysis. | Approved bounded HTTP only | Potential secrets remain redacted and evidence is not misrepresented as findings. |
@@ -49,7 +49,7 @@ The next code change after audit was **R1 — Policy core**, not a REST API, cra
 | Test corpus | Wildcards, suffix confusion, punycode/normalization, IPv4/IPv6, CIDR boundaries, port cases, URL parsing, redirects, DNS-rebinding fixtures, and expired/revoked authorization records. |
 | Compatibility boundary | Existing Phase 1–4 commands preserve their documented behavior until a reviewed migration adopts the new policy core. |
 
-R1 does not mark the egress boundary complete: transport-level DNS validation, resolution pinning, private/reserved-address policy, redirect handling, request budgets, and migration of existing collectors remain **R3** work. R2 remains the recommended next implementation slice because an asset/observation model can be added without expanding active network behavior.
+R1 did not mark the egress boundary complete: transport-level DNS validation, resolution pinning, private/reserved-address policy, redirect handling, request budgets, and migration of target-web collectors became **R3** work. R3 now completes that boundary for probe, content discovery, and JavaScript analysis; provider APIs and optional subprocesses remain deliberate exceptions requiring their own scoped adapters.
 
 ## Deferred module plans
 

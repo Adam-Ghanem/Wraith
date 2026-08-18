@@ -9,6 +9,6 @@
 - [x] Observe the actual GitHub Actions result and report whether CI ran and passed (run 32073773616 on commit 92773ff passed).
 - [x] Implement R1 Policy Core: project-scoped, deterministic, fail-closed authorization with normalization, deny precedence, expiry/revocation, SQLite persistence, outbound gateway seam, and security test coverage; no scanner changes.
 - [x] Implement R2 Web Evidence / Asset Model: project-scoped canonical assets and immutable observations with SQLite persistence, repository contracts, migration compatibility, fuzzing, benchmarks, and no network engine or scanner expansion.
-- [ ] Implement R3 Unified HTTP Engine: policy-aware, destination-safe bounded HTTP(S) transport with controlled resolution/dialing, redirect reauthorization, R2 observation emission, minimal CLI validation, and local fixture coverage; stop before R4.
-- [ ] Complete R3 hardening: persistent transport lifecycle, bounded rate/retry/proxy contracts, full legacy collector migration review with documented decisions, completion tests, benchmarks, and security review; do not start R4.
-- [ ] Finish R3 proxy integration and document or migrate every legacy HTTP collector through the approved shared-engine boundary before declaring R3 complete.
+- [x] Implement R3 Unified HTTP Engine: policy-aware, destination-safe bounded HTTP(S) transport with controlled resolution/dialing, redirect reauthorization, R2 observation emission, project-aware CLI validation, and local fixture coverage; stop before R4.
+- [x] Complete R3 hardening: persistent transport lifecycle, bounded rate/retry/proxy contracts, reviewed legacy collector migration decisions, completion tests, benchmarks, fuzzing, and security review; do not start R4.
+- [x] Finish R3 proxy integration and migrate target-web collectors through the approved shared-engine boundary; document provider and subprocess exceptions separately.

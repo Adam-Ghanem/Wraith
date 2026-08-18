@@ -33,13 +33,15 @@ func (d *fakeDialer) DialContext(_ context.Context, _, address string) (net.Conn
 		d.maxActive = d.active
 	}
 	d.mu.Unlock()
+	defer func() {
+		d.mu.Lock()
+		d.active--
+		d.mu.Unlock()
+	}()
 
 	portText := address[strings.LastIndex(address, ":")+1:]
 	port, _ := strconv.ParseUint(portText, 10, 16)
 	if uint16(port) != d.openPort {
-		d.mu.Lock()
-		d.active--
-		d.mu.Unlock()
 		return nil, errors.New("connection refused")
 	}
 
@@ -47,9 +49,6 @@ func (d *fakeDialer) DialContext(_ context.Context, _, address string) (net.Conn
 	go func() {
 		_, _ = server.Write([]byte(d.writeBanner))
 		_ = server.Close()
-		d.mu.Lock()
-		d.active--
-		d.mu.Unlock()
 	}()
 	return client, nil
 }

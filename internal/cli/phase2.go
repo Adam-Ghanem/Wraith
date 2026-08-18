@@ -15,6 +15,7 @@ import (
 const DefaultDatabasePath = "wraith.db"
 
 type ScanOptions struct {
+	ProjectID            string
 	Domain               string
 	DatabasePath         string
 	Authorized           bool
@@ -22,6 +23,7 @@ type ScanOptions struct {
 	Verbose              bool
 	DNSConcurrency       int
 	DNSRate              int
+	WebRate              int
 	DNSTimeout           time.Duration
 	Web                  probe.WebConfig
 	SkipContentDiscovery bool
@@ -47,6 +49,7 @@ func parseScanOptions(args []string) (ScanOptions, error) {
 	domainText := ""
 	fs.StringVar(&domainText, "d", "", "authorized domain to enumerate")
 	fs.StringVar(&domainText, "domain", "", "authorized domain to enumerate")
+	projectID := fs.String("project", "", "R1 project identifier")
 	databasePath := fs.String("db", DefaultDatabasePath, "SQLite database path")
 	authorized := fs.Bool("authorized", false, "confirm ownership or explicit authorization")
 	jsonOutput := fs.Bool("json", false, "emit JSON output")
@@ -55,6 +58,7 @@ func parseScanOptions(args []string) (ScanOptions, error) {
 	fs.BoolVar(&verbose, "v", false, "enable structured diagnostic logging")
 	dnsConcurrency := fs.Int("dns-concurrency", 10, "maximum concurrent DNS resolutions")
 	dnsRate := fs.Int("dns-rate", 20, "maximum DNS resolutions per second")
+	webRate := fs.Int("web-rate", 20, "maximum R3 target-web requests per second")
 	dnsTimeout := fs.Duration("dns-timeout", 3*time.Second, "DNS resolution timeout")
 	webConcurrency := fs.Int("web-concurrency", 20, "maximum concurrent HTTP probes")
 	webTimeout := fs.Duration("web-timeout", 5*time.Second, "HTTP probe timeout")
@@ -73,6 +77,9 @@ func parseScanOptions(args []string) (ScanOptions, error) {
 	if !*authorized {
 		return ScanOptions{}, errors.New("scan requires explicit authorization; use --authorized only for a domain you own or are authorized to test")
 	}
+	if strings.TrimSpace(*projectID) == "" {
+		return ScanOptions{}, errors.New("scan requires an R1 project identifier; use --project PROJECT")
+	}
 	if strings.TrimSpace(*databasePath) == "" {
 		return ScanOptions{}, errors.New("database path is required")
 	}
@@ -84,8 +91,8 @@ func parseScanOptions(args []string) (ScanOptions, error) {
 	if err := webConfig.Validate(); err != nil {
 		return ScanOptions{}, err
 	}
-	options := ScanOptions{Domain: domain, DatabasePath: *databasePath, Authorized: *authorized, JSON: *jsonOutput, Verbose: verbose, DNSConcurrency: *dnsConcurrency, DNSRate: *dnsRate, DNSTimeout: *dnsTimeout, Web: webConfig, SkipContentDiscovery: *skipContentDiscovery, SkipJSAnalysis: *skipJSAnalysis, UseNmap: *useNmap, UseNuclei: *useNuclei}
-	if options.DNSConcurrency < 1 || options.DNSConcurrency > 50 || options.DNSRate < 1 || options.DNSRate > 20 || options.DNSTimeout <= 0 || options.DNSTimeout > 30*time.Second {
+	options := ScanOptions{ProjectID: strings.TrimSpace(*projectID), Domain: domain, DatabasePath: *databasePath, Authorized: *authorized, JSON: *jsonOutput, Verbose: verbose, DNSConcurrency: *dnsConcurrency, DNSRate: *dnsRate, WebRate: *webRate, DNSTimeout: *dnsTimeout, Web: webConfig, SkipContentDiscovery: *skipContentDiscovery, SkipJSAnalysis: *skipJSAnalysis, UseNmap: *useNmap, UseNuclei: *useNuclei}
+	if options.DNSConcurrency < 1 || options.DNSConcurrency > 50 || options.DNSRate < 1 || options.DNSRate > 20 || options.WebRate < 1 || options.WebRate > 20 || options.DNSTimeout <= 0 || options.DNSTimeout > 30*time.Second {
 		return ScanOptions{}, errors.New("DNS options are outside bounded Phase 2 limits")
 	}
 	return options, nil

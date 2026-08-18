@@ -31,7 +31,7 @@ Most reconnaissance tools optimize for reach. Wraith is intentionally narrow: ea
 | Phase | Status | What it provides | Important boundary |
 | --- | --- | --- | --- |
 | 1 | Implemented | Linux-first local IPv4 discovery, bounded ARP candidates, curated TCP connect checks, and read-only metadata | Explicit interface/CIDR only; local-network scope; no public-target discovery |
-| 2–3 | Implemented | Authorized domain reconnaissance, bounded probing, persistence/diffs, content discovery, and JavaScript analysis | Every `scan` and `history` requires `--authorized`; potential secrets are redacted and never validated |
+| 2–3 + R3 transport | Implemented on feature branch | Authorized domain reconnaissance, bounded probing, persistence/diffs, content discovery, JavaScript analysis, and project-scoped HTTP transport | Every target-web `scan` requires `--authorized --project`; R1 authorizes every migrated HTTP target/resolved address and potential secrets remain redacted |
 | 4 | Implemented | Optional Nmap and Nuclei enrichment wrappers | Opt-in only; same-scan targets only; no arbitrary target injection, exploitation, fuzzing, or DAST modes |
 | 5 | Implemented | Static, read-only evidence dashboard backed by local JSON fixtures | No backend, live database connection, network polling, authentication, or write actions |
 | 6 | Implemented | Blocking CI, reproducible build metadata, checksums, dependency review, MIT licensing, disclosure, threat model, and support guidance | Release artifacts are checksummed, **not signed** |
@@ -83,7 +83,7 @@ For JSON output, use `--format json` or the compatible `--json` alias. Use `-v` 
 <details>
 <summary><strong>Phase 2–3 — authorized web reconnaissance, content discovery, and JavaScript analysis</strong></summary>
 
-Phase 2 and Phase 3 provide a bounded workflow for domains that the operator owns or is explicitly authorized to test. Every `scan` and `history` operation requires the `--authorized` self-attestation gate; Wraith does not technically verify ownership or permission. All network activity remains bounded by timeout, concurrency, rate, response-size, redirect, and persistence controls.
+Phase 2 and Phase 3 provide a bounded workflow for domains that the operator owns or is explicitly authorized to test. Every `scan` requires `--authorized --project PROJECT` and an active R1 scope in the selected SQLite database; `history` remains a local read-only command with `--authorized`. Wraith does not technically verify ownership or permission. Migrated target-web activity is bounded by timeout, concurrency, rate, response-size, redirect, retry, TLS, destination, and persistence controls.
 
 | Capability | Boundary |
 | --- | --- |
@@ -97,8 +97,8 @@ Phase 2 and Phase 3 provide a bounded workflow for domains that the operator own
 Run an authorized scan and retain it locally:
 
 ```bash
-./bin/wraith scan -d example.com --authorized --db wraith.db
-./bin/wraith scan -d example.com --authorized --json --db wraith.db > scan.json
+./bin/wraith scan -d example.com --project project-a --authorized --db wraith.db
+./bin/wraith scan -d example.com --project project-a --authorized --json --db wraith.db > scan.json
 ./bin/wraith history -d example.com --authorized --db wraith.db
 ```
 
@@ -107,8 +107,8 @@ The default database is `wraith.db` in the current directory. VirusTotal is opti
 Content discovery and JavaScript analysis run by default after Phase 2 HTTP probing. Disable them independently with `--skip-content-discovery` or `--skip-js-analysis`.
 
 ```bash
-./bin/wraith scan -d example.com --authorized --db wraith.db --skip-content-discovery
-./bin/wraith scan -d example.com --authorized --db wraith.db --skip-js-analysis
+./bin/wraith scan -d example.com --project project-a --authorized --db wraith.db --skip-content-discovery
+./bin/wraith scan -d example.com --project project-a --authorized --db wraith.db --skip-js-analysis
 ```
 
 Potential-secret findings are pattern matches only. They are always labeled `potential`, shown in redacted form, and never validated, used, or exfiltrated. A finding may be a false positive; handle any suspected credential through an authorized incident-response process without giving Wraith the value.
@@ -118,12 +118,12 @@ Potential-secret findings are pattern matches only. They are always labeled `pot
 <details>
 <summary><strong>Phase 4 — optional Nmap and Nuclei enrichment</strong></summary>
 
-Phase 4 adds two opt-in enrichment wrappers for an authorized `wraith scan`. Both flags are off by default and require the existing `--authorized` gate. Wraith passes only targets discovered and probed during the same scan; it does not accept arbitrary Nmap or Nuclei target injection.
+Phase 4 adds two opt-in enrichment wrappers for an authorized `wraith scan`. Both flags are off by default and require the existing `--authorized --project` scan gate. Wraith passes only targets discovered and probed during the same scan; it does not accept arbitrary Nmap or Nuclei target injection.
 
 ```bash
-./bin/wraith scan -d example.com --authorized --use-nmap --db wraith.db
-./bin/wraith scan -d example.com --authorized --use-nuclei --json --db wraith.db > scan-with-vulns.json
-./bin/wraith scan -d example.com --authorized --use-nmap --use-nuclei --db wraith.db
+./bin/wraith scan -d example.com --project project-a --authorized --use-nmap --db wraith.db
+./bin/wraith scan -d example.com --project project-a --authorized --use-nuclei --json --db wraith.db > scan-with-vulns.json
+./bin/wraith scan -d example.com --project project-a --authorized --use-nmap --use-nuclei --db wraith.db
 ```
 
 When installed, Nmap uses the conservative TCP-connect profile `-sT -n -Pn -T3 --top-ports 1000 --max-retries 2 --open -oX -`. Wraith deliberately does not enable `-A`, OS detection, service-version detection, NSE scripts, UDP scanning, or aggressive timing. Each discovered IP target has a five-minute context timeout, and XML output is parsed with a bounded output limit.

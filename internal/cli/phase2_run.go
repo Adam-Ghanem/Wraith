@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"net/http"
 	"os"
 	"text/tabwriter"
 	"time"
@@ -15,7 +14,9 @@ import (
 	"github.com/Adam-Ghanem/Wraith/internal/buildinfo"
 	"github.com/Adam-Ghanem/Wraith/internal/contentdiscovery"
 	"github.com/Adam-Ghanem/Wraith/internal/enum"
+	"github.com/Adam-Ghanem/Wraith/internal/httpengine"
 	"github.com/Adam-Ghanem/Wraith/internal/jsanalysis"
+	"github.com/Adam-Ghanem/Wraith/internal/policy"
 	"github.com/Adam-Ghanem/Wraith/internal/portscan"
 	"github.com/Adam-Ghanem/Wraith/internal/probe"
 	"github.com/Adam-Ghanem/Wraith/internal/storage"
@@ -58,6 +59,16 @@ func runScan(ctx context.Context, args []string, stdout, stderr io.Writer) error
 		logger.Error("migrate Phase 2 database failed", "error", err)
 		return err
 	}
+	engine := httpengine.NewEngine(httpengine.Config{
+		Gateway:               policy.NewGateway(policy.NewEvaluator(database)),
+		ObservationSink:       sqliteObservationSink{repository: database},
+		RateLimiter:           httpengine.NewRateLimiter(time.Second / time.Duration(options.WebRate)),
+		MaxConcurrentRequests: options.Web.Concurrency,
+		MaxResponseBytes:      5 << 20,
+		MaxRedirects:          options.Web.MaxRedirects,
+		RequestTimeout:        options.Web.Timeout,
+	})
+	defer engine.CloseIdleConnections()
 	vtKey := os.Getenv("VT_API_KEY")
 	enumerator := enum.Enumerator{
 		CRT: enum.CRTSource{Timeout: 10 * time.Second},
@@ -76,14 +87,14 @@ func runScan(ctx context.Context, args []string, stdout, stderr io.Writer) error
 			logger.Warn("enumeration source failed; continuing", "source", sourceError.Source, "error", sourceError.Err)
 		}
 	}
-	webResults := probe.ProbeSubdomains(ctx, enumNames(enumResults), options.Web, http.DefaultClient)
+	webResults := probe.ProbeSubdomains(ctx, enumNames(enumResults), options.Web, options.ProjectID, engine)
 	records := mergeSubdomainRecords(options.Domain, enumResults, webResults, startedAt)
 	preferred := preferredWebResults(webResults)
 	contentFindings, jsFindings := make([]contentdiscovery.Finding, 0), make([]jsanalysis.Finding, 0)
 	for _, webResult := range preferred {
 		baseURL := webBaseURL(webResult)
 		if !options.SkipContentDiscovery {
-			findings, discoveryErr := contentdiscovery.Discover(ctx, baseURL, contentConfig(options), http.DefaultClient)
+			findings, discoveryErr := contentdiscovery.Discover(ctx, baseURL, contentConfig(options), options.ProjectID, engine)
 			if discoveryErr != nil {
 				logger.Warn("content discovery failed; continuing", "subdomain", webResult.Subdomain, "error", discoveryErr)
 			} else {
@@ -94,7 +105,7 @@ func runScan(ctx context.Context, args []string, stdout, stderr io.Writer) error
 			}
 		}
 		if !options.SkipJSAnalysis {
-			analysis, analysisErr := jsanalysis.AnalyzePage(ctx, webResult.Subdomain, baseURL, jsConfig(options), http.DefaultClient)
+			analysis, analysisErr := jsanalysis.AnalyzePage(ctx, webResult.Subdomain, baseURL, jsConfig(options), options.ProjectID, engine)
 			if analysisErr != nil {
 				logger.Warn("JavaScript analysis failed; continuing", "subdomain", webResult.Subdomain, "error", analysisErr)
 			} else {

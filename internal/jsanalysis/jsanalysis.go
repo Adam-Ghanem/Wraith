@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -14,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Adam-Ghanem/Wraith/internal/enum"
+	"github.com/Adam-Ghanem/Wraith/internal/httpengine"
 )
 
 type FindingType string
@@ -126,7 +126,6 @@ func ExtractFindings(sourceFile string, body []byte) []Finding {
 		}
 		seen[key] = struct{}{}
 		if kind == FindingTypeSecret {
-			// Secret values are pattern evidence only. Never log, validate, use, or persist the full match.
 			value = RedactSecret(value)
 		}
 		findings = append(findings, Finding{SourceFile: sourceFile, FindingType: kind, Value: value, Confidence: confidence})
@@ -165,16 +164,16 @@ func RedactSecret(value string) string {
 	return value[:4] + "…" + value[len(value)-4:]
 }
 
-func AnalyzeHTML(ctx context.Context, subdomain, pageURL string, htmlBody []byte, config Config, client *http.Client) (AnalysisResult, error) {
+func AnalyzeHTML(ctx context.Context, subdomain, pageURL string, htmlBody []byte, config Config, projectID string, client httpengine.Client) (AnalysisResult, error) {
 	if err := config.Validate(); err != nil {
 		return AnalysisResult{}, err
+	}
+	if strings.TrimSpace(projectID) == "" || client == nil {
+		return AnalysisResult{}, errors.New("project-scoped HTTP transport is required")
 	}
 	scriptURLs, err := ExtractScriptURLs(pageURL, htmlBody)
 	if err != nil {
 		return AnalysisResult{}, err
-	}
-	if client == nil {
-		client = http.DefaultClient
 	}
 	limiter, err := enum.NewRateLimiter(config.PerHostPerSecond)
 	if err != nil {
@@ -195,7 +194,7 @@ func AnalyzeHTML(ctx context.Context, subdomain, pageURL string, htmlBody []byte
 				if err := limiter.Wait(ctx); err != nil {
 					continue
 				}
-				body, fetchErr := fetchJS(ctx, scriptURLs[index], config, client)
+				body, fetchErr := fetchJS(ctx, scriptURLs[index], config, projectID, client)
 				if fetchErr != nil {
 					continue
 				}
@@ -236,55 +235,38 @@ func AnalyzeHTML(ctx context.Context, subdomain, pageURL string, htmlBody []byte
 	return AnalysisResult{Subdomain: subdomain, ScriptFiles: scriptURLs, Findings: findings}, nil
 }
 
-func fetchJS(ctx context.Context, rawURL string, config Config, client *http.Client) ([]byte, error) {
+func fetchJS(ctx context.Context, rawURL string, config Config, projectID string, client httpengine.Client) ([]byte, error) {
 	parsed, err := parseAuthorizedURL(rawURL)
 	if err != nil {
 		return nil, err
 	}
-	var lastErr error
-	for attempt := 0; attempt < 2; attempt++ {
-		requestCtx, cancel := context.WithTimeout(ctx, config.Timeout)
-		requestClient := &http.Client{Transport: client.Transport, Jar: client.Jar, Timeout: client.Timeout}
-		redirects := 0
-		requestClient.CheckRedirect = func(next *http.Request, _ []*http.Request) error {
-			redirects++
-			if redirects > 5 || !strings.EqualFold(next.URL.Hostname(), parsed.Hostname()) {
+	retryPolicy := httpengine.RetryPolicy{MaxAttempts: 2}
+	maxRedirects := 5
+	response, err := client.Do(ctx, httpengine.Request{
+		ProjectID:        projectID,
+		Method:           http.MethodGet,
+		URL:              rawURL,
+		Headers:          http.Header{"User-Agent": []string{"Wraith/Phase3-authorized-js"}},
+		Timeout:          config.Timeout,
+		MaxResponseBytes: config.MaxFileBytes,
+		MaxRedirects:     &maxRedirects,
+		RetryPolicy:      &retryPolicy,
+		Source:           "phase3/js-analysis",
+		RedirectValidator: func(_, nextURL string) error {
+			next, parseErr := url.Parse(nextURL)
+			if parseErr != nil || !strings.EqualFold(next.Hostname(), parsed.Hostname()) {
 				return errors.New("JS redirect outside bounded same-host policy")
 			}
 			return nil
-		}
-		request, requestErr := http.NewRequestWithContext(requestCtx, http.MethodGet, rawURL, nil)
-		if requestErr != nil {
-			cancel()
-			return nil, requestErr
-		}
-		request.Header.Set("User-Agent", "Wraith/Phase3-authorized-js")
-		response, requestErr := requestClient.Do(request)
-		if requestErr != nil {
-			cancel()
-			lastErr = requestErr
-			if attempt == 0 && isTimeout(requestErr) {
-				continue
-			}
-			return nil, requestErr
-		}
-		if response.ContentLength > config.MaxFileBytes {
-			response.Body.Close()
-			cancel()
-			return nil, errors.New("JS file exceeds size limit")
-		}
-		body, readErr := io.ReadAll(io.LimitReader(response.Body, config.MaxFileBytes+1))
-		response.Body.Close()
-		cancel()
-		if readErr != nil {
-			return nil, readErr
-		}
-		if int64(len(body)) > config.MaxFileBytes {
-			return nil, errors.New("JS file exceeds size limit")
-		}
-		return body, nil
+		},
+	})
+	if err != nil {
+		return nil, err
 	}
-	return nil, lastErr
+	if response.Truncated {
+		return nil, errors.New("JS file exceeds size limit")
+	}
+	return response.Body, nil
 }
 
 func parseAuthorizedURL(rawURL string) (*url.URL, error) {
@@ -295,24 +277,16 @@ func parseAuthorizedURL(rawURL string) (*url.URL, error) {
 	return parsed, nil
 }
 
-func isTimeout(err error) bool {
-	if errors.Is(err, context.DeadlineExceeded) {
-		return true
-	}
-	var networkErr interface{ Timeout() bool }
-	return errors.As(err, &networkErr) && networkErr.Timeout()
-}
-
-func AnalyzePage(ctx context.Context, subdomain, pageURL string, config Config, client *http.Client) (AnalysisResult, error) {
+func AnalyzePage(ctx context.Context, subdomain, pageURL string, config Config, projectID string, client httpengine.Client) (AnalysisResult, error) {
 	if err := config.Validate(); err != nil {
 		return AnalysisResult{}, err
 	}
-	if client == nil {
-		client = http.DefaultClient
+	if strings.TrimSpace(projectID) == "" || client == nil {
+		return AnalysisResult{}, errors.New("project-scoped HTTP transport is required")
 	}
-	body, err := fetchJS(ctx, pageURL, config, client)
+	body, err := fetchJS(ctx, pageURL, config, projectID, client)
 	if err != nil {
 		return AnalysisResult{}, fmt.Errorf("fetch HTML page: %w", err)
 	}
-	return AnalyzeHTML(ctx, subdomain, pageURL, body, config, client)
+	return AnalyzeHTML(ctx, subdomain, pageURL, body, config, projectID, client)
 }

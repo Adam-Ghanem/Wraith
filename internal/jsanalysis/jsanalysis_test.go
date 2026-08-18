@@ -7,6 +7,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/Adam-Ghanem/Wraith/internal/httpengine"
+	"github.com/Adam-Ghanem/Wraith/internal/policy"
 )
 
 func TestExtractScriptURLsResolvesRelativeReferences(t *testing.T) {
@@ -63,7 +66,7 @@ func TestAnalyzeHTMLDeduplicatesScriptsAndCapsFindings(t *testing.T) {
 	}))
 	defer server.Close()
 	config := Config{Concurrency: 2, PerHostPerSecond: 20, Timeout: time.Second, MaxFileBytes: 5 << 20, MaxFindings: 50}
-	result, err := AnalyzeHTML(context.Background(), "app.example.test", server.URL+"/", []byte(`<script src="/js/app.js"></script><script src="js/app.js"></script>`), config, server.Client())
+	result, err := AnalyzeHTML(context.Background(), "app.example.test", server.URL+"/", []byte(`<script src="/js/app.js"></script><script src="js/app.js"></script>`), config, "project-a", newJSTestClient())
 	if err != nil {
 		t.Fatalf("analyze HTML: %v", err)
 	}
@@ -95,4 +98,14 @@ func containsFinding(findings []Finding, kind FindingType, value, confidence str
 		}
 	}
 	return false
+}
+
+func newJSTestClient() httpengine.Client {
+	return httpengine.NewEngine(httpengine.Config{Gateway: jsAllowGateway{}, DestinationPolicy: httpengine.DestinationPolicy{AllowPrivate: true}})
+}
+
+type jsAllowGateway struct{}
+
+func (jsAllowGateway) Authorize(_ context.Context, projectID string, target policy.Target, action policy.Action) (policy.Decision, error) {
+	return policy.Decision{Allowed: true, ProjectID: projectID, Target: target, Action: action}, nil
 }

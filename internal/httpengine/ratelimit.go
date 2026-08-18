@@ -2,9 +2,12 @@ package httpengine
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"time"
 )
+
+var ErrInvalidRateLimiter = errors.New("invalid HTTP rate limiter")
 
 // RateLimiter spaces engine calls locally. It has no goroutine and always
 // honors cancellation while waiting for the next permitted request.
@@ -20,7 +23,7 @@ func NewRateLimiter(interval time.Duration) *RateLimiter {
 
 func (limiter *RateLimiter) Wait(ctx context.Context) error {
 	if limiter == nil || limiter.interval <= 0 {
-		return ctx.Err()
+		return ErrInvalidRateLimiter
 	}
 	limiter.mu.Lock()
 	now := time.Now()

@@ -3,7 +3,7 @@ package cli
 import "testing"
 
 func TestParseScanOptionsAcceptsPhase3SkipFlags(t *testing.T) {
-	options, err := parseScanOptions([]string{"scan", "-d", "example.com", "--authorized", "--skip-content-discovery", "--skip-js-analysis"})
+	options, err := parseScanOptions([]string{"scan", "-d", "example.com", "--project", "project-a", "--authorized", "--skip-content-discovery", "--skip-js-analysis"})
 	if err != nil {
 		t.Fatalf("parse Phase 3 flags: %v", err)
 	}

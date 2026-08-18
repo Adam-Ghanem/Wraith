@@ -10,11 +10,15 @@ func TestParseScanOptionsRequiresAuthorizationAndNormalizesDomain(t *testing.T) 
 	if err == nil || !strings.Contains(err.Error(), "authorized") {
 		t.Fatalf("expected authorization requirement, got %v", err)
 	}
-	options, err := parseScanOptions([]string{"scan", "-d", "Example.COM.", "--authorized", "--json", "--db", "/tmp/wraith-test.db"})
+	_, err = parseScanOptions([]string{"scan", "-d", "example.com", "--authorized"})
+	if err == nil || !strings.Contains(err.Error(), "project") {
+		t.Fatalf("expected project requirement, got %v", err)
+	}
+	options, err := parseScanOptions([]string{"scan", "-d", "Example.COM.", "--project", "project-a", "--authorized", "--json", "--db", "/tmp/wraith-test.db"})
 	if err != nil {
 		t.Fatalf("parse scan options: %v", err)
 	}
-	if options.Domain != "example.com" || !options.JSON || options.DatabasePath != "/tmp/wraith-test.db" {
+	if options.Domain != "example.com" || options.ProjectID != "project-a" || !options.JSON || options.DatabasePath != "/tmp/wraith-test.db" {
 		t.Fatalf("unexpected scan options: %+v", options)
 	}
 }

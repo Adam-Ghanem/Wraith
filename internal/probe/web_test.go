@@ -2,16 +2,15 @@ package probe
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/Adam-Ghanem/Wraith/internal/httpengine"
+	"github.com/Adam-Ghanem/Wraith/internal/policy"
 )
 
 func TestProbeURLCapturesRedirectAndReadOnlyMetadata(t *testing.T) {
@@ -29,7 +28,7 @@ func TestProbeURLCapturesRedirectAndReadOnlyMetadata(t *testing.T) {
 	}))
 	defer server.Close()
 
-	result, err := ProbeURL(context.Background(), server.URL+"/redirect", WebConfig{Concurrency: 1, Timeout: time.Second, MaxBodyBytes: 4096, MaxRedirects: 5}, server.Client())
+	result, err := ProbeURL(context.Background(), server.URL+"/redirect", WebConfig{Concurrency: 1, Timeout: time.Second, MaxBodyBytes: 4096, MaxRedirects: 5}, "project-a", newProbeTestClient())
 	if err != nil {
 		t.Fatalf("probe URL: %v", err)
 	}
@@ -50,29 +49,6 @@ func TestGuessTechnologyUsesHeadersAndMetaGenerator(t *testing.T) {
 	}
 }
 
-func TestProbeURLRetriesTimeoutOnceOnly(t *testing.T) {
-	var calls atomic.Int32
-	transport := roundTripFunc(func(*http.Request) (*http.Response, error) {
-		if calls.Add(1) == 1 {
-			return nil, timeoutError{}
-		}
-		return &http.Response{
-			StatusCode: http.StatusNoContent,
-			Header:     make(http.Header),
-			Body:       io.NopCloser(strings.NewReader("")),
-			Request:    &http.Request{URL: &url.URL{Scheme: "https", Host: "example.com"}},
-		}, nil
-	})
-	client := &http.Client{Transport: transport}
-	result, err := ProbeURL(context.Background(), "https://example.com", WebConfig{Concurrency: 1, Timeout: time.Second, MaxBodyBytes: 1024, MaxRedirects: 5}, client)
-	if err != nil {
-		t.Fatalf("probe URL after timeout retry: %v", err)
-	}
-	if calls.Load() != 2 || result.StatusCode != http.StatusNoContent {
-		t.Fatalf("expected one retry and success, calls=%d result=%+v", calls.Load(), result)
-	}
-}
-
 func TestWebConfigRejectsUnboundedValues(t *testing.T) {
 	cases := []WebConfig{
 		{Concurrency: 0, Timeout: time.Second, MaxBodyBytes: 1024, MaxRedirects: 5},
@@ -88,27 +64,24 @@ func TestWebConfigRejectsUnboundedValues(t *testing.T) {
 	}
 }
 
-type roundTripFunc func(*http.Request) (*http.Response, error)
-
-func (f roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) { return f(request) }
-
-type timeoutError struct{}
-
-func (timeoutError) Error() string   { return "timeout" }
-func (timeoutError) Timeout() bool   { return true }
-func (timeoutError) Temporary() bool { return true }
-
-var _ = errors.Is
-var _ = fmt.Sprint
-
 func TestProbeURLRejectsRedirectOutsideAuthorizedHostnameBoundary(t *testing.T) {
 	inside := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "http://outside.example.invalid/", http.StatusFound)
 	}))
 	defer inside.Close()
 
-	_, err := ProbeURL(context.Background(), inside.URL, WebConfig{Concurrency: 1, Timeout: time.Second, MaxBodyBytes: 1024, MaxRedirects: 5}, inside.Client())
+	_, err := ProbeURL(context.Background(), inside.URL, WebConfig{Concurrency: 1, Timeout: time.Second, MaxBodyBytes: 1024, MaxRedirects: 5}, "project-a", newProbeTestClient())
 	if err == nil || !strings.Contains(err.Error(), "authorized hostname") {
 		t.Fatalf("expected authorized-host redirect error, got %v", err)
 	}
+}
+
+func newProbeTestClient() httpengine.Client {
+	return httpengine.NewEngine(httpengine.Config{Gateway: probeAllowGateway{}, DestinationPolicy: httpengine.DestinationPolicy{AllowPrivate: true}})
+}
+
+type probeAllowGateway struct{}
+
+func (probeAllowGateway) Authorize(_ context.Context, projectID string, target policy.Target, action policy.Action) (policy.Decision, error) {
+	return policy.Decision{Allowed: true, ProjectID: projectID, Target: target, Action: action}, nil
 }
