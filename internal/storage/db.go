@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Adam-Ghanem/Wraith/internal/evidence"
 	"github.com/Adam-Ghanem/Wraith/internal/policy"
 	_ "modernc.org/sqlite"
 )
@@ -20,11 +21,12 @@ import (
 //go:embed migrations/*.sql
 var migrationFS embed.FS
 
-const CurrentSchemaVersion = 4
+const CurrentSchemaVersion = 5
 
 var (
-	ErrInvalidMigration         = errors.New("invalid storage migration")
-	ErrPolicyScopeVersionExists = errors.New("policy scope version already exists")
+	ErrInvalidMigration          = errors.New("invalid storage migration")
+	ErrPolicyScopeVersionExists  = errors.New("policy scope version already exists")
+	ErrEvidenceObservationExists = errors.New("evidence observation already exists")
 )
 
 type DB struct {
@@ -650,4 +652,146 @@ func parseRequiredPolicyTime(value string) (time.Time, error) {
 		return time.Time{}, err
 	}
 	return parsed.UTC(), nil
+}
+
+// UpsertWebAsset records one canonical project-local asset. Existing identity
+// rows are intentionally not overwritten because the asset identity is stable.
+func (db *DB) UpsertWebAsset(ctx context.Context, asset evidence.WebAsset) (evidence.WebAsset, error) {
+	if db == nil || db.sql == nil {
+		return evidence.WebAsset{}, errors.New("storage database is not initialized")
+	}
+	if strings.TrimSpace(asset.ProjectID) == "" || strings.TrimSpace(asset.Identity) == "" || strings.TrimSpace(asset.CanonicalURL) == "" || asset.CreatedAt.IsZero() {
+		return evidence.WebAsset{}, evidence.ErrInvalidAsset
+	}
+	if asset.Kind != evidence.AssetKindURL && asset.Kind != evidence.AssetKindJavaScript {
+		return evidence.WebAsset{}, evidence.ErrInvalidAsset
+	}
+	_, err := db.sql.ExecContext(ctx, `INSERT INTO web_assets(project_id, kind, identity, canonical_url, created_at) VALUES(?, ?, ?, ?, ?) ON CONFLICT(project_id, identity) DO NOTHING`, asset.ProjectID, asset.Kind, asset.Identity, asset.CanonicalURL, formatRequiredPolicyTime(asset.CreatedAt))
+	if err != nil {
+		return evidence.WebAsset{}, fmt.Errorf("upsert web asset: %w", err)
+	}
+	return asset, nil
+}
+
+func (db *DB) UpsertEndpoint(ctx context.Context, endpoint evidence.Endpoint) (evidence.Endpoint, error) {
+	if db == nil || db.sql == nil {
+		return evidence.Endpoint{}, errors.New("storage database is not initialized")
+	}
+	if strings.TrimSpace(endpoint.ProjectID) == "" || strings.TrimSpace(endpoint.Identity) == "" || strings.TrimSpace(endpoint.Method) == "" || strings.TrimSpace(endpoint.URL) == "" || endpoint.CreatedAt.IsZero() {
+		return evidence.Endpoint{}, evidence.ErrInvalidEndpoint
+	}
+	_, err := db.sql.ExecContext(ctx, `INSERT INTO web_endpoints(project_id, identity, method, url, created_at) VALUES(?, ?, ?, ?, ?) ON CONFLICT(project_id, identity) DO NOTHING`, endpoint.ProjectID, endpoint.Identity, endpoint.Method, endpoint.URL, formatRequiredPolicyTime(endpoint.CreatedAt))
+	if err != nil {
+		return evidence.Endpoint{}, fmt.Errorf("upsert endpoint: %w", err)
+	}
+	return endpoint, nil
+}
+
+func (db *DB) UpsertParameter(ctx context.Context, parameter evidence.Parameter) (evidence.Parameter, error) {
+	if db == nil || db.sql == nil {
+		return evidence.Parameter{}, errors.New("storage database is not initialized")
+	}
+	if strings.TrimSpace(parameter.ProjectID) == "" || strings.TrimSpace(parameter.Identity) == "" || strings.TrimSpace(parameter.EndpointIdentity) == "" || strings.TrimSpace(parameter.Name) == "" || parameter.CreatedAt.IsZero() {
+		return evidence.Parameter{}, evidence.ErrInvalidParameter
+	}
+	_, err := db.sql.ExecContext(ctx, `INSERT INTO endpoint_parameters(project_id, identity, endpoint_identity, location, name, created_at) VALUES(?, ?, ?, ?, ?, ?) ON CONFLICT(project_id, identity) DO NOTHING`, parameter.ProjectID, parameter.Identity, parameter.EndpointIdentity, parameter.Location, parameter.Name, formatRequiredPolicyTime(parameter.CreatedAt))
+	if err != nil {
+		return evidence.Parameter{}, fmt.Errorf("upsert endpoint parameter: %w", err)
+	}
+	return parameter, nil
+}
+
+// AppendObservation inserts immutable, typed evidence. Reusing an observation
+// ID is refused rather than overwriting evidence or silently changing history.
+func (db *DB) AppendObservation(ctx context.Context, observation evidence.Observation) error {
+	if db == nil || db.sql == nil {
+		return errors.New("storage database is not initialized")
+	}
+	if strings.TrimSpace(observation.ID) == "" || strings.TrimSpace(observation.ProjectID) == "" || strings.TrimSpace(observation.SubjectIdentity) == "" || strings.TrimSpace(observation.Source) == "" || observation.ObservedAt.IsZero() || !json.Valid(observation.Payload) {
+		return evidence.ErrInvalidEvidence
+	}
+	if len(observation.Payload) > 32<<10 {
+		return evidence.ErrInvalidEvidence
+	}
+	result, err := db.sql.ExecContext(ctx, `INSERT INTO evidence_observations(id, project_id, kind, subject_identity, source, observed_at, payload_json, redacted) VALUES(?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO NOTHING`, observation.ID, observation.ProjectID, observation.Kind, observation.SubjectIdentity, observation.Source, formatRequiredPolicyTime(observation.ObservedAt), string(observation.Payload), boolToInt(observation.Redacted))
+	if err != nil {
+		return fmt.Errorf("append evidence observation: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("read evidence observation insert result: %w", err)
+	}
+	if rows == 0 {
+		return ErrEvidenceObservationExists
+	}
+	return nil
+}
+
+func (db *DB) ListWebAssets(ctx context.Context, projectID string) ([]evidence.WebAsset, error) {
+	if db == nil || db.sql == nil {
+		return nil, errors.New("storage database is not initialized")
+	}
+	if strings.TrimSpace(projectID) == "" {
+		return nil, evidence.ErrInvalidAsset
+	}
+	rows, err := db.sql.QueryContext(ctx, `SELECT project_id, kind, identity, canonical_url, created_at FROM web_assets WHERE project_id = ? ORDER BY identity`, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("list web assets: %w", err)
+	}
+	defer rows.Close()
+	assets := make([]evidence.WebAsset, 0)
+	for rows.Next() {
+		var asset evidence.WebAsset
+		var createdAt string
+		if err := rows.Scan(&asset.ProjectID, &asset.Kind, &asset.Identity, &asset.CanonicalURL, &createdAt); err != nil {
+			return nil, fmt.Errorf("scan web asset: %w", err)
+		}
+		parsed, err := parseRequiredPolicyTime(createdAt)
+		if err != nil {
+			return nil, fmt.Errorf("decode web asset creation time: %w", err)
+		}
+		asset.CreatedAt = parsed
+		assets = append(assets, asset)
+	}
+	return assets, rows.Err()
+}
+
+func (db *DB) ListObservations(ctx context.Context, projectID, subjectIdentity string) ([]evidence.Observation, error) {
+	if db == nil || db.sql == nil {
+		return nil, errors.New("storage database is not initialized")
+	}
+	if strings.TrimSpace(projectID) == "" || strings.TrimSpace(subjectIdentity) == "" {
+		return nil, evidence.ErrInvalidEvidence
+	}
+	rows, err := db.sql.QueryContext(ctx, `SELECT id, project_id, kind, subject_identity, source, observed_at, payload_json, redacted FROM evidence_observations WHERE project_id = ? AND subject_identity = ? ORDER BY observed_at, id`, projectID, subjectIdentity)
+	if err != nil {
+		return nil, fmt.Errorf("list evidence observations: %w", err)
+	}
+	defer rows.Close()
+	observations := make([]evidence.Observation, 0)
+	for rows.Next() {
+		var observation evidence.Observation
+		var observedAt string
+		var payload string
+		var redacted int
+		if err := rows.Scan(&observation.ID, &observation.ProjectID, &observation.Kind, &observation.SubjectIdentity, &observation.Source, &observedAt, &payload, &redacted); err != nil {
+			return nil, fmt.Errorf("scan evidence observation: %w", err)
+		}
+		parsed, err := parseRequiredPolicyTime(observedAt)
+		if err != nil {
+			return nil, fmt.Errorf("decode evidence observation time: %w", err)
+		}
+		observation.ObservedAt = parsed
+		observation.Payload = json.RawMessage(payload)
+		observation.Redacted = redacted == 1
+		observations = append(observations, observation)
+	}
+	return observations, rows.Err()
+}
+
+func boolToInt(value bool) int {
+	if value {
+		return 1
+	}
+	return 0
 }

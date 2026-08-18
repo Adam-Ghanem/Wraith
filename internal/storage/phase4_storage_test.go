@@ -80,7 +80,7 @@ func TestPhase4MigrationUpgradesSchemaVersion2(t *testing.T) {
 	if err := db.Migrate(ctx); err != nil {
 		t.Fatalf("initial migrate: %v", err)
 	}
-	if _, err := db.sql.ExecContext(ctx, `DROP TABLE active_project_scopes; DROP TABLE scope_rules; DROP TABLE project_scope_versions; DROP TABLE port_findings; DROP TABLE vuln_findings; DELETE FROM schema_migrations WHERE version >= 3`); err != nil {
+	if _, err := db.sql.ExecContext(ctx, `DROP TABLE evidence_observations; DROP TABLE endpoint_parameters; DROP TABLE web_endpoints; DROP TABLE web_assets; DROP TABLE active_project_scopes; DROP TABLE scope_rules; DROP TABLE project_scope_versions; DROP TABLE port_findings; DROP TABLE vuln_findings; DELETE FROM schema_migrations WHERE version >= 3`); err != nil {
 		t.Fatalf("simulate schema version 2: %v", err)
 	}
 	if version := db.CurrentSchemaVersion(ctx); version != 2 {
