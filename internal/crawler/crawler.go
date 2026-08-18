@@ -39,9 +39,16 @@ type Error struct {
 	Message string `json:"message"`
 }
 type Result struct {
-	PagesDiscovered, PagesFetched, Endpoints, Parameters, Forms, JavaScriptAssets, APIReferences, Redirects int           `json:"pages_discovered"`
-	Errors                                                                                                  []Error       `json:"errors,omitempty"`
-	Duration                                                                                                time.Duration `json:"duration"`
+	PagesDiscovered  int           `json:"pages_discovered"`
+	PagesFetched     int           `json:"pages_fetched"`
+	Endpoints        int           `json:"endpoints"`
+	Parameters       int           `json:"parameters"`
+	Forms            int           `json:"forms"`
+	JavaScriptAssets int           `json:"javascript_assets"`
+	APIReferences    int           `json:"api_references"`
+	Redirects        int           `json:"redirects"`
+	Errors           []Error       `json:"errors,omitempty"`
+	Duration         time.Duration `json:"duration"`
 }
 
 type Crawler struct {
