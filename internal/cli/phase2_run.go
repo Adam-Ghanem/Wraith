@@ -46,6 +46,12 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 			return runValidate(ctx, args, stdout, stderr)
 		case "intelligence":
 			return runIntelligence(ctx, args, stdout, stderr)
+		case "identity":
+			return runIdentity(ctx, args, stdout, stderr)
+		case "auth-test":
+			return runAuthTest(ctx, args, stdout, stderr)
+		case "compare":
+			return runCompare(ctx, args, stdout, stderr)
 		case "history":
 			return runHistory(ctx, args, stdout, stderr)
 		case "export-fixtures":

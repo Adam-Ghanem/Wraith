@@ -8,7 +8,7 @@ Wraith is currently a **local-first Go CLI with an embedded SQLite scan ledger, 
 
 | Layer | Current implementation | Important boundary |
 | --- | --- | --- |
-| CLI | `discover`, `scan`, `crawl`, `endpoints`, `js`, `fuzz`, `content`, `vhost`, `validate`, `history`, `export-fixtures`, and `version` dispatch through `internal/cli`. | Active workflows require operator-supplied authorization flags; `fuzz`, R7.5 discovery, and R8 validation require explicit project-scoped selections and route every request through R3. |
+| CLI | Includes `identity`, `auth-test`, and `compare` in `internal/cli`. | R10 credential testing requires `--authorized` and `--attack-auth`; live requests use R3. |
 | Policy | `internal/policy` evaluates immutable project scope versions with target normalization, allow/deny rules, expiry/revocation, and decision traces. | The evaluator has no network I/O; R3 invokes it for every migrated HTTP target and resolved connection address. |
 | Evidence | `internal/evidence` canonicalizes URLs and models project-local assets, endpoints, parameters, and typed immutable observations. | R3 emits redacted HTTP metadata only after centralized egress validation. |
 | HTTP transport | `internal/httpengine` provides project-scoped HTTP(S), manual redirects, resolver pinning, destination safety, bounded reads, local pacing/concurrency, retries, explicit proxying, and reusable connections. | Target-web collectors must use this boundary; provider APIs and subprocesses remain explicit exceptions pending their own designs. |
@@ -19,6 +19,7 @@ Wraith is currently a **local-first Go CLI with an embedded SQLite scan ledger, 
 | Bounded content discovery | `internal/contentdiscovery` provides R7.5 local-wordlist path and virtual-host plans, soft-404 fingerprints, non-crawling depth-capped path expansion, and redacted R2 content observations. | Requests use R3 only. The R3 Host override is hostname-validated and separately authorized through R1 before DNS or connection; no candidate DNS, alternate client, or crawler behavior exists. |
 | Security validation | `internal/validation` provides deterministic passive checks over one selected endpoint response and redacted lifecycle-ready validation observations. | The `validate` CLI makes at most one bounded R3 request after project-local endpoint selection; validators create observed evidence only and exclude payloads, authentication attacks, credentials, destructive testing, and exploit claims. |
 | Vulnerability intelligence | `internal/intelligence` builds deterministic project-local asset/endpoint graphs, correlates evidence-backed candidates, explains bounded confidence, and detects local snapshot changes. | It has no network path and uses only existing project-scoped evidence identities. SQLite stores compatible graph/correlation structures; no Neo4j, remote advisory feed, unqualified severity, or exploitability claim is introduced. |
+| Authenticated security | `internal/authsecurity` provides bounded plans, in-memory local credential input, response analysis, and protection stops. | No secrets persist; lockout, MFA, CAPTCHA, rate limit, cancellation, budgets, and instability stop safely. |
 | Local discovery | Linux-first interface/CIDR validation, bounded ARP candidates, curated TCP checks, and limited metadata. | Phase 1 rejects public CIDRs and requires an explicit selected local IPv4 boundary. |
 | Domain/web collection | Certificate-transparency/DNS enumeration, bounded HTTP probing, content discovery, and JavaScript analysis. | `scan --project` routes target-web probes, paths, and scripts through R3; output-derived targets remain untrusted. |
 | Optional enrichment | Nmap and Nuclei wrappers. | Both are opt-in, optional external binaries; they do not become enabled by discovery output. |
@@ -58,7 +59,7 @@ docs/, README.md, SECURITY.md
   └── scope, responsible use, Phase implementation records, release, support, and threat documentation
 ```
 
-The current database schema has eight embedded migrations and first-class tables for scans, devices, subdomains, content findings, JavaScript findings, port findings, Nuclei findings, policy scopes, R2 evidence, bounded R6 client-side observations, redacted R7 fuzz observations, and redacted R7.5 content-discovery observations. This is a solid evidence ledger for the implemented CLI, but it is not yet a unified asset model.
+The current database schema has eleven embedded migrations, including project-scoped R10 identities and secret-free authentication metadata. Credentials never persist in SQLite.
 
 ## Current control flow
 
