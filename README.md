@@ -38,6 +38,7 @@ Most reconnaissance tools optimize for reach. Wraith is intentionally narrow: ea
 | R7 | Implemented on feature branch | Explicit bounded parameter/request fuzzing with R1/R3-only execution and redacted response evidence | Safe-method default; explicit target/parameter selection; no findings, credentials, or exploitation |
 | R7.5 | Implemented on feature branch | Bounded local-wordlist path and virtual-host discovery with soft-404 filtering | Explicit project-local base evidence, `--authorized`, R1/R3-only requests, hard budgets, redacted observations; no crawler expansion or validation |
 | R8 | In progress on feature branch | Evidence-led passive checks for security headers, CORS, cookies, error disclosure, and information disclosure | Explicit project endpoint, one bounded R1/R3 request, redacted validation observations; no payloads, credential testing, or exploitation |
+| R9 | Implemented on feature branch | Local asset graph, evidence-only correlation, explainable confidence, and snapshot change detection | Project-scoped SQLite structures and `wraith intelligence`; no network I/O, remote advisory feed, graph service, severity invention, or exploit claims |
 
 ## Quick start: inspect real sample output without scanning
 

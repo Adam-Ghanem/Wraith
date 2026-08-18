@@ -44,6 +44,8 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 			return runVHost(ctx, args, stdout, stderr)
 		case "validate":
 			return runValidate(ctx, args, stdout, stderr)
+		case "intelligence":
+			return runIntelligence(ctx, args, stdout, stderr)
 		case "history":
 			return runHistory(ctx, args, stdout, stderr)
 		case "export-fixtures":
