@@ -12,7 +12,7 @@
 - [x] Implement R3 Unified HTTP Engine: policy-aware, destination-safe bounded HTTP(S) transport with controlled resolution/dialing, redirect reauthorization, R2 observation emission, project-aware CLI validation, and local fixture coverage; stop before R4.
 - [x] Complete R3 hardening: persistent transport lifecycle, bounded rate/retry/proxy contracts, reviewed legacy collector migration decisions, completion tests, benchmarks, fuzzing, and security review; do not start R4.
 - [x] Finish R3 proxy integration and migrate target-web collectors through the approved shared-engine boundary; document provider and subprocess exceptions separately.
-- [ ] Establish `feature/r4-web-crawler` from completed R3 and record the R4 crawler contract without starting R5.
-- [ ] Implement a bounded, concurrency-safe R3-backed crawler frontier, R2 canonical URL reuse, scope filtering, and project-aware evidence handling.
-- [ ] Add safe HTML, form, script, API-reference, robots, sitemap, security.txt, redirect, and static-resource discovery without submissions, fuzzing, or vulnerability checks.
-- [ ] Add localhost-only R4 tests, fuzzing, benchmarks, documentation, quality review, and feature-branch push; do not merge to `main`.
+- [x] Establish `feature/r4-web-crawler` from completed R3 and record the R4 crawler contract without starting R5.
+- [x] Implement a bounded R3-backed crawler frontier, R2 canonical URL reuse, scope filtering, and project-aware evidence handling.
+- [x] Add safe HTML, form, script, API-reference, robots, sitemap, security.txt, redirect, and static-resource discovery without submissions, fuzzing, or vulnerability checks.
+- [x] Add localhost-only R4 tests, fuzzing, benchmarks, documentation, quality review, and feature-branch push; do not merge to `main`.
