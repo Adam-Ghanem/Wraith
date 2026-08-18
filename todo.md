@@ -9,3 +9,4 @@
 - [x] Observe the actual GitHub Actions result and report whether CI ran and passed (run 32073773616 on commit 92773ff passed).
 - [x] Implement R1 Policy Core: project-scoped, deterministic, fail-closed authorization with normalization, deny precedence, expiry/revocation, SQLite persistence, outbound gateway seam, and security test coverage; no scanner changes.
 - [x] Implement R2 Web Evidence / Asset Model: project-scoped canonical assets and immutable observations with SQLite persistence, repository contracts, migration compatibility, fuzzing, benchmarks, and no network engine or scanner expansion.
+- [ ] Implement R3 Unified HTTP Engine: policy-aware, destination-safe bounded HTTP(S) transport with controlled resolution/dialing, redirect reauthorization, R2 observation emission, minimal CLI validation, and local fixture coverage; stop before R4.
