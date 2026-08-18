@@ -48,6 +48,7 @@ const (
 	ObservationKindJavaScript ObservationKind = "javascript"
 	ObservationKindAPI        ObservationKind = "api_endpoint"
 	ObservationKindClientSide ObservationKind = "client_side"
+	ObservationKindFuzz       ObservationKind = "fuzz"
 )
 
 // WebAsset is a stable project-local subject. A URL and a JavaScript asset use
@@ -117,16 +118,29 @@ type TechnologyEvidence struct{ Observation }
 type JavaScriptEvidence struct{ Observation }
 type APIEndpointEvidence struct{ Observation }
 type ClientSideEvidence struct{ Observation }
+type FuzzEvidence struct{ Observation }
 
 func (observation HTTPObservation) Record() Observation     { return observation.Observation }
 func (observation TechnologyEvidence) Record() Observation  { return observation.Observation }
 func (observation JavaScriptEvidence) Record() Observation  { return observation.Observation }
 func (observation APIEndpointEvidence) Record() Observation { return observation.Observation }
 func (observation ClientSideEvidence) Record() Observation  { return observation.Observation }
+func (observation FuzzEvidence) Record() Observation        { return observation.Observation }
 
 type ClientSideEvidenceInput struct {
 	Source, Type, Reference, Confidence string
 	ObservedAt                          time.Time
+}
+
+// FuzzObservationInput deliberately excludes request/response bodies, raw mutation values, and credentials.
+type FuzzObservationInput struct {
+	Source, MutationID, MutationCategory, SafetyClass, ContentType, Fingerprint, ReflectionLocation string
+	ObservedAt                                                                                      time.Time
+	StatusCode                                                                                      int
+	ContentLength, DurationMS, LengthDelta                                                          int64
+	StatusChanged, ContentTypeEqual                                                                 bool
+	ErrorClasses                                                                                    []string
+	RedirectCount                                                                                   int
 }
 
 // Repository is the R2 persistence boundary. It deliberately exposes no
@@ -212,6 +226,44 @@ func NewHTTPObservation(projectID string, endpoint Endpoint, input HTTPObservati
 		return HTTPObservation{}, err
 	}
 	return HTTPObservation{Observation: record, StatusCode: payload.StatusCode, ContentType: payload.ContentType, ContentLength: payload.ContentLength, Title: payload.Title, Server: payload.Server, ResponseHeaders: headers}, nil
+}
+
+// NewFuzzObservation records bounded response intelligence only. It cannot store mutation values, bodies, or sensitive headers.
+func NewFuzzObservation(projectID string, endpoint Endpoint, input FuzzObservationInput) (FuzzEvidence, error) {
+	if err := validateSubject(projectID, endpoint.ProjectID, endpoint.Identity, input.Source, input.ObservedAt); err != nil {
+		return FuzzEvidence{}, err
+	}
+	if !strings.HasPrefix(input.Source, "fuzz.") || !boundedText(input.MutationID, 256) || !validMutationCategory(input.MutationCategory) || input.SafetyClass != "generic" || input.StatusCode < 0 || input.StatusCode > 999 || input.ContentLength < -1 || input.DurationMS < 0 || input.DurationMS > 120000 || input.RedirectCount < 0 || input.RedirectCount > 10 || !boundedText(input.Fingerprint, 128) || !validReflectionLocation(input.ReflectionLocation) || len(input.ErrorClasses) > 8 || len(input.ContentType) > 1024 {
+		return FuzzEvidence{}, ErrInvalidEvidence
+	}
+	classes := append([]string(nil), input.ErrorClasses...)
+	sort.Strings(classes)
+	for index, class := range classes {
+		if !validFuzzErrorClass(class) || index > 0 && class == classes[index-1] {
+			return FuzzEvidence{}, ErrInvalidEvidence
+		}
+	}
+	payload := struct {
+		MutationID         string   `json:"mutation_id"`
+		MutationCategory   string   `json:"mutation_category"`
+		SafetyClass        string   `json:"safety_class"`
+		StatusCode         int      `json:"status_code"`
+		ContentType        string   `json:"content_type,omitempty"`
+		ContentLength      int64    `json:"content_length"`
+		DurationMS         int64    `json:"duration_ms"`
+		Fingerprint        string   `json:"fingerprint"`
+		StatusChanged      bool     `json:"status_changed"`
+		ContentTypeEqual   bool     `json:"content_type_equal"`
+		LengthDelta        int64    `json:"length_delta"`
+		ReflectionLocation string   `json:"reflection_location,omitempty"`
+		ErrorClasses       []string `json:"error_classes,omitempty"`
+		RedirectCount      int      `json:"redirect_count"`
+	}{strings.TrimSpace(input.MutationID), strings.TrimSpace(input.MutationCategory), input.SafetyClass, input.StatusCode, strings.TrimSpace(input.ContentType), input.ContentLength, input.DurationMS, strings.TrimSpace(input.Fingerprint), input.StatusChanged, input.ContentTypeEqual, input.LengthDelta, strings.TrimSpace(input.ReflectionLocation), classes, input.RedirectCount}
+	record, err := newObservation(projectID, ObservationKindFuzz, endpoint.Identity, input.Source, input.ObservedAt, payload, true)
+	if err != nil {
+		return FuzzEvidence{}, err
+	}
+	return FuzzEvidence{Observation: record}, nil
 }
 
 func NewTechnologyEvidence(projectID string, asset WebAsset, technology, source string, observedAt time.Time) (TechnologyEvidence, error) {
@@ -377,6 +429,33 @@ func boundedText(value string, maximum int) bool {
 func validConfidence(value string) bool {
 	switch strings.TrimSpace(value) {
 	case "high", "medium", "low":
+		return true
+	default:
+		return false
+	}
+}
+
+func validMutationCategory(value string) bool {
+	switch strings.TrimSpace(value) {
+	case "boundary", "empty", "length", "numeric", "boolean", "encoding", "unicode", "special-character", "type-confusion", "structured":
+		return true
+	default:
+		return false
+	}
+}
+
+func validReflectionLocation(value string) bool {
+	switch strings.TrimSpace(value) {
+	case "", "body", "header":
+		return true
+	default:
+		return false
+	}
+}
+
+func validFuzzErrorClass(value string) bool {
+	switch strings.TrimSpace(value) {
+	case "server_error", "validation_error", "client_error", "stack_trace", "database_error", "parser_error", "type_error":
 		return true
 	default:
 		return false
