@@ -1,6 +1,6 @@
-# Wraith Platform Threat Model
+# Wraith CLI-First Toolkit Threat Model
 
-**Status:** Architecture threat model for the proposed full-spectrum evolution. It complements the implemented-feature model in [`docs/threat-model.md`](docs/threat-model.md). It does not claim that the proposed API, scheduler, workers, plugins, cloud modules, authentication, or AI services exist today.
+**Status:** Architecture threat model for the proposed CLI-first Web and API toolkit evolution. It complements the implemented-feature model in [`docs/threat-model.md`](docs/threat-model.md). It does not claim that later HTTP-engine, crawler, fuzzing, security-check, reporting, or extension modules exist today.
 
 ## Security objective
 
@@ -52,7 +52,7 @@ Each boundary is disabled until separately configured and reviewed.
 | SSRF and DNS rebinding | A URL resolves or redirects to private, link-local, metadata, or otherwise unapproved addresses. | **R1 boundary only:** redirect and post-resolution destinations require independent policy decisions. R3 must supply parse/resolve/check/request flow, private/reserved-address policy, resolution pinning, and transport enforcement. |
 | Authorization expiry or replay | A schedule or retry uses stale approval after a project/scope changes. | **R1:** expiring/revocable authorization record is evaluated at decision time. Job-level revalidation, cancellation, and audit events remain deferred until R7. |
 | Tenant data leakage | API query, export, cache, WebSocket event, worker, or report crosses project boundaries. | Object-level authorization at every read/write/event path; project-filtered queries; isolation tests. |
-| Sensitive evidence exposure | Raw fixture/scan result, potential secret, cloud metadata, or report is read by an unauthorized party. | Data classification, redaction, retention, export policy, encryption decision, access logging, incident procedures. |
+| Sensitive evidence exposure | Raw fixture/scan result, potential secret, cloud metadata, or report is read by an unauthorized party. | **R2:** typed immutable observations bound to an explicit project, bounded metadata payloads, and redaction of sensitive HTTP headers. Retention, encryption, export, access logging, and incident procedures remain later design work. |
 | Unsafe external tool execution | Plugin or adapter interpolates shell data, uses arbitrary flags/targets, or exceeds scope. | Argument-array execution, validated parameters, capability declaration, timeout/output/resource caps, scope recheck, test fixtures. |
 | Provider/API abuse | A provider key is exposed or a source is used beyond its terms/rate/authorization. | Server-side secrets, cache/rate policy, terms review, source provenance, disabled-by-default configuration. |
 | Worker compromise | A worker executes an altered or unaudited job, registers false capability, or leaks data. | Mutual worker identity, signed/verified job payloads, least privilege, heartbeat/audit, narrow capability grants. |
@@ -79,4 +79,4 @@ This platform evolution excludes destructive exploitation, credential guessing/r
 
 ## Current implementation alignment
 
-The existing Phase 1–6 controls already demonstrate several desired patterns: explicit scope validation for local discovery, `--authorized` gates, bounded collection, optional-tool flags, redacted potential-secret persistence, local-first SQLite evidence, fixture-only dashboard rendering, pinned CI actions, and documented non-guarantees. R1 now adds a policy evaluator and SQLite-backed immutable project scope records, but it does not change Phase 1–6 scanner semantics or yet enforce a shared transport gateway. The next implementation must extend those controls rather than treating the full-spectrum roadmap as permission to remove them.
+The existing Phase 1–6 controls already demonstrate several desired patterns: explicit scope validation for local discovery, `--authorized` gates, bounded collection, optional-tool flags, redacted potential-secret persistence, local-first SQLite evidence, fixture-only dashboard rendering, pinned CI actions, and documented non-guarantees. R1 adds a policy evaluator and SQLite-backed immutable project scope records. R2 adds project-isolated canonical web evidence and sensitive-header redaction. Neither phase changes Phase 1–6 scanner semantics or yet enforces a shared transport gateway. The next implementation must extend those controls rather than treating the full-spectrum roadmap as permission to remove them.

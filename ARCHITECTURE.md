@@ -1,15 +1,16 @@
 # Wraith Architecture Audit
 
-**Audit status:** Baseline assessment of the Phase 1–6 implementation, with an R1 Policy Core addendum on `feature/r1-policy-core`. This document distinguishes implemented boundary contracts from later proposed subsystems.
+**Audit status:** Baseline assessment of the Phase 1–6 implementation, with R1 Policy Core and R2 Web Evidence addenda on their respective feature branches. This document distinguishes implemented boundary contracts from later proposed subsystems.
 
 ## Executive architecture summary
 
-Wraith is currently a **local-first Go CLI with an embedded SQLite evidence store, a static React fixture viewer, and an R1 policy package**. Its implemented focus is bounded, operator-authorized reconnaissance evidence rather than a hosted multi-user platform. R1 adds a non-networking, fail-closed policy decision boundary but does not wire existing collectors through it. The architecture still does not provide a REST API, authentication, tenant isolation, scheduler, queue, worker fleet, remote dashboard backend, PostgreSQL, Redis, plugins, cloud connectors, reporting service, or an AI subsystem.
+Wraith is currently a **local-first Go CLI with an embedded SQLite scan ledger, R1 policy package, R2 canonical web-evidence package, and static React fixture viewer**. Its direction is a modular, scriptable Web and API security toolkit—not a hosted multi-user product. R1 adds a non-networking, fail-closed policy decision boundary; R2 adds a non-networking canonical asset and append-only evidence model. Existing collectors are not yet wired through either new boundary. A REST API, enterprise tenancy/RBAC, scheduler, queue, worker fleet, remote dashboard backend, PostgreSQL, Redis, cloud control plane, and AI subsystem remain out of scope.
 
 | Layer | Current implementation | Important boundary |
 | --- | --- | --- |
 | CLI | `discover`, `scan`, `history`, `export-fixtures`, and `version` dispatch through `internal/cli`. | Active workflows require operator-supplied authorization flags; no remote API command surface exists. |
 | Policy | `internal/policy` evaluates immutable project scope versions with target normalization, allow/deny rules, expiry/revocation, and decision traces. | The evaluator has no network I/O. Existing collectors have not yet been migrated to it; that transport work remains R3. |
+| Evidence | `internal/evidence` canonicalizes URLs and models project-local assets, endpoints, parameters, and typed immutable observations. | It has no network I/O and does not claim findings; R3 must create its observations only after centralized egress validation. |
 | Local discovery | Linux-first interface/CIDR validation, bounded ARP candidates, curated TCP checks, and limited metadata. | Phase 1 rejects public CIDRs and requires an explicit selected local IPv4 boundary. |
 | Domain/web collection | Certificate-transparency/DNS enumeration, bounded HTTP probing, content discovery, and JavaScript analysis. | Existing policy requires an explicitly authorized domain/origin and treats output-derived targets as untrusted. |
 | Optional enrichment | Nmap and Nuclei wrappers. | Both are opt-in, optional external binaries; they do not become enabled by discovery output. |
@@ -27,7 +28,8 @@ cmd/wraith
 internal/
 	├── cli                command parsing, orchestration, terminal/JSON contracts
 	├── config             local IPv4 scope validation and limits
-	├── policy             R1 target normalization, scope evaluation, and outbound authorization seam
+		├── policy             R1 target normalization, scope evaluation, and outbound authorization seam
+		├── evidence           R2 canonical web identities and typed immutable observations
   ├── discovery          Linux ARP/interface behavior
   ├── ports, probe       bounded TCP and HTTP probing
   ├── enum               certificate/DNS and optional VirusTotal enumeration
@@ -78,15 +80,14 @@ The full-spectrum roadmap should preserve the following architecture decisions r
 | Optional external tools | Nmap/Nuclei are explicit flags and fail non-fatally when absent. | Future plugins/providers must declare capability, scope requirements, resource limits, data flow, and failure behavior. |
 | Testable boundaries | Pure diffs, fixture-driven parsers, static dashboard tests, and CI gates are already present. | New orchestration must be designed as small testable interfaces, not a monolithic scan pipeline. |
 
-## Target architecture: modular monolith first
+## Target architecture: CLI-first modular toolkit
 
-The supplied vision calls for API services, worker fleets, cloud integrations, plugin SDKs, risk analysis, and continuous monitoring. Those should **not** be introduced as a distributed system in one step. The recommended transition is a modular monolith with explicit interfaces and an embedded/local implementation first. Remote API, queue, PostgreSQL, Redis, and worker deployment become later replacements behind stable contracts.
+The approved direction calls for small, independently useful CLI modules that compose into safe workflows. Those modules should share explicit policy, evidence, HTTP, and output interfaces rather than becoming a distributed platform. SQLite remains the default local store; remote API, queue, PostgreSQL, Redis, worker deployment, SaaS tenancy, and dashboard-backend architecture are not current roadmap goals.
 
 ```text
 Wraith application boundary
-├── Command/API adapters
-│   ├── CLI (current)
-│   └── HTTP API (future; after auth and object authorization)
+	├── Command adapters
+	│   └── CLI (primary interface)
 ├── Policy services
 │   ├── authorization assertion and record
 │   ├── project scope evaluator
@@ -100,17 +101,14 @@ Wraith application boundary
 ├── Collection services
 │   ├── local network, DNS, HTTP, TLS, content, JavaScript
 │   └── explicitly approved optional-tool adapters
-├── Execution services
-│   ├── synchronous local run (first)
-│   ├── job abstraction (later)
-│   └── queue/worker adapter (only when operationally required)
+	├── Execution services
+	│   └── synchronous bounded local run
 ├── Persistence ports
 │   ├── SQLite local adapter (current evolution path)
-│   └── PostgreSQL adapter (future production decision)
+	│   └── optional future adapters only after a separate decision
 └── Presentation adapters
     ├── JSON/terminal output (current)
-    ├── static fixture UI (current)
-    └── authenticated web UI/API clients (future)
+	    └── static fixture UI (current, non-priority)
 ```
 
 ### Required boundary contracts before platform expansion
@@ -119,7 +117,7 @@ Wraith application boundary
 | --- | --- | --- |
 | `PolicyEvaluator` | Replaces a future scalar authorization gate with evaluated project/domain/CIDR/URL/port policy. | **R1 implemented:** deterministic deny-overrides-allow logic, expiry/revocation, decision trace, SQLite scope version persistence, and parser/security tests exist. Existing scanners still preserve their original behavior. |
 | `OutboundTargetGateway` | Centralizes every future outbound network request. | **R1 seam implemented:** redirect and resolved destinations must be independently authorized. DNS rebinding defense, private/reserved-address policy, redirect transport revalidation, rate limits, and budgets remain R3 work. |
-| `Observation` | Normalizes raw collection facts without converting them into conclusions. | Every observation includes stable subject identity, source, observed time, run ID, evidence payload bounds, and retention classification. |
+| `Observation` | Normalizes raw collection facts without converting them into conclusions. | **R2 implemented:** stable project-local subject identity, source, UTC observation time, bounded typed payload, append-only ID, and sensitive-header redaction. Run linkage and retention classification remain later work. |
 | `Finding` | Represents an analyst-visible conclusion separately from raw observation. | Severity, confidence, rule/source version, evidence reference, and lifecycle semantics are explicit; version strings alone cannot become confirmed vulnerabilities. |
 | `Job` | Makes later scheduling/worker execution cancellable and auditable. | Immutable scope snapshot, authorization record, resource budget, requester identity, status, cancellation, and idempotency contract exist. |
 | `AuditEvent` | Makes project, scope, job, and data access actions reviewable. | Events are append-oriented, tenant/project-scoped, minimally sensitive, and protected from ordinary user mutation. |
@@ -132,8 +130,8 @@ The next data model should add normalized, project-scoped entities while preserv
 | --- | --- | --- |
 | Organization and project | Ownership, data-isolation, and authorization boundary. | Yes |
 | Scope rule and scope version | Allow/deny policy with immutable evaluation context. | **R1:** SQLite-backed project scope versions, active version pointer, rule validation, and authorization lifecycle. Organization-level ownership remains deferred. |
-| Asset and asset identity | Deduplicated Domain, Subdomain, IP, Host, URL, Port, Service, Certificate, Technology, and Application records. | Yes |
-| Asset observation | Time-bounded source record linked to an asset and run. | Partially represented only as scan-specific rows. |
+| Asset and asset identity | Deduplicated Domain, Subdomain, IP, Host, URL, Port, Service, Certificate, Technology, and Application records. | **R2 partial:** canonical URL/JavaScript assets, HTTP endpoints, and parameters. Broader asset types remain deferred. |
+| Asset observation | Time-bounded source record linked to an asset and run. | **R2 partial:** append-only HTTP, technology, JavaScript, and API evidence with source/time/payload. Run linkage remains deferred. |
 | Finding and finding observation | Evidence-backed security-relevant record with confidence and lifecycle. | Current Nuclei rows are observations, not a general finding lifecycle. |
 | Job and run | Execution contract, progress, cancellation, budget, and audit link. | Yes |
 | User, API principal, role | Authenticated actions and object-level authorization. | Yes |

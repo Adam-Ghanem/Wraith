@@ -1,10 +1,10 @@
-# Wraith Full-Spectrum Platform Roadmap
+# Wraith CLI-First Web Pentesting Toolkit Roadmap
 
-**Status:** Proposed incremental roadmap based on the repository audit. R1 Policy Core is implemented on `feature/r1-policy-core` and remains unmerged at the time of this update. The roadmap deliberately prevents a bounded local tool from becoming an unsafe scanner fleet through a single rewrite.
+**Status:** CLI-first incremental roadmap. R1 Policy Core and R2 Web Evidence are implemented on separate feature branches and remain unmerged at the time of this update. The roadmap deliberately prevents a bounded local tool from becoming an unsafe scanner fleet or an unnecessary SaaS platform through a single rewrite.
 
 ## Product direction
 
-Wraith can evolve toward an authorization-first attack-surface and security-evidence platform. The durable product value is not maximum scanning breadth; it is **bounded collection, explicit scope, explainable evidence, reliable history, and operator-controlled decisions**.
+Wraith evolves toward an authorization-first, modular Web and API pentesting toolkit. The durable product value is not maximum scanning breadth; it is **bounded collection, explicit scope, explainable evidence, reliable history, scriptable output, and operator-controlled decisions**.
 
 Every future stage must preserve these non-negotiable rules:
 
@@ -22,14 +22,19 @@ Every future stage must preserve these non-negotiable rules:
 | --- | --- | ---: | --- |
 | R0 — Audit baseline | Architecture, technical debt, roadmap, and platform threat model. | No | The present documents are reviewed and accepted. |
 | R1 — Policy core | Versioned project scope, allow/deny rules, authorization records, and deterministic target evaluator. | No | **Implemented on feature branch:** domain/CIDR/URL/port matching, normalized targets, expiry, revocation, project isolation, deny precedence, redirect/post-resolution design tests, fuzzing, and SQLite persistence. Existing scanners remain unchanged. |
-| R2 — Evidence model | Unified asset identity, observations, provenance, normalized findings, and migration/import plan. | No | SQLite migrations preserve existing evidence; no risk or vulnerability claim is fabricated. |
-| R3 — Egress gateway | Central outbound DNS/HTTP/TLS validation, budget policy, and source/provider interface. | Not beyond existing paths | Every existing web path moves through the gateway and tests prove blocked redirects/private targets cannot bypass policy. |
-| R4 — Safe intelligence expansion | Passive DNS/certificate/TLS/API-documentation/fingerprint collection through approved providers. | Only separately approved bounded collection | Each provider has terms review, data-classification, cache/rate policy, fixtures, and source-error output. |
-| R5 — Finding intelligence | CPE/CVE/advisory correlation with evidence, rule version, confidence, and analyst review state. | No exploitation | No confirmed vulnerability is inferred from a version/banner alone; uncertainty is visible. |
-| R6 — Authenticated local service | Authenticated API, project RBAC, audit events, pagination, live dashboard API, and SQLite local service mode. | No new scanner class | Object authorization, rate limits, secure sessions/API keys, migration, backups, and integration tests pass. |
-| R7 — Controlled automation | Durable jobs, schedules, notifications, worker abstraction, and project-level approval snapshots. | Only approved jobs | Cancellation, idempotency, retry, expiry, audit, budget, and authorization revalidation are verified. |
-| R8 — Production scale decision | PostgreSQL adapter, queue/worker backend, observability, deployment model, and retention operations. | No new capability by default | Load tests, backups/restores, monitoring, incident runbooks, and access reviews are complete. |
-| R9 — Optional ecosystems | Plugins, cloud providers, AD inventory, reports, attack-path reasoning, and AI-assisted analysis. | Subsystem-specific | Each capability clears its own scope, threat model, provider/tool review, and security acceptance gates. |
+| R2 — Web evidence / asset model | Canonical web asset identity, endpoints, parameters, typed observations, provenance, and migration/import plan. | No | **Implemented on feature branch:** project-isolated canonical URL/JavaScript assets, endpoint and parameter identities, append-only typed HTTP/technology/JS/API observations, sensitive-header redaction, SQLite persistence, migration compatibility tests, fuzzing, and benchmarks. No risk or vulnerability claim is fabricated. |
+| R3 — Unified HTTP engine | Central outbound HTTP transport, R1 enforcement, DNS destination validation, redirect reauthorization, budgets, and source interface. | Not beyond existing paths | Existing web paths move through one policy-aware engine and tests prove redirects/private targets cannot bypass it. |
+| R4 — Web crawler | Bounded, same-policy link/form/script/redirect/sitemap collection. | Approved bounded HTTP only | Canonical deduplication, budgets, fixtures, and redirect/DNS policy tests pass. |
+| R5 — Endpoint discovery | Method, path, and parameter extraction from existing evidence/crawl results. | No new protocol | Every subject is canonical, deduplicated, and project-scoped. |
+| R6 — JS and API intelligence | JavaScript, OpenAPI, and safe GraphQL evidence analysis. | Approved bounded HTTP only | Potential secrets remain redacted and evidence is not misrepresented as findings. |
+| R7 — Fuzzing engine | Controlled wordlist/mutation engine with filters, rates, and baselines. | Approved bounded HTTP only | Every request uses the R3 engine and is cancellation/rate/budget controlled. |
+| R8 — Security testing engine | Safe, evidence-based checks only. | Approved bounded HTTP only | No destructive exploitation, credential abuse, or string-only findings. |
+| R9 — Authentication and authorization contexts | Configured local auth contexts and safe comparison boundaries. | No guessing or replay | Credentials are redacted, never printed, and use remains explicitly configured. |
+| R10 — Finding and evidence engine | Deduplicated findings with status, remediation, and evidence links. | No exploitation | Findings are evidence-backed and not inferred from banners alone. |
+| R11 — Scan orchestrator | Composes approved modules and profiles in the CLI. | Only selected approved modules | Clear stage controls, exit codes, cancellation, and observable partial results. |
+| R12 — Reporting | Local JSON/JSONL/CSV/Markdown/HTML reporting. | No | Redaction and evidence provenance are retained. |
+| R13 — Lightweight extensions | Narrow, reviewed extension interfaces. | Subsystem-specific | Extensions inherit policy, budgets, and evidence controls. |
+| R14 — Performance and hardening | Bounded concurrency, reusable connections, streaming output, benchmarks, and security review. | No new capability by default | Safety and correctness are not traded for throughput. |
 
 ## First approved implementation slice: R1
 
@@ -50,7 +55,7 @@ R1 does not mark the egress boundary complete: transport-level DNS validation, r
 
 ### Asset and observation intelligence
 
-R2 should introduce stable asset identities for organization, project, domain, subdomain, IPv4/IPv6, host, URL, port, service, certificate, technology, cloud asset, repository, container, and application. An asset is not a scan result: it is a deduplicated subject. Observations record what a source saw, when, under which scope/run, and at what confidence. Existing scan rows must remain importable evidence.
+R2 introduces stable project-local URL/JavaScript asset identities, endpoint/parameter identities, and typed append-only observations in SQLite. An asset is not a scan result: it is a deduplicated subject. Observations record what a source saw, when, and under which source; they do not claim a finding. Existing scan rows remain preserved as legacy evidence, but are not automatically imported because they lack a safe project/scope association. Broader identities—domains, IPs, ports, services, certificates, technologies, cloud assets, repositories, containers, and applications—remain future slices.
 
 ### API and dashboard
 
