@@ -75,6 +75,7 @@ type Config struct {
 	TLSHandshakeTimeout   time.Duration
 	ResponseHeaderTimeout time.Duration
 	UserAgent             string
+	ProxyURL              string
 }
 
 type Engine struct {
@@ -107,7 +108,12 @@ func NewEngine(config Config) *Engine {
 		config.UserAgent = "Wraith/http-engine"
 	}
 	engine := &Engine{config: config}
-	engine.transport = &http.Transport{Proxy: http.ProxyFromEnvironment, ForceAttemptHTTP2: true, TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12}, TLSHandshakeTimeout: config.TLSHandshakeTimeout, ResponseHeaderTimeout: config.ResponseHeaderTimeout, IdleConnTimeout: 30 * time.Second, MaxIdleConns: 32, MaxIdleConnsPerHost: 4}
+	engine.transport = &http.Transport{ForceAttemptHTTP2: true, TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12}, TLSHandshakeTimeout: config.TLSHandshakeTimeout, ResponseHeaderTimeout: config.ResponseHeaderTimeout, IdleConnTimeout: 30 * time.Second, MaxIdleConns: 32, MaxIdleConnsPerHost: 4}
+	if config.ProxyURL != "" {
+		if proxyURL, err := url.Parse(config.ProxyURL); err == nil && (proxyURL.Scheme == "http" || proxyURL.Scheme == "https") && proxyURL.Host != "" {
+			engine.transport.Proxy = http.ProxyURL(proxyURL)
+		}
+	}
 	engine.transport.DialContext = engine.dialContext
 	engine.client = &http.Client{Transport: engine.transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	return engine
