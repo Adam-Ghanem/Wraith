@@ -49,6 +49,7 @@ const (
 	ObservationKindAPI        ObservationKind = "api_endpoint"
 	ObservationKindClientSide ObservationKind = "client_side"
 	ObservationKindFuzz       ObservationKind = "fuzz"
+	ObservationKindContent    ObservationKind = "content_discovery"
 )
 
 // WebAsset is a stable project-local subject. A URL and a JavaScript asset use
@@ -119,13 +120,15 @@ type JavaScriptEvidence struct{ Observation }
 type APIEndpointEvidence struct{ Observation }
 type ClientSideEvidence struct{ Observation }
 type FuzzEvidence struct{ Observation }
+type ContentDiscoveryEvidence struct{ Observation }
 
-func (observation HTTPObservation) Record() Observation     { return observation.Observation }
-func (observation TechnologyEvidence) Record() Observation  { return observation.Observation }
-func (observation JavaScriptEvidence) Record() Observation  { return observation.Observation }
-func (observation APIEndpointEvidence) Record() Observation { return observation.Observation }
-func (observation ClientSideEvidence) Record() Observation  { return observation.Observation }
-func (observation FuzzEvidence) Record() Observation        { return observation.Observation }
+func (observation HTTPObservation) Record() Observation          { return observation.Observation }
+func (observation TechnologyEvidence) Record() Observation       { return observation.Observation }
+func (observation JavaScriptEvidence) Record() Observation       { return observation.Observation }
+func (observation APIEndpointEvidence) Record() Observation      { return observation.Observation }
+func (observation ClientSideEvidence) Record() Observation       { return observation.Observation }
+func (observation FuzzEvidence) Record() Observation             { return observation.Observation }
+func (observation ContentDiscoveryEvidence) Record() Observation { return observation.Observation }
 
 type ClientSideEvidenceInput struct {
 	Source, Type, Reference, Confidence string
@@ -141,6 +144,15 @@ type FuzzObservationInput struct {
 	StatusChanged, ContentTypeEqual                                                                 bool
 	ErrorClasses                                                                                    []string
 	RedirectCount                                                                                   int
+}
+
+// ContentDiscoveryObservationInput deliberately omits bodies, request values, cookies, and raw headers.
+type ContentDiscoveryObservationInput struct {
+	Source, ContentType, ContentClass, Fingerprint string
+	ObservedAt                                     time.Time
+	StatusCode, RedirectCount                      int
+	ContentLength, DurationMS                      int64
+	BaselineSimilarity                             float64
 }
 
 // Repository is the R2 persistence boundary. It deliberately exposes no
@@ -264,6 +276,31 @@ func NewFuzzObservation(projectID string, endpoint Endpoint, input FuzzObservati
 		return FuzzEvidence{}, err
 	}
 	return FuzzEvidence{Observation: record}, nil
+}
+
+// NewContentDiscoveryObservation records the bounded structural result of an R7.5 content probe.
+func NewContentDiscoveryObservation(projectID string, endpoint Endpoint, input ContentDiscoveryObservationInput) (ContentDiscoveryEvidence, error) {
+	if err := validateSubject(projectID, endpoint.ProjectID, endpoint.Identity, input.Source, input.ObservedAt); err != nil {
+		return ContentDiscoveryEvidence{}, err
+	}
+	if input.Source != "content-discovery.r75.result" || input.StatusCode < 200 || input.StatusCode > 999 || input.ContentLength < 0 || input.ContentLength > 4<<20 || input.DurationMS < 0 || input.DurationMS > 300000 || input.RedirectCount < 0 || input.RedirectCount > 5 || input.BaselineSimilarity < 0 || input.BaselineSimilarity > 1 || len(input.ContentType) > 1024 || !validContentClass(input.ContentClass) || !boundedText(input.Fingerprint, 128) {
+		return ContentDiscoveryEvidence{}, ErrInvalidEvidence
+	}
+	payload := struct {
+		StatusCode         int     `json:"status_code"`
+		ContentType        string  `json:"content_type,omitempty"`
+		ContentClass       string  `json:"content_class"`
+		ContentLength      int64   `json:"content_length"`
+		Fingerprint        string  `json:"fingerprint"`
+		BaselineSimilarity float64 `json:"baseline_similarity"`
+		RedirectCount      int     `json:"redirect_count"`
+		DurationMS         int64   `json:"duration_ms"`
+	}{input.StatusCode, strings.TrimSpace(input.ContentType), input.ContentClass, input.ContentLength, input.Fingerprint, input.BaselineSimilarity, input.RedirectCount, input.DurationMS}
+	record, err := newObservation(projectID, ObservationKindContent, endpoint.Identity, input.Source, input.ObservedAt, payload, true)
+	if err != nil {
+		return ContentDiscoveryEvidence{}, err
+	}
+	return ContentDiscoveryEvidence{Observation: record}, nil
 }
 
 func NewTechnologyEvidence(projectID string, asset WebAsset, technology, source string, observedAt time.Time) (TechnologyEvidence, error) {
@@ -456,6 +493,15 @@ func validReflectionLocation(value string) bool {
 func validFuzzErrorClass(value string) bool {
 	switch strings.TrimSpace(value) {
 	case "server_error", "validation_error", "client_error", "stack_trace", "database_error", "parser_error", "type_error":
+		return true
+	default:
+		return false
+	}
+}
+
+func validContentClass(value string) bool {
+	switch strings.TrimSpace(value) {
+	case "html", "json", "xml", "javascript", "text", "binary", "unknown":
 		return true
 	default:
 		return false

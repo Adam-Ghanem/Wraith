@@ -38,6 +38,10 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 			return runJS(ctx, args, stdout, stderr)
 		case "fuzz":
 			return runFuzz(ctx, args, stdout, stderr)
+		case "content":
+			return runContent(ctx, args, stdout, stderr)
+		case "vhost":
+			return runVHost(ctx, args, stdout, stderr)
 		case "history":
 			return runHistory(ctx, args, stdout, stderr)
 		case "export-fixtures":

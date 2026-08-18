@@ -82,6 +82,31 @@ func TestEngineHonorsPerRequestResponseLimit(t *testing.T) {
 	}
 }
 
+func TestEngineAppliesValidatedHostOverride(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Host != "admin.example.test" {
+			writer.WriteHeader(http.StatusMisdirectedRequest)
+			return
+		}
+		writer.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+	engine := NewEngine(Config{Gateway: fakeGateway{}, DestinationPolicy: DestinationPolicy{AllowPrivate: true}})
+	response, err := engine.Do(context.Background(), Request{ProjectID: "project-a", Method: http.MethodGet, URL: server.URL, HostOverride: "admin.example.test"})
+	if err != nil || response.StatusCode != http.StatusNoContent {
+		t.Fatalf("response=%#v err=%v", response, err)
+	}
+}
+
+func TestEngineDeniesHostOverrideBeforeDNSOrNetworkIO(t *testing.T) {
+	resolver := &fakeResolver{addresses: []netip.Addr{netip.MustParseAddr("127.0.0.1")}}
+	engine := NewEngine(Config{Gateway: fakeGateway{deniedHost: "admin.example.test"}, Resolver: resolver})
+	_, err := engine.Do(context.Background(), Request{ProjectID: "project-a", Method: http.MethodGet, URL: "https://example.test/", HostOverride: "admin.example.test"})
+	if !errors.Is(err, ErrPolicyDenied) || resolver.calls.Load() != 0 {
+		t.Fatalf("err=%v resolver_calls=%d", err, resolver.calls.Load())
+	}
+}
+
 func TestEngineSendsPOSTCustomHeadersCookiesAndBody(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if request.Method != http.MethodPost || request.Header.Get("X-Wraith-Trace") != "trace-a" || request.Header.Get("Cookie") != "session=opaque" {

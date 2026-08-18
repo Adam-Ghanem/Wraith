@@ -35,6 +35,7 @@ type Request struct {
 	ProjectID         string
 	Method            string
 	URL               string
+	HostOverride      string
 	Headers           http.Header
 	Body              []byte
 	Timeout           time.Duration
@@ -268,6 +269,14 @@ func (engine *Engine) doOne(parent context.Context, request Request, rawURL stri
 	if err != nil {
 		return Response{Redirects: redirects}, "", fmt.Errorf("%w: %v", ErrInvalidRequest, err)
 	}
+	if request.HostOverride != "" {
+		overrideTarget := target
+		overrideTarget.Hostname = request.HostOverride
+		overrideTarget.IP = netip.Addr{}
+		if _, err := engine.config.Gateway.Authorize(parent, request.ProjectID, overrideTarget, policy.ActionHTTP); err != nil {
+			return Response{Redirects: redirects}, "", fmt.Errorf("%w: %v", ErrPolicyDenied, err)
+		}
+	}
 	if _, err := engine.config.Gateway.Authorize(parent, request.ProjectID, target, policy.ActionHTTP); err != nil {
 		return Response{Redirects: redirects}, "", fmt.Errorf("%w: %v", ErrPolicyDenied, err)
 	}
@@ -295,6 +304,9 @@ func (engine *Engine) doOne(parent context.Context, request Request, rawURL stri
 	httpRequest.Header = request.Headers.Clone()
 	if httpRequest.Header == nil {
 		httpRequest.Header = make(http.Header)
+	}
+	if request.HostOverride != "" {
+		httpRequest.Host = request.HostOverride
 	}
 	if httpRequest.Header.Get("User-Agent") == "" {
 		httpRequest.Header.Set("User-Agent", engine.config.UserAgent)
@@ -361,7 +373,7 @@ func (engine *Engine) resolveAndValidate(ctx context.Context, projectID string, 
 }
 
 func validateRequest(request Request, config Config) error {
-	if strings.TrimSpace(request.ProjectID) == "" || strings.TrimSpace(request.Method) == "" || strings.TrimSpace(request.URL) == "" || request.Timeout < 0 || request.MaxResponseBytes < 0 || request.MaxResponseBytes > 16<<20 || request.MaxRedirects != nil && (*request.MaxRedirects < 0 || *request.MaxRedirects > 10) || config.MaxConcurrentRequests < 1 || config.MaxConcurrentRequests > 50 || config.MaxResponseBytes < 1 || config.MaxResponseBytes > 16<<20 || config.MaxRedirects < 0 || config.MaxRedirects > 10 || config.RequestTimeout <= 0 || config.IdleConnTimeout <= 0 || config.IdleConnTimeout > 5*time.Minute || config.MaxIdleConns < 1 || config.MaxIdleConns > 256 || config.MaxIdleConnsPerHost < 1 || config.MaxIdleConnsPerHost > config.MaxIdleConns {
+	if strings.TrimSpace(request.ProjectID) == "" || strings.TrimSpace(request.Method) == "" || strings.TrimSpace(request.URL) == "" || !validHostOverride(request.HostOverride) || request.Timeout < 0 || request.MaxResponseBytes < 0 || request.MaxResponseBytes > 16<<20 || request.MaxRedirects != nil && (*request.MaxRedirects < 0 || *request.MaxRedirects > 10) || config.MaxConcurrentRequests < 1 || config.MaxConcurrentRequests > 50 || config.MaxResponseBytes < 1 || config.MaxResponseBytes > 16<<20 || config.MaxRedirects < 0 || config.MaxRedirects > 10 || config.RequestTimeout <= 0 || config.IdleConnTimeout <= 0 || config.IdleConnTimeout > 5*time.Minute || config.MaxIdleConns < 1 || config.MaxIdleConns > 256 || config.MaxIdleConnsPerHost < 1 || config.MaxIdleConnsPerHost > config.MaxIdleConns {
 		return errors.New("missing or out-of-bounds request configuration")
 	}
 	if err := config.RetryPolicy.validate(); err != nil {
@@ -371,6 +383,27 @@ func validateRequest(request Request, config Config) error {
 		return request.RetryPolicy.validate()
 	}
 	return nil
+}
+
+func validHostOverride(raw string) bool {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return raw == ""
+	}
+	if value != raw || len(value) > 253 || strings.ContainsAny(value, "\r\n\x00:/?#@") {
+		return false
+	}
+	for _, label := range strings.Split(value, ".") {
+		if len(label) == 0 || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+			return false
+		}
+		for _, character := range label {
+			if !(character >= 'a' && character <= 'z' || character >= 'A' && character <= 'Z' || character >= '0' && character <= '9' || character == '-') {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func requestRetryPolicy(request Request, config Config) RetryPolicy {
