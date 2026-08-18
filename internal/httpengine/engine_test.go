@@ -115,6 +115,18 @@ func TestLocalRateLimiterRespectsContextCancellation(t *testing.T) {
 	}
 }
 
+func TestRetryPolicyDefaultsToIdempotentMethodsOnly(t *testing.T) {
+	policy := DefaultRetryPolicy()
+	if !policy.ShouldRetryMethod(http.MethodGet) || !policy.ShouldRetryMethod(http.MethodHead) {
+		t.Fatal("default retry policy must permit idempotent reads")
+	}
+	for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete} {
+		if policy.ShouldRetryMethod(method) {
+			t.Fatalf("default retry policy must not retry %s", method)
+		}
+	}
+}
+
 type fakeResolver struct {
 	addresses []netip.Addr
 	calls     atomic.Int32
