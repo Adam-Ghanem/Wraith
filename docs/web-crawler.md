@@ -4,7 +4,7 @@
 
 ## Boundaries and defaults
 
-`wraith crawl TARGET --project PROJECT --authorized` uses a bounded configuration: depth two, 100 pages, 4 as the configured maximum worker capacity, 20 R3 requests per second, 1 MiB per response, 16 MiB total body bytes, 20 query variants per canonical path, 10-second request timeout, five redirects, same-origin filtering, and robots guidance enabled. Numeric CLI limits are validated before storage or network work begins.
+`wraith crawl TARGET --project PROJECT --authorized` uses a bounded configuration: depth two, 100 pages, 4 as the configured maximum worker capacity, 20 R3 requests per second, 1 MiB per response, 16 MiB total body bytes, 20 query variants per canonical path, a two-minute total crawl budget, 10-second request timeout, five redirects, same-origin filtering, and robots guidance enabled. Numeric CLI limits are validated before storage or network work begins.
 
 The crawler reuses `evidence.CanonicalizeURL` for every frontier identity. Fragments therefore do not create additional fetches, duplicate canonical URLs are suppressed, and query strings remain discovered URLs rather than inputs for generated combinations. Same-origin filtering prevents ordinary third-party traversal; it is an efficiency guard only. R1 remains the authority for every actual request, redirect, and resolved connection.
 

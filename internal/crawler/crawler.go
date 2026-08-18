@@ -21,7 +21,7 @@ type Config struct {
 	StartURLs                                            []string
 	MaxDepth, MaxPages, MaxConcurrency, MaxQueryVariants int
 	MaxResponseBytes, MaxTotalBytes                      int64
-	Timeout                                              time.Duration
+	Timeout, MaxDuration                                 time.Duration
 	MaxRedirects                                         int
 	SameOrigin, AllowSubdomains, RespectRobots           bool
 	Include, Exclude                                     []string
@@ -54,7 +54,7 @@ type frontierItem struct {
 }
 
 func DefaultConfig(projectID, startURL string) Config {
-	return Config{ProjectID: projectID, StartURLs: []string{startURL}, MaxDepth: 2, MaxPages: 100, MaxConcurrency: 4, MaxQueryVariants: 20, MaxResponseBytes: 1 << 20, MaxTotalBytes: 16 << 20, Timeout: 10 * time.Second, MaxRedirects: 5, SameOrigin: true, RespectRobots: true, UserAgent: "Wraith/crawler"}
+	return Config{ProjectID: projectID, StartURLs: []string{startURL}, MaxDepth: 2, MaxPages: 100, MaxConcurrency: 4, MaxQueryVariants: 20, MaxResponseBytes: 1 << 20, MaxTotalBytes: 16 << 20, Timeout: 10 * time.Second, MaxDuration: 2 * time.Minute, MaxRedirects: 5, SameOrigin: true, RespectRobots: true, UserAgent: "Wraith/crawler"}
 }
 
 func (crawler Crawler) Crawl(ctx context.Context, config Config) (Result, error) {
@@ -62,6 +62,8 @@ func (crawler Crawler) Crawl(ctx context.Context, config Config) (Result, error)
 	if crawler.Client == nil || !validConfig(config) {
 		return Result{}, ErrInvalidConfig
 	}
+	ctx, cancel := context.WithTimeout(ctx, config.MaxDuration)
+	defer cancel()
 	start, err := evidence.CanonicalizeURL(config.StartURLs[0])
 	if err != nil {
 		return Result{}, err
@@ -174,7 +176,7 @@ func (crawler Crawler) Crawl(ctx context.Context, config Config) (Result, error)
 }
 
 func validConfig(c Config) bool {
-	return strings.TrimSpace(c.ProjectID) != "" && len(c.StartURLs) > 0 && c.MaxDepth >= 0 && c.MaxDepth <= 10 && c.MaxPages > 0 && c.MaxPages <= 10000 && c.MaxConcurrency > 0 && c.MaxConcurrency <= 50 && c.MaxQueryVariants > 0 && c.MaxQueryVariants <= 100 && c.MaxResponseBytes > 0 && c.MaxResponseBytes <= 16<<20 && c.MaxTotalBytes >= c.MaxResponseBytes && c.MaxTotalBytes <= 256<<20 && c.Timeout > 0 && c.Timeout <= 30*time.Second && c.MaxRedirects >= 0 && c.MaxRedirects <= 10
+	return strings.TrimSpace(c.ProjectID) != "" && len(c.StartURLs) > 0 && c.MaxDepth >= 0 && c.MaxDepth <= 10 && c.MaxPages > 0 && c.MaxPages <= 10000 && c.MaxConcurrency > 0 && c.MaxConcurrency <= 50 && c.MaxQueryVariants > 0 && c.MaxQueryVariants <= 100 && c.MaxResponseBytes > 0 && c.MaxResponseBytes <= 16<<20 && c.MaxTotalBytes >= c.MaxResponseBytes && c.MaxTotalBytes <= 256<<20 && c.Timeout > 0 && c.Timeout <= 30*time.Second && c.MaxDuration > 0 && c.MaxDuration <= 30*time.Minute && c.MaxRedirects >= 0 && c.MaxRedirects <= 10
 }
 func (c Crawler) allowed(raw string, start *url.URL, config Config) bool {
 	candidate, err := url.Parse(raw)
