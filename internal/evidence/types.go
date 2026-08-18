@@ -129,6 +129,8 @@ type Repository interface {
 	UpsertParameter(ctx context.Context, parameter Parameter) (Parameter, error)
 	AppendObservation(ctx context.Context, observation Observation) error
 	ListWebAssets(ctx context.Context, projectID string) ([]WebAsset, error)
+	ListEndpoints(ctx context.Context, projectID string) ([]Endpoint, error)
+	ListParameters(ctx context.Context, projectID string) ([]Parameter, error)
 	ListObservations(ctx context.Context, projectID, subjectIdentity string) ([]Observation, error)
 }
 

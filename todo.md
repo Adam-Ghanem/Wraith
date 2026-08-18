@@ -16,3 +16,6 @@
 - [x] Implement a bounded R3-backed crawler frontier, R2 canonical URL reuse, scope filtering, and project-aware evidence handling.
 - [x] Add safe HTML, form, script, API-reference, robots, sitemap, security.txt, redirect, and static-resource discovery without submissions, fuzzing, or vulnerability checks.
 - [x] Add localhost-only R4 tests, fuzzing, benchmarks, documentation, quality review, and feature-branch push; do not merge to `main`.
+- [x] Create `feature/r5-endpoint-intelligence` from completed R4 and document a passive, bounded R5 specification; do not start R6.
+- [x] Implement deterministic project-scoped endpoint, method, parameter, form, API-reference, OpenAPI/Swagger, and GraphQL inventory from existing R2/R4 evidence with zero passive-analysis network I/O.
+- [x] Add `wraith endpoints` output, local tests, fuzzing, benchmarks, project-isolation/resource-limit checks, documentation, quality review, and feature-branch push; do not merge to `main`.

@@ -756,6 +756,64 @@ func (db *DB) ListWebAssets(ctx context.Context, projectID string) ([]evidence.W
 	return assets, rows.Err()
 }
 
+func (db *DB) ListEndpoints(ctx context.Context, projectID string) ([]evidence.Endpoint, error) {
+	if db == nil || db.sql == nil {
+		return nil, errors.New("storage database is not initialized")
+	}
+	if strings.TrimSpace(projectID) == "" {
+		return nil, evidence.ErrInvalidEndpoint
+	}
+	rows, err := db.sql.QueryContext(ctx, `SELECT project_id, identity, method, url, created_at FROM web_endpoints WHERE project_id = ? ORDER BY url, method, identity`, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("list endpoints: %w", err)
+	}
+	defer rows.Close()
+	endpoints := make([]evidence.Endpoint, 0)
+	for rows.Next() {
+		var endpoint evidence.Endpoint
+		var createdAt string
+		if err := rows.Scan(&endpoint.ProjectID, &endpoint.Identity, &endpoint.Method, &endpoint.URL, &createdAt); err != nil {
+			return nil, fmt.Errorf("scan endpoint: %w", err)
+		}
+		parsed, err := parseRequiredPolicyTime(createdAt)
+		if err != nil {
+			return nil, fmt.Errorf("decode endpoint creation time: %w", err)
+		}
+		endpoint.CreatedAt = parsed
+		endpoints = append(endpoints, endpoint)
+	}
+	return endpoints, rows.Err()
+}
+
+func (db *DB) ListParameters(ctx context.Context, projectID string) ([]evidence.Parameter, error) {
+	if db == nil || db.sql == nil {
+		return nil, errors.New("storage database is not initialized")
+	}
+	if strings.TrimSpace(projectID) == "" {
+		return nil, evidence.ErrInvalidParameter
+	}
+	rows, err := db.sql.QueryContext(ctx, `SELECT project_id, endpoint_identity, identity, location, name, created_at FROM endpoint_parameters WHERE project_id = ? ORDER BY endpoint_identity, identity`, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("list endpoint parameters: %w", err)
+	}
+	defer rows.Close()
+	parameters := make([]evidence.Parameter, 0)
+	for rows.Next() {
+		var parameter evidence.Parameter
+		var createdAt string
+		if err := rows.Scan(&parameter.ProjectID, &parameter.EndpointIdentity, &parameter.Identity, &parameter.Location, &parameter.Name, &createdAt); err != nil {
+			return nil, fmt.Errorf("scan endpoint parameter: %w", err)
+		}
+		parsed, err := parseRequiredPolicyTime(createdAt)
+		if err != nil {
+			return nil, fmt.Errorf("decode endpoint parameter creation time: %w", err)
+		}
+		parameter.CreatedAt = parsed
+		parameters = append(parameters, parameter)
+	}
+	return parameters, rows.Err()
+}
+
 func (db *DB) ListObservations(ctx context.Context, projectID, subjectIdentity string) ([]evidence.Observation, error) {
 	if db == nil || db.sql == nil {
 		return nil, errors.New("storage database is not initialized")

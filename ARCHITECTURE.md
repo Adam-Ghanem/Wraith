@@ -8,11 +8,12 @@ Wraith is currently a **local-first Go CLI with an embedded SQLite scan ledger, 
 
 | Layer | Current implementation | Important boundary |
 | --- | --- | --- |
-| CLI | `discover`, `scan`, `history`, `export-fixtures`, and `version` dispatch through `internal/cli`. | Active workflows require operator-supplied authorization flags; no remote API command surface exists. |
+| CLI | `discover`, `scan`, `crawl`, `endpoints`, `history`, `export-fixtures`, and `version` dispatch through `internal/cli`. | Active workflows require operator-supplied authorization flags; `endpoints` is a project-scoped passive local evidence read. No remote API command surface exists. |
 | Policy | `internal/policy` evaluates immutable project scope versions with target normalization, allow/deny rules, expiry/revocation, and decision traces. | The evaluator has no network I/O; R3 invokes it for every migrated HTTP target and resolved connection address. |
 | Evidence | `internal/evidence` canonicalizes URLs and models project-local assets, endpoints, parameters, and typed immutable observations. | R3 emits redacted HTTP metadata only after centralized egress validation. |
 | HTTP transport | `internal/httpengine` provides project-scoped HTTP(S), manual redirects, resolver pinning, destination safety, bounded reads, local pacing/concurrency, retries, explicit proxying, and reusable connections. | Target-web collectors must use this boundary; provider APIs and subprocesses remain explicit exceptions pending their own designs. |
 | Web crawler | `internal/crawler` provides bounded canonical URL discovery, HTML resource/form extraction, robots/sitemap/security.txt discovery, and R2 persistence. | Every fetch uses R3; same-origin filtering is an optimization while R1 remains the authorization boundary. |
+| Endpoint intelligence | `internal/endpointintelligence` creates a deterministic inventory from project-scoped R2 endpoints, parameters, and assets, with optional local OpenAPI/Swagger JSON parsing. | Passive only: no HTTP client, resolver, socket, JavaScript runtime, API execution, or new identity system. |
 | Local discovery | Linux-first interface/CIDR validation, bounded ARP candidates, curated TCP checks, and limited metadata. | Phase 1 rejects public CIDRs and requires an explicit selected local IPv4 boundary. |
 | Domain/web collection | Certificate-transparency/DNS enumeration, bounded HTTP probing, content discovery, and JavaScript analysis. | `scan --project` routes target-web probes, paths, and scripts through R3; output-derived targets remain untrusted. |
 | Optional enrichment | Nmap and Nuclei wrappers. | Both are opt-in, optional external binaries; they do not become enabled by discovery output. |
