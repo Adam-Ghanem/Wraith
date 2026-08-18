@@ -27,6 +27,8 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		switch args[0] {
 		case "scan":
 			return runScan(ctx, args, stdout, stderr)
+		case "http":
+			return runHTTP(ctx, args, stdout, stderr)
 		case "history":
 			return runHistory(ctx, args, stdout, stderr)
 		case "export-fixtures":
