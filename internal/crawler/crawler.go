@@ -102,7 +102,11 @@ func (crawler Crawler) Crawl(ctx context.Context, config Config) (Result, error)
 	robots := robotRules{}
 	if config.RespectRobots {
 		robots = crawler.fetchRobots(ctx, config, startURL, &result)
-		for _, sitemap := range robots.Sitemaps {
+		sitemaps := robots.Sitemaps
+		if len(sitemaps) == 0 {
+			sitemaps = []string{startURL.ResolveReference(&url.URL{Path: "/sitemap.xml"}).String()}
+		}
+		for _, sitemap := range sitemaps {
 			for _, item := range crawler.fetchSitemap(ctx, config, sitemap, &result) {
 				enqueue(item, 1)
 			}
