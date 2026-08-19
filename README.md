@@ -43,7 +43,8 @@ Most reconnaissance tools optimize for reach. Wraith is intentionally narrow: ea
 | R10.5 | Implemented on feature branch | `wraith pentest` plans and coordinates existing approved modules, project-scoped run history, safe resume, and local reports | Reuses existing R1/R3-controlled paths only; one global budget/rate/concurrency limit; `auth_attack` requires `--attack-auth` and is not replayed during resume |
 | R11.1 | Implemented on feature branch | Deterministic, project-scoped request-variant planning for existing R2 endpoint and parameter identities | No network execution, R1/R3 bypass, secret/header persistence, findings, or validation; R11.2 and later are unstarted |
 | R11.2 | Implemented on feature branch | Project-scoped candidate discovery from R5/R2 inventory, local R6 references, and explicit safe wordlists | Passive/dry-run discovery is no-network; optional `--verify` uses only non-destructive R3 `HEAD` calls under R10.5 budget/rate/concurrency controls and stores redacted R2 response metadata |
-| R11.3 | Implemented on feature branch | Bounded, evidence-driven injection test planning and explicit R3-only execution seam | Immutable safe canaries, GET/HEAD only, R10.5 budget/rate/concurrency controls, redacted R2 signals, R8 validation handoff, no direct findings, and no CLI active execution; R11.4 and later are unstarted |
+| R11.3 | Implemented on feature branch | Bounded, evidence-driven injection test planning and explicit R3-only execution seam | Immutable safe canaries, GET/HEAD only, R10.5 budget/rate/concurrency controls, redacted R2 signals, R8 validation handoff, no direct findings, and no CLI active execution |
+| R11.4 | Implemented on feature branch | Project-scoped controlled reproduction of R11.3 signals into R8-backed evidence and R9-ready finding candidates | Required R1 recheck before every injected-R3 request; GET/HEAD only; R10.5 controls; `429` and generic infrastructure instability are inconclusive; payloads remain memory-only; no final finding, scheduler, or CLI active execution |
 
 ## Quick start: inspect real sample output without scanning
 
@@ -216,6 +217,7 @@ Do not use random public hosts, shared networks, employer networks, bug-bounty t
 - [`docs/content-discovery.md`](docs/content-discovery.md) — R7.5 bounded local-wordlist path and virtual-host discovery commands, controls, and exclusions.
 - [`docs/r8-security-validation-spec.md`](docs/r8-security-validation-spec.md) — R8 passive validation contract, lifecycle vocabulary, R1/R3 boundary, and exclusions.
 - [`docs/r11/r11.3-injection.md`](docs/r11/r11.3-injection.md) — R11.3 bounded injection planner, R3-only active runner seam, redacted evidence signals, and R8/R9 handoff boundary.
+- [`docs/r11/r11.4-validation.md`](docs/r11/r11.4-validation.md) — R11.4 controlled reproduction, repeatability, R8 evidence, R9 handoff, and explicit exclusions.
 - [`docs/phase-2-3-real-target-verification.md`](docs/phase-2-3-real-target-verification.md) — redacted record of authorized Phase 2+3 live verification and its limitations.
 - [`docs/phase-5-implementation.md`](docs/phase-5-implementation.md) — static fixture dashboard, export command, hard exclusions, and Phase 5 testing limitations.
 - [`docs/dependency-review.md`](docs/dependency-review.md) — reviewed Go and pnpm dependency inventory, license evidence, exceptions, and CI update control.

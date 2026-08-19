@@ -34,3 +34,14 @@ The remaining review work belongs to later approved R11 stages: R1/R3 execution 
 | Direct execution hazards | No R11.3 source imports `os/exec` or opens a direct HTTP/DNS/socket path. Command-class coverage is a response canary only; it cannot execute a local or remote command. |
 | Finding lifecycle | R11.3 emits signals and may submit them to an explicit validation interface. It has no local finding creator, and the run result stays at `FindingsCreated: 0`. R8 owns validation and R9 owns later correlation. |
 | Remaining limit | There is no R10.5 phase registration, automatic R8 adapter, R9 correlation invocation, persistent injection-test store, or reporting layer. These remain separately approved follow-on work. |
+
+## R11.4 update
+
+| Audit | Result |
+| --- | --- |
+| R1/R3 enforcement | Every runner dispatch calls a required policy-recheck interface first, then an injected R3 client. The package creates no transport, DNS, resolver, or socket path. |
+| Resource bounds | Profiles send one, two, or three baseline/mutation pairs. Every request consumes the R10.5 budget, global rate limiter, and concurrency slot. |
+| Stability and false positives | `429` halts immediately. Generic 5xx changes are instability, not security evidence. Only repeatable security-relevant differentials become validated. |
+| Sensitive data | Payload values remain memory-only. Candidate/result/finding-candidate serialization excludes signal metadata, raw payloads, cookies, authorization material, and response bodies. |
+| R8/R9 lifecycle | R8 owns observed validation evidence and R2 persistence. R11.4 sends only validated evidence-backed temporary candidates to R9, which remains correlation authority. |
+| Remaining limit | No durable lifecycle store, R10 identity-session binding, R10.5 phase registration, safe resume, or report adapter is added. |

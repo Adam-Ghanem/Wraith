@@ -48,6 +48,9 @@ func parseValidateOptions(args []string) (validateOptions, error) {
 }
 
 func runValidate(ctx context.Context, args []string, stdout, _ io.Writer) error {
+	if len(args) > 1 && (args[1] == "plan" || !strings.HasPrefix(args[1], "-")) {
+		return runFindingValidationPlan(ctx, args, stdout)
+	}
 	o, err := parseValidateOptions(args)
 	if err != nil {
 		return err
