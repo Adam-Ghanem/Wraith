@@ -60,6 +60,8 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 			return runFindings(ctx, args, stdout, stderr)
 		case "risk":
 			return runRisk(ctx, args, stdout, stderr)
+		case "report":
+			return runReport(ctx, args, stdout, stderr)
 		case "surface":
 			return runSurface(ctx, args, stdout, stderr)
 		case "campaign":

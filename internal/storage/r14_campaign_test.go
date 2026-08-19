@@ -53,3 +53,44 @@ func TestR14CampaignLifecycleIsProjectScopedAndCheckpointed(t *testing.T) {
 		t.Fatalf("latest=%#v err=%v", latest, err)
 	}
 }
+
+func TestListCampaignReportRecordsAreProjectScoped(t *testing.T) {
+	ctx := context.Background()
+	database, err := Open(filepath.Join(t.TempDir(), "campaign-report.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	if err := database.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Unix(1, 0).UTC()
+	if err := database.CreateCampaign(ctx, CampaignRecord{ProjectID: "alpha", CampaignID: "campaign-1", ScopeVersion: "scope-v1", Profile: "safe", AssessmentID: "assessment-1", Target: "https://app.example.test", AssessmentPlanJSON: `{"assessment_id":"assessment-1"}`, SurfaceSnapshotID: "snapshot-1", SurfaceFingerprint: "surface-1", SurfaceSourceVersion: "r11.6-v1", Status: "ready", Revision: 1, Fingerprint: "campaign-fingerprint", CreatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.CreateCampaignCycle(ctx, CampaignCycleRecord{ProjectID: "alpha", CampaignID: "campaign-1", CycleID: "cycle-1", ScopeVersion: "scope-v1", AssessmentID: "assessment-1", SurfaceSnapshotID: "snapshot-1", Status: "planned", CreatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.UpsertCampaignTask(ctx, CampaignTaskRecord{ProjectID: "alpha", CampaignID: "campaign-1", CycleID: "cycle-1", TaskID: "campaign-task-1", AssessmentTaskID: "assessment-task-1", Status: "completed", Priority: 10}); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.AppendCampaignEvent(ctx, CampaignEventRecord{ProjectID: "alpha", CampaignID: "campaign-1", EventID: "event-1", CycleID: "cycle-1", EventType: "campaign.task.completed", Status: "completed", MetadataJSON: "{}", CreatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	cycles, err := database.ListCampaignCycles(ctx, "alpha", "campaign-1")
+	if err != nil || len(cycles) != 1 || cycles[0].CycleID != "cycle-1" {
+		t.Fatalf("cycles=%#v err=%v", cycles, err)
+	}
+	tasks, err := database.ListCampaignTasks(ctx, "alpha", "campaign-1", "cycle-1")
+	if err != nil || len(tasks) != 1 || tasks[0].AssessmentTaskID != "assessment-task-1" {
+		t.Fatalf("tasks=%#v err=%v", tasks, err)
+	}
+	events, err := database.ListCampaignEvents(ctx, "alpha", "campaign-1")
+	if err != nil || len(events) != 1 || events[0].EventID != "event-1" {
+		t.Fatalf("events=%#v err=%v", events, err)
+	}
+	foreign, err := database.ListCampaignTasks(ctx, "beta", "campaign-1", "cycle-1")
+	if err != nil || len(foreign) != 0 {
+		t.Fatalf("foreign=%#v err=%v", foreign, err)
+	}
+}

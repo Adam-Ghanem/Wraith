@@ -65,6 +65,95 @@ func (db *DB) LoadCampaign(ctx context.Context, projectID, campaignID string) (C
 	return record, nil
 }
 
+func (db *DB) ListCampaignCycles(ctx context.Context, projectID, campaignID string) ([]CampaignCycleRecord, error) {
+	if db == nil || db.sql == nil || strings.TrimSpace(projectID) == "" || strings.TrimSpace(campaignID) == "" {
+		return nil, errors.New("invalid campaign cycle query")
+	}
+	rows, err := db.sql.QueryContext(ctx, `SELECT project_id,campaign_id,cycle_id,scope_version,assessment_id,surface_snapshot_id,status,execution_run_id,created_at,COALESCE(started_at,''),COALESCE(finished_at,'') FROM campaign_cycles WHERE project_id=? AND campaign_id=? ORDER BY created_at,cycle_id`, projectID, campaignID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := []CampaignCycleRecord{}
+	for rows.Next() {
+		var record CampaignCycleRecord
+		var created, started, finished string
+		if err := rows.Scan(&record.ProjectID, &record.CampaignID, &record.CycleID, &record.ScopeVersion, &record.AssessmentID, &record.SurfaceSnapshotID, &record.Status, &record.ExecutionRunID, &created, &started, &finished); err != nil {
+			return nil, err
+		}
+		if record.CreatedAt, err = time.Parse(time.RFC3339Nano, created); err != nil {
+			return nil, err
+		}
+		if started != "" {
+			if record.StartedAt, err = time.Parse(time.RFC3339Nano, started); err != nil {
+				return nil, err
+			}
+		}
+		if finished != "" {
+			if record.FinishedAt, err = time.Parse(time.RFC3339Nano, finished); err != nil {
+				return nil, err
+			}
+		}
+		result = append(result, record)
+	}
+	return result, rows.Err()
+}
+
+func (db *DB) ListCampaignTasks(ctx context.Context, projectID, campaignID, cycleID string) ([]CampaignTaskRecord, error) {
+	if db == nil || db.sql == nil || strings.TrimSpace(projectID) == "" || strings.TrimSpace(campaignID) == "" || strings.TrimSpace(cycleID) == "" {
+		return nil, errors.New("invalid campaign task query")
+	}
+	rows, err := db.sql.QueryContext(ctx, `SELECT project_id,campaign_id,cycle_id,task_id,assessment_task_id,status,priority,attempt,result_reference,COALESCE(started_at,''),COALESCE(finished_at,'') FROM campaign_tasks WHERE project_id=? AND campaign_id=? AND cycle_id=? ORDER BY priority DESC,task_id`, projectID, campaignID, cycleID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := []CampaignTaskRecord{}
+	for rows.Next() {
+		var record CampaignTaskRecord
+		var started, finished string
+		if err := rows.Scan(&record.ProjectID, &record.CampaignID, &record.CycleID, &record.TaskID, &record.AssessmentTaskID, &record.Status, &record.Priority, &record.Attempt, &record.ResultReference, &started, &finished); err != nil {
+			return nil, err
+		}
+		if started != "" {
+			if record.StartedAt, err = time.Parse(time.RFC3339Nano, started); err != nil {
+				return nil, err
+			}
+		}
+		if finished != "" {
+			if record.FinishedAt, err = time.Parse(time.RFC3339Nano, finished); err != nil {
+				return nil, err
+			}
+		}
+		result = append(result, record)
+	}
+	return result, rows.Err()
+}
+
+func (db *DB) ListCampaignEvents(ctx context.Context, projectID, campaignID string) ([]CampaignEventRecord, error) {
+	if db == nil || db.sql == nil || strings.TrimSpace(projectID) == "" || strings.TrimSpace(campaignID) == "" {
+		return nil, errors.New("invalid campaign event query")
+	}
+	rows, err := db.sql.QueryContext(ctx, `SELECT project_id,campaign_id,event_id,cycle_id,task_id,event_type,status,reason,metadata_json,created_at FROM campaign_events WHERE project_id=? AND campaign_id=? ORDER BY created_at,event_id`, projectID, campaignID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := []CampaignEventRecord{}
+	for rows.Next() {
+		var record CampaignEventRecord
+		var created string
+		if err := rows.Scan(&record.ProjectID, &record.CampaignID, &record.EventID, &record.CycleID, &record.TaskID, &record.EventType, &record.Status, &record.Reason, &record.MetadataJSON, &created); err != nil {
+			return nil, err
+		}
+		if record.CreatedAt, err = time.Parse(time.RFC3339Nano, created); err != nil {
+			return nil, err
+		}
+		result = append(result, record)
+	}
+	return result, rows.Err()
+}
+
 func (db *DB) CreateCampaignCycle(ctx context.Context, record CampaignCycleRecord) error {
 	if db == nil || db.sql == nil || !validCycleRecord(record) {
 		return errors.New("invalid campaign cycle")

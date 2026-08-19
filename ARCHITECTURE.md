@@ -1,6 +1,6 @@
 # Wraith Architecture Audit
 
-**Audit status:** Baseline assessment of the Phase 1–6 implementation with R1 Policy Core, R2 Web Evidence, and R3 Unified HTTP Engine addenda on their respective feature branches. This document distinguishes implemented boundary contracts from later proposed subsystems.
+**Audit status:** Local-first CLI architecture through R16 on feature branches. This document distinguishes implemented boundary contracts—including read-only deterministic reporting—from later proposed hosted, scheduled, and remote subsystems.
 
 ## Executive architecture summary
 
@@ -33,6 +33,7 @@ Wraith is currently a **local-first Go CLI with an embedded SQLite scan ledger, 
 | Dashboard | Static React/Vite application reading local JSON fixtures. | Read-only, fixture-backed, no backend, network polling, authentication, or write actions. |
 | Quality/release | SHA-pinned GitHub Actions, Go/frontend tests, static analysis, dependency review, reproducible build metadata, and checksums. | Artifacts are checksummed, not signed or provenance-attested. |
 | R12 integration hardening | Temporary SQLite/project-isolated CLI smoke coverage, migration/reopen checks, CI regression protection, and release-operational guidance. | No new scanner, transport, worker, external service, deployment path, or runtime security authority is introduced. |
+| R16 reporting | `internal/reportmodel`, `internal/correlation`, `internal/reporting`, and `wraith report` assemble normalized project-scoped campaign report snapshots from existing SQLite owners. | Read-only local output only: no HTTP/DNS/socket/process path, lifecycle mutation, finding/risk creation, risk rescoring, or report-time graph reconstruction. |
 
 ## Current repository map
 
@@ -54,7 +55,8 @@ internal/
 	  ├── jsanalysis         legacy R3-backed JavaScript collection plus separate R6 static local analysis and client-side metadata
   ├── portscan           optional Nmap adapter
   ├── vulncheck          optional Nuclei adapter
-  ├── storage            SQLite migrations, persistence, and snapshot diffs
+	  ├── storage            SQLite migrations, persistence, and snapshot diffs
+	  ├── reportmodel, correlation, reporting   R16 normalized report contracts, exact-ID correlation, and deterministic local renderers
   ├── metadata, model, output, executil, buildinfo
   └── testutil           test-support package boundary (currently no Go source)
 
@@ -65,7 +67,7 @@ docs/, README.md, SECURITY.md
   └── scope, responsible use, Phase implementation records, release, support, and threat documentation
 ```
 
-The current database schema has twelve embedded migrations, including project-scoped R10 identities, secret-free authentication metadata, and R10.5 pentest run, phase, and event metadata. Credentials never persist in SQLite.
+The current database schema has fifteen embedded migrations, including project-scoped R10 identities, secret-free authentication metadata, R10.5 lifecycle records, R11.5 risk intelligence, R11.6 surface snapshots, and R14 campaign orchestration. R16 adds no migration or report table; it builds deterministic in-memory views from those authoritative records. Credentials never persist in SQLite.
 
 ## Current control flow
 
@@ -123,8 +125,8 @@ Wraith application boundary
 ├── Persistence ports
 │   ├── SQLite local adapter (current evolution path)
 	│   └── optional future adapters only after a separate decision
-└── Presentation adapters
-    ├── JSON/terminal output (current)
+	└── Presentation adapters
+	    ├── JSON/terminal/Markdown/offline HTML local output (current)
 	    └── static fixture UI (current, non-priority)
 ```
 
