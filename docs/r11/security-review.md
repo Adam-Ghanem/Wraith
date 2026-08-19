@@ -11,3 +11,14 @@
 | Injection or destructive behavior | Candidate values are generic deterministic boundaries only. The package does not execute payloads, commands, or mutations against a target. |
 
 The remaining review work belongs to later approved R11 stages: R1/R3 execution integration, global R10.5 budget consumption, health monitoring, active evidence, localhost integration, validation, correlation, and reporting.
+
+## R11.2 update
+
+| Audit | Result |
+| --- | --- |
+| Passive planning | `Build` performs only bounded local normalization, R2/R5 identity reuse, provenance merging, and safe local-wordlist parsing. |
+| R3-only verification | `Verify` accepts an existing `httpengine.Client`; it creates no HTTP client, resolver, socket, or subprocess. Requests are explicit `HEAD` calls with redirect following disabled. |
+| R1 and capacity controls | The R3 client remains the policy boundary; `Verify` additionally requires authorization intent and consumes R10.5 global budget, rate, and concurrency controls before each request. |
+| Sensitive data | Candidate values reject secret-like strings and sensitive paths. Verification evidence has no request body, headers, cookies, candidate value, or credential fields and is marked redacted. |
+| Project isolation | Build requires an inventory for the requested project and verification rejects malformed/non-URL candidates before dispatch. |
+| Remaining limit | No persistent candidate store or pentest phase registration is introduced; R11.2 is a bounded command/library slice and does not begin R11.3. |

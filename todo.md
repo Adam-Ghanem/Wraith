@@ -33,3 +33,4 @@
 - [x] R10.5: audit R1–R10 integration seams, then implement a bounded R1/R3-only pentest orchestrator on `feature/r10.5-pentest-orchestrator`; keep main untouched and stop before R11.
 - [x] After R10.5 quality gates pass, merge the approved feature branch into `main`; verify R10.5 is present and do not start R11.
 - [x] Create `feature/r11.1-request-mutation` from `main` and implement only a deterministic, bounded, no-network Request Mutation Engine that reuses R2/R5/R6/R10/R10.5 data contracts; add tests, fuzzing, benchmarks, documentation, quality review, commit, and push. Stop and await approval before R11.2.
+- [x] Create `feature/r11.2-smart-discovery` from R11.1 and implement only bounded, deterministic, project-scoped content and parameter discovery with provenance, R1/R3-only explicit verification, R2 evidence, tests, fuzzing, benchmarks, documentation, security review, commit, and push. Stop and await approval before R11.3.

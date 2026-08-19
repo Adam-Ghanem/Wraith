@@ -42,6 +42,7 @@ Most reconnaissance tools optimize for reach. Wraith is intentionally narrow: ea
 | R10 | Implemented on feature branch | Project identities, bounded auth-test, and differential comparison | Explicit dual gate, local bounded sources, R1/R3-only live requests, secret-free persistence, and protection stops |
 | R10.5 | Implemented on feature branch | `wraith pentest` plans and coordinates existing approved modules, project-scoped run history, safe resume, and local reports | Reuses existing R1/R3-controlled paths only; one global budget/rate/concurrency limit; `auth_attack` requires `--attack-auth` and is not replayed during resume |
 | R11.1 | Implemented on feature branch | Deterministic, project-scoped request-variant planning for existing R2 endpoint and parameter identities | No network execution, R1/R3 bypass, secret/header persistence, findings, or validation; R11.2 and later are unstarted |
+| R11.2 | Implemented on feature branch | Project-scoped candidate discovery from R5/R2 inventory, local R6 references, and explicit safe wordlists | Passive/dry-run discovery is no-network; optional `--verify` uses only non-destructive R3 `HEAD` calls under R10.5 budget/rate/concurrency controls and stores redacted R2 response metadata; R11.3 and later are unstarted |
 
 ## Quick start: inspect real sample output without scanning
 
