@@ -22,3 +22,15 @@ The remaining review work belongs to later approved R11 stages: R1/R3 execution 
 | Sensitive data | Candidate values reject secret-like strings and sensitive paths. Verification evidence has no request body, headers, cookies, candidate value, or credential fields and is marked redacted. |
 | Project isolation | Build requires an inventory for the requested project and verification rejects malformed/non-URL candidates before dispatch. |
 | Remaining limit | No persistent candidate store or pentest phase registration is introduced; R11.2 is a bounded command/library slice and does not begin R11.3. |
+
+## R11.3 update
+
+| Audit | Result |
+| --- | --- |
+| R1/R3 bypass | `Run` accepts only an injected `httpengine.Client`; it does not construct a client, transport, resolver, or request path. The injected R3 client remains responsible for R1 and destination controls. |
+| Request and method bounds | Each planned test uses a baseline plus one registered payload request; only `GET` and `HEAD` are accepted. Unsafe methods and malformed/cross-project plans are rejected before dispatch. |
+| Capacity, cancellation, and health | Baseline and payload dispatch reuse R10.5 budget, global rate, and concurrency controls. The runner observes its context and returns `ErrServiceInstability` immediately on `429`. |
+| Payload and secret handling | The registry is immutable and bounded. Payload values use `json:"-"`; only identifiers and fingerprints reach output. Redacted observations omit request values, bodies, cookies, and authorization data. |
+| Direct execution hazards | No R11.3 source imports `os/exec` or opens a direct HTTP/DNS/socket path. Command-class coverage is a response canary only; it cannot execute a local or remote command. |
+| Finding lifecycle | R11.3 emits signals and may submit them to an explicit validation interface. It has no local finding creator, and the run result stays at `FindingsCreated: 0`. R8 owns validation and R9 owns later correlation. |
+| Remaining limit | There is no R10.5 phase registration, automatic R8 adapter, R9 correlation invocation, persistent injection-test store, or reporting layer. These remain separately approved follow-on work. |

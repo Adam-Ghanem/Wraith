@@ -73,6 +73,18 @@ type PlanInput struct {
 	Limits     Limits
 }
 
+// PayloadInput is the explicit memory-only bridge for a separately approved
+// bounded test payload. Callers persist only PayloadID and the returned
+// variant fingerprint; Value and the mutated template remain unexported JSON.
+type PayloadInput struct {
+	ProjectID, PayloadID string
+	Authorized           bool
+	Template             RequestTemplate
+	Target               evidence.Parameter
+	Value                string `json:"-"`
+	Limits               Limits
+}
+
 // RequestVariant records only structural provenance and a non-reversible
 // fingerprint in serializable form. The mutable request template stays memory-only.
 type RequestVariant struct {
@@ -137,6 +149,29 @@ func BuildPlan(input PlanInput) (Plan, error) {
 	plan := Plan{ProjectID: input.ProjectID, EndpointIdentity: input.Template.Endpoint.Identity, ParameterIdentity: input.Target.Identity, EstimatedRequests: len(variants), Variants: variants}
 	plan.Fingerprint = fingerprintPlan(plan)
 	return plan, nil
+}
+
+// ComposePayload reuses the R11.1 mutation semantics for one bounded payload.
+// It performs no transport, storage, logging, or serialization work.
+func ComposePayload(input PayloadInput) (RequestVariant, error) {
+	if !input.Authorized {
+		return RequestVariant{}, ErrUnauthorized
+	}
+	planInput := PlanInput{ProjectID: input.ProjectID, Authorized: true, Template: input.Template, Target: input.Target, Limits: input.Limits}
+	if !validInput(planInput) || strings.TrimSpace(input.PayloadID) == "" || len(input.PayloadID) > 128 || len(input.Value) == 0 || len(input.Value) > input.Limits.MaxValueBytes || strings.ContainsAny(input.Value, "\r\n\x00") {
+		return RequestVariant{}, ErrInvalidPlan
+	}
+	if input.Template.Endpoint.ProjectID != input.ProjectID || input.Target.ProjectID != input.ProjectID || input.Target.EndpointIdentity != input.Template.Endpoint.Identity {
+		return RequestVariant{}, ErrProjectMismatch
+	}
+	if hasSensitiveHeaders(input.Template.Headers) || input.Target.Location == evidence.ParameterLocationHeader && sensitiveHeader(input.Target.Name) {
+		return RequestVariant{}, ErrSensitiveHeader
+	}
+	template, err := apply(input.Template, input.Target, input.Value, input.Limits)
+	if err != nil {
+		return RequestVariant{}, err
+	}
+	return newVariant(planInput, Strategy("payload-"+input.PayloadID), template), nil
 }
 
 func validInput(input PlanInput) bool {

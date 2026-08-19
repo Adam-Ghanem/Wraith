@@ -54,6 +54,8 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 			return runCompare(ctx, args, stdout, stderr)
 		case "pentest":
 			return runPentest(ctx, args, stdout, stderr)
+		case "inject":
+			return runInject(ctx, args, stdout, stderr)
 		case "history":
 			return runHistory(ctx, args, stdout, stderr)
 		case "export-fixtures":
