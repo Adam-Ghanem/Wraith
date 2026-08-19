@@ -94,7 +94,7 @@ func runFuzz(ctx context.Context, args []string, stdout, _ io.Writer) error {
 		return renderFuzzOutput(stdout, options.JSON, fuzzOutput{Plan: plan, DryRun: true, Limits: fuzzLimitsOutput{Rate: options.Rate, Concurrency: options.Concurrency, MaxRequests: options.MaxRequests, TimeoutMS: options.Timeout.Milliseconds(), MaxDurationMS: options.MaxDuration.Milliseconds()}})
 	}
 	engine := httpengine.NewEngine(httpengine.Config{Gateway: policy.NewGateway(policy.NewEvaluator(database)), ObservationSink: sqliteObservationSink{repository: database}, RateLimiter: httpengine.NewRateLimiter(time.Second / time.Duration(options.Rate)), MaxConcurrentRequests: options.Concurrency, MaxResponseBytes: 2 << 20, RequestTimeout: options.Timeout})
-	defer func() { _ = engine.CloseIdleConnections() }()
+	defer engine.CloseIdleConnections()
 	var baseline *httpengine.Response
 	if options.Baseline {
 		response, err := engine.Do(ctx, httpengine.Request{ProjectID: options.ProjectID, Method: template.Method, URL: template.URL, Headers: nil, Body: append([]byte(nil), template.Body...), Timeout: options.Timeout, Source: "fuzz/baseline"})
@@ -218,6 +218,11 @@ type fuzzLimitsOutput struct {
 	MaxRequests   int   `json:"max_requests"`
 	TimeoutMS     int64 `json:"timeout_ms"`
 	MaxDurationMS int64 `json:"max_duration_ms"`
+}
+type fuzzMutationOutput struct {
+	ID          string `json:"id"`
+	Category    string `json:"category"`
+	SafetyClass string `json:"safety_class"`
 }
 type fuzzOutput struct {
 	Plan     fuzzing.FuzzPlan         `json:"plan"`
