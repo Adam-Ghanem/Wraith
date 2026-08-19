@@ -33,7 +33,13 @@ func CreateLifecycle(ctx context.Context, database *storage.DB, plan assessment.
 // PersistSummary records secret-free task state and immutable lifecycle events.
 // Persistence failures are returned to the caller; they are never discarded.
 func PersistSummary(ctx context.Context, database *storage.DB, summary ExecutionSummary) error {
-	if ctx == nil || database == nil || strings.TrimSpace(summary.ProjectID) == "" || strings.TrimSpace(summary.AssessmentID) == "" || !validSummaryStatus(summary.Status) {
+	return PersistSummaryAsRun(ctx, database, summary, summary.AssessmentID)
+}
+
+// PersistSummaryAsRun retains the immutable assessment identity in its summary
+// while writing to a caller-created R10.5 lifecycle run, such as an R14 cycle.
+func PersistSummaryAsRun(ctx context.Context, database *storage.DB, summary ExecutionSummary, runID string) error {
+	if ctx == nil || database == nil || strings.TrimSpace(summary.ProjectID) == "" || strings.TrimSpace(summary.AssessmentID) == "" || strings.TrimSpace(runID) == "" || !validSummaryStatus(summary.Status) {
 		return errors.New("invalid assessment execution summary")
 	}
 	for _, task := range summary.Tasks {
@@ -42,7 +48,7 @@ func PersistSummary(ctx context.Context, database *storage.DB, summary Execution
 		}
 		if err := database.UpsertPentestPhaseRun(ctx, storage.PentestPhaseRunRecord{
 			ProjectID:  summary.ProjectID,
-			RunID:      summary.AssessmentID,
+			RunID:      runID,
 			Phase:      task.TaskID,
 			Status:     persistedTaskStatus(task.Status),
 			Reason:     boundedReason(task.Reason),
@@ -58,8 +64,8 @@ func PersistSummary(ctx context.Context, database *storage.DB, summary Execution
 		}
 		if err := database.AppendPentestEvent(ctx, storage.PentestEventRecord{
 			ProjectID:    summary.ProjectID,
-			EventID:      fmt.Sprintf("%s-%04d", summary.AssessmentID, index+1),
-			RunID:        summary.AssessmentID,
+			EventID:      fmt.Sprintf("%s-%04d", runID, index+1),
+			RunID:        runID,
 			Phase:        event.TaskID,
 			Module:       "assessment",
 			EventType:    event.Type,
@@ -71,7 +77,7 @@ func PersistSummary(ctx context.Context, database *storage.DB, summary Execution
 		}
 	}
 	finishedAt := latestFinishedAt(summary.Tasks, summary.Events)
-	return database.UpdatePentestRunStatus(ctx, summary.ProjectID, summary.AssessmentID, persistedRunStatus(summary.Status), boundedReason(summaryStatusReason(summary.Status)), finishedAt)
+	return database.UpdatePentestRunStatus(ctx, summary.ProjectID, runID, persistedRunStatus(summary.Status), boundedReason(summaryStatusReason(summary.Status)), finishedAt)
 }
 
 func persistedTaskStatus(status Status) string {

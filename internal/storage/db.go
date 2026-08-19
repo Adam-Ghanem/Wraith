@@ -21,7 +21,7 @@ import (
 //go:embed migrations/*.sql
 var migrationFS embed.FS
 
-const CurrentSchemaVersion = 14
+const CurrentSchemaVersion = 15
 
 var (
 	ErrInvalidMigration          = errors.New("invalid storage migration")

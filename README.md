@@ -51,6 +51,7 @@ Most reconnaissance tools optimize for reach. Wraith is intentionally narrow: ea
 | R13 | Implemented on feature branch | Fail-closed active-assessment scope/task planning and injected R10.5 execution seam over existing R1–R12 components | No direct network client, auto-wired live scanner, local finding creation, secret persistence, or R14 work |
 | R13.1 | Implemented on feature branch | Single-owner execution adapter registry with a secret-free task context and result identity validation | No new transport, DNS, socket, subprocess, credential storage, scanner, or owner implementation |
 | R13.2 | Implemented on feature branch | Deterministic, timeout/cancellation-aware assessment execution, R1 rechecks, R10.5 controls, explicit run/dry-run CLI, and R10.5 lifecycle persistence reuse | No auto-wired live owner capability; placeholders fail closed, dry-run invokes no adapter or lifecycle write, and no R14 work is started |
+| R14 | Implemented on feature branch | Project-scoped bounded campaign state, immutable R11.6 surface references, deterministic checkpoints, explicit create/status/run CLI, and R13.2 handoff through R10.5 lifecycle runs | No background scheduler, transport, scanner, direct adapter dispatch, automatic authorization expansion, or configured live owner adapter; dry-run remains zero-execution and unconfigured owners produce partial fail-closed checkpoints |
 
 ## Quick start: inspect real sample output without scanning
 
@@ -232,6 +233,9 @@ Do not use random public hosts, shared networks, employer networks, bug-bounty t
 - [`docs/r13/r13.1-execution-adapters.md`](docs/r13/r13.1-execution-adapters.md) — R13.1 single-owner adapter registry and secret-free task context contract.
 - [`docs/r13/r13.2-execution-engine.md`](docs/r13/r13.2-execution-engine.md) — R13.2 state machine, R1/R10.5 integration, CLI lifecycle, persistence, and explicit limitations.
 - [`docs/r13/r13.2-security-review.md`](docs/r13/r13.2-security-review.md) — R13.2 egress, authorization, secret-minimization, cancellation, and audit review.
+- [`docs/r14/r14-audit.md`](docs/r14/r14-audit.md) — R14 reuse, persistence, lifecycle, and security-boundary audit.
+- [`docs/r14/r14-campaign-orchestration.md`](docs/r14/r14-campaign-orchestration.md) — R14 campaign state, checkpoint, CLI, ownership, and limitations.
+- [`docs/r14/r14-security-review.md`](docs/r14/r14-security-review.md) — R14 project isolation, egress, dry-run, secret-minimization, and deferred-lifecycle review.
 - [`docs/phase-2-3-real-target-verification.md`](docs/phase-2-3-real-target-verification.md) — redacted record of authorized Phase 2+3 live verification and its limitations.
 - [`docs/phase-5-implementation.md`](docs/phase-5-implementation.md) — static fixture dashboard, export command, hard exclusions, and Phase 5 testing limitations.
 - [`docs/dependency-review.md`](docs/dependency-review.md) — reviewed Go and pnpm dependency inventory, license evidence, exceptions, and CI update control.
