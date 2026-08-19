@@ -56,6 +56,10 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 			return runPentest(ctx, args, stdout, stderr)
 		case "inject":
 			return runInject(ctx, args, stdout, stderr)
+		case "findings":
+			return runFindings(ctx, args, stdout, stderr)
+		case "risk":
+			return runRisk(ctx, args, stdout, stderr)
 		case "history":
 			return runHistory(ctx, args, stdout, stderr)
 		case "export-fixtures":

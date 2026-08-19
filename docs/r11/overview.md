@@ -1,6 +1,6 @@
 # R11 — Advanced Active Web Security Engine
 
-R11 is a sequential program. **R11.1 through R11.4 are approved and implemented on separate feature branches.** R11.5 and R11.6 remain unstarted and require separate explicit approval.
+R11 is a sequential program. **R11.1 through R11.5 are approved and implemented on separate feature branches.** R11.6 remains unstarted and requires separate explicit approval.
 
 R11.1 adds a local, deterministic Request Mutation Engine. It consumes existing project-scoped R2 endpoint and parameter identities. R5 and R6 discoveries are already represented through those R2 identities; R10 identities remain metadata-only and no credential, cookie, token, or session secret is loaded or persisted. R10.5 provides the eventual bounded run model, but R11.1 does not execute a phase or create network work.
 
@@ -29,3 +29,13 @@ R11.4 turns one R11.3 signal into bounded reproduction work without equating a d
 | Deterministic candidate, response-diff, repeatability, confidence, and temporary finding-candidate models. | Confidence is not severity; no final finding, accepted lifecycle state, arbitrary payload, or raw evidence is created. |
 | R8 adapter writes redacted append-only R2 validation observations. | R11.4 neither replaces R8 validation semantics nor creates another evidence store. |
 | R9 adapter receives only validated evidence-backed candidates. | R11.4 does not group, deduplicate, correlate, or claim root cause; R9 remains authoritative. |
+
+## R11.5 update
+
+R11.5 consumes only validated, repeatable R11.4 candidates with R9 correlation input. It creates local project-scoped findings, a versioned deterministic risk assessment, explicit lifecycle/history/suppression records, and stable local findings/risk views. It has no egress, payload, validation, correlation, or exploit capability.
+
+| R11.5 capability | Explicit boundary |
+| --- | --- |
+| Fixed `r11.5-v1` risk factors and bands with a reason/factor explanation. | Confidence is preserved from R11.4 and does not become severity; unknown context never becomes an inferred critical asset or sensitive dataset. |
+| SQLite findings, history, assessments, suppressions, filters, and deterministic local `findings`/`risk` output. | Existing R2 observations are referenced instead of copied; candidate fingerprints, raw payloads, bodies, credentials, cookies, and authorization material are excluded. |
+| Explicit project-local lifecycle and suppression controls. | Rejected/inconclusive validation cannot become active; invalid transitions and cross-project/expired suppressions fail closed. |

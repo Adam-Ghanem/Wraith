@@ -45,3 +45,13 @@ The remaining review work belongs to later approved R11 stages: R1/R3 execution 
 | Sensitive data | Payload values remain memory-only. Candidate/result/finding-candidate serialization excludes signal metadata, raw payloads, cookies, authorization material, and response bodies. |
 | R8/R9 lifecycle | R8 owns observed validation evidence and R2 persistence. R11.4 sends only validated evidence-backed temporary candidates to R9, which remains correlation authority. |
 | Remaining limit | No durable lifecycle store, R10 identity-session binding, R10.5 phase registration, safe resume, or report adapter is added. |
+
+## R11.5 update
+
+| Audit | Result |
+| --- | --- |
+| Network/process boundary | `internal/riskintelligence` has no HTTP, DNS, socket, transport, resolver, process, or shell behavior. It is local deterministic data transformation only. |
+| Validated-only intake | Assessment requires matching validated/repeatable R11.4 result, evidence references, and a correlation ID; rejected/inconclusive candidates fail closed. |
+| Score and lifecycle | Versioned `r11.5-v1` factors/bands are deterministic and bounded. Invalid transitions, cross-project suppression, and expired suppression fail closed. |
+| Storage/output minimization | Project-local SQLite records are indexed and history is append-only. Local output omits internal candidate fingerprints and raw secret-bearing material. |
+| Remaining limit | The named `r11.5_risk` phase has no automatic ingestion/active adapter, no full report integration, analyst mutation CLI, or resume semantics. |

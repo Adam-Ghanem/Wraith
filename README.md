@@ -45,6 +45,7 @@ Most reconnaissance tools optimize for reach. Wraith is intentionally narrow: ea
 | R11.2 | Implemented on feature branch | Project-scoped candidate discovery from R5/R2 inventory, local R6 references, and explicit safe wordlists | Passive/dry-run discovery is no-network; optional `--verify` uses only non-destructive R3 `HEAD` calls under R10.5 budget/rate/concurrency controls and stores redacted R2 response metadata |
 | R11.3 | Implemented on feature branch | Bounded, evidence-driven injection test planning and explicit R3-only execution seam | Immutable safe canaries, GET/HEAD only, R10.5 budget/rate/concurrency controls, redacted R2 signals, R8 validation handoff, no direct findings, and no CLI active execution |
 | R11.4 | Implemented on feature branch | Project-scoped controlled reproduction of R11.3 signals into R8-backed evidence and R9-ready finding candidates | Required R1 recheck before every injected-R3 request; GET/HEAD only; R10.5 controls; `429` and generic infrastructure instability are inconclusive; payloads remain memory-only; no final finding, scheduler, or CLI active execution |
+| R11.5 | Implemented on feature branch | Deterministic project-scoped security findings and risk intelligence over validated R11.4/R9 inputs | No network or scanner capability; fixed explainable `r11.5-v1` scoring, local SQLite lifecycle/history/suppression records, secret-free `findings`/`risk` output, and no R11.6/R12 work |
 
 ## Quick start: inspect real sample output without scanning
 
@@ -218,6 +219,7 @@ Do not use random public hosts, shared networks, employer networks, bug-bounty t
 - [`docs/r8-security-validation-spec.md`](docs/r8-security-validation-spec.md) — R8 passive validation contract, lifecycle vocabulary, R1/R3 boundary, and exclusions.
 - [`docs/r11/r11.3-injection.md`](docs/r11/r11.3-injection.md) — R11.3 bounded injection planner, R3-only active runner seam, redacted evidence signals, and R8/R9 handoff boundary.
 - [`docs/r11/r11.4-validation.md`](docs/r11/r11.4-validation.md) — R11.4 controlled reproduction, repeatability, R8 evidence, R9 handoff, and explicit exclusions.
+- [`docs/r11/r11.5-risk-intelligence.md`](docs/r11/r11.5-risk-intelligence.md) — R11.5 local deterministic findings, risk model, lifecycle, suppression, and output boundaries.
 - [`docs/phase-2-3-real-target-verification.md`](docs/phase-2-3-real-target-verification.md) — redacted record of authorized Phase 2+3 live verification and its limitations.
 - [`docs/phase-5-implementation.md`](docs/phase-5-implementation.md) — static fixture dashboard, export command, hard exclusions, and Phase 5 testing limitations.
 - [`docs/dependency-review.md`](docs/dependency-review.md) — reviewed Go and pnpm dependency inventory, license evidence, exceptions, and CI update control.
