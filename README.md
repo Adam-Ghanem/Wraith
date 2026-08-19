@@ -48,6 +48,7 @@ Most reconnaissance tools optimize for reach. Wraith is intentionally narrow: ea
 | R11.5 | Implemented on feature branch | Deterministic project-scoped security findings and risk intelligence over validated R11.4/R9 inputs | No network or scanner capability; fixed explainable `r11.5-v1` scoring, local SQLite lifecycle/history/suppression records, secret-free `findings`/`risk` output, and no R11.6/R12 work |
 | R11.6 | Implemented on feature branch | Deterministic project-scoped attack-surface graph and local campaign intelligence over existing evidence and R11.5 risk | No scanner or active testing; SQLite graph snapshots, known-surface coverage/gaps, local `surface` and campaign dry-run output, R10.5 phase registration only, and no R12 work |
 | R12 | Implemented on feature branch | Integration smoke tests, production validation, CI regression protection, and release-operational documentation for R1–R11.6 | No scanner, attack engine, deployment, external service, or security-semantic change; local temporary SQLite smoke coverage only and no R13 work |
+| R13 | Implemented on feature branch | Fail-closed active-assessment scope/task planning and injected R10.5 execution seam over existing R1–R12 components | No direct network client, auto-wired live scanner, local finding creation, secret persistence, or R14 work |
 
 ## Quick start: inspect real sample output without scanning
 
@@ -225,6 +226,7 @@ Do not use random public hosts, shared networks, employer networks, bug-bounty t
 - [`docs/r11/r11.6-attack-surface.md`](docs/r11/r11.6-attack-surface.md) — R11.6 deterministic graph, snapshots, coverage/gaps, and campaign dry-run boundary.
 - [`docs/r12/r12-integration-audit.md`](docs/r12/r12-integration-audit.md) — R12 verified integration audit and bounded smoke-test plan.
 - [`docs/r12/release-checklist.md`](docs/r12/release-checklist.md) — R12 release validation and operational safety checklist.
+- [`docs/r13/r13-active-assessment.md`](docs/r13/r13-active-assessment.md) — R13 scope snapshots, task dependencies, profiles, and injected execution boundary.
 - [`docs/phase-2-3-real-target-verification.md`](docs/phase-2-3-real-target-verification.md) — redacted record of authorized Phase 2+3 live verification and its limitations.
 - [`docs/phase-5-implementation.md`](docs/phase-5-implementation.md) — static fixture dashboard, export command, hard exclusions, and Phase 5 testing limitations.
 - [`docs/dependency-review.md`](docs/dependency-review.md) — reviewed Go and pnpm dependency inventory, license evidence, exceptions, and CI update control.

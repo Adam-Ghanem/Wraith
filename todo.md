@@ -43,3 +43,5 @@
 - [x] Create `feature/r11.6-attack-surface-intelligence` from the completed R11.5 commit and implement only a deterministic, project-scoped attack-surface graph and campaign intelligence layer over existing evidence, relationships, findings, and risk; add tests, fuzzing, benchmarks, documentation, security review, commit, and push. Do not merge main or start R12.
 
 - [x] Create `feature/r12-integration-hardening` from the completed R11.6 commit; audit actual R1–R11.6 state; add deterministic localhost-only/temporary-SQLite CLI smoke infrastructure, bounded integration coverage, stricter production configuration and CLI validation, CI regression protection, release-operational documentation, tests, security review, commit, and push. Do not merge `main` or start R13.
+
+- [x] Create `feature/r13-active-assessment` from the completed R12 commit; audit actual R1–R12 execution seams; implement only a bounded, resumable active assessment execution layer that reuses R1, R3, R10.5, R11.x, and R12 controls; add scope snapshots, deterministic tasks, tests, docs, security review, commit, and push. Do not merge `main` or start R14.
