@@ -45,3 +45,5 @@
 - [x] Create `feature/r12-integration-hardening` from the completed R11.6 commit; audit actual R1–R11.6 state; add deterministic localhost-only/temporary-SQLite CLI smoke infrastructure, bounded integration coverage, stricter production configuration and CLI validation, CI regression protection, release-operational documentation, tests, security review, commit, and push. Do not merge `main` or start R13.
 
 - [x] Create `feature/r13-active-assessment` from the completed R12 commit; audit actual R1–R12 execution seams; implement only a bounded, resumable active assessment execution layer that reuses R1, R3, R10.5, R11.x, and R12 controls; add scope snapshots, deterministic tasks, tests, docs, security review, commit, and push. Do not merge `main` or start R14.
+
+- [x] Create `feature/r13.1-execution-adapters` from the completed R13 commit; audit actual R1–R13 capability seams; implement only small task adapters and a bounded pipeline coordinator that reuses R1/R3/R10.5/R2/R4–R11.6; add localhost-only tests, docs, security review, commit, and push. Do not merge `main` or start R14.
