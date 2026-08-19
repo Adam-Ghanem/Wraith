@@ -66,7 +66,11 @@ func TestRunR75LocalhostIntegrationUsesRealR3Engine(t *testing.T) {
 		t.Fatal(err)
 	}
 	engine := httpengine.NewEngine(httpengine.Config{Gateway: r75AllowGateway{}, DestinationPolicy: httpengine.DestinationPolicy{AllowPrivate: true}})
-	defer engine.CloseIdleConnections()
+	defer func() {
+		if err := engine.CloseIdleConnections(); err != nil {
+			t.Errorf("close idle connections: %v", err)
+		}
+	}()
 	run, err := RunR75(context.Background(), engine, plan, R75ExecutionOptions{Timeout: time.Second, MaxDuration: time.Second})
 	if err != nil || len(run.Results) != 1 || run.Results[0].Path != "/admin" {
 		t.Fatalf("run=%#v err=%v", run, err)
