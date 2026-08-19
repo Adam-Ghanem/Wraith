@@ -67,3 +67,31 @@ func TestAdapterRegistryMapsEachTaskToOneOwnerAndDelegates(t *testing.T) {
 		t.Fatal("expected blank owner rejection")
 	}
 }
+
+func TestAdapterRegistryDispatchRejectsExpiredScopeBeforeOwnerInvocation(t *testing.T) {
+	adapter := &recordingAdapter{owner: "owner-crawl"}
+	registry, err := NewAdapterRegistry(TypedAdapter{TaskType: TaskCrawl, Adapter: adapter})
+	if err != nil {
+		t.Fatal(err)
+	}
+	budget, err := pentest.NewBudgetManager(pentest.DefaultLimits())
+	if err != nil {
+		t.Fatal(err)
+	}
+	concurrency, err := pentest.NewConcurrencyController(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rate, err := pentest.NewGlobalRateLimiter(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	task := Task{ID: "task-crawl", AssessmentID: "assessment-a", ProjectID: "project-a", Type: TaskCrawl, Target: "https://app.test"}
+	_, err = registry.Dispatch(context.Background(), TaskContext{AssessmentID: task.AssessmentID, Scope: ScopeSnapshot{ProjectID: task.ProjectID, Target: task.Target, Authorized: true, ExpiresAt: time.Now().Add(-time.Second)}, Task: task, RunContext: pentest.RunContext{Budget: budget, Concurrency: concurrency, Rate: rate}})
+	if err == nil {
+		t.Fatal("Dispatch() error = nil, want expired-scope rejection")
+	}
+	if len(adapter.calls) != 0 {
+		t.Fatalf("adapter calls = %d, want zero after scope expiry", len(adapter.calls))
+	}
+}

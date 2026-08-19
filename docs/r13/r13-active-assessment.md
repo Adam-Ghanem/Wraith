@@ -19,3 +19,7 @@ The injected task adapter is responsible for invoking the approved existing comp
 R13 provides the fail-closed shared plan/task model and adapter seam, plus no-network CLI plan output. It does not silently wire live crawler/fuzz/injection/validation adapters into a new automatic pipeline because each requires configuration-specific R1 scope, R3 client, R2 evidence, R10.5 controls, and R11 lifecycle dependencies. Such a wiring belongs to an explicit approved adapter configuration rather than an implicit active command.
 
 R13 also excludes external queues, distributed workers, new authentication mechanisms, credential persistence, arbitrary execution, destructive payloads, new exploit classes, main merge, and R14.
+
+## R13.2 execution handoff
+
+R13.2 supplies the bounded synchronous lifecycle below this planner. It validates the complete plan again, resolves only R13.1-registered owners, rechecks authorization before dispatch, shares R10.5 controls, propagates cancellation and task deadlines, and writes project-scoped secret-free lifecycle state through existing R10.5 storage. Its `run --dry-run` command validates scope, plan, owner bindings, budgets, and authorization without invoking an adapter or writing an execution lifecycle record. R13.2 continues the deliberate limitation above: it does not manufacture a real crawler, fuzzer, injection, validation, correlation, finding, or report adapter from incomplete configuration.
