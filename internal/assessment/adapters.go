@@ -3,6 +3,7 @@ package assessment
 import (
 	"context"
 	"errors"
+	"net/url"
 	"strings"
 	"time"
 
@@ -26,12 +27,41 @@ type AdapterResult struct {
 	SignalCount   int
 }
 
+type AdapterErrorCode string
+
+const AdapterUnavailable AdapterErrorCode = "ADAPTER_UNAVAILABLE"
+
+// AdapterError identifies a fail-closed owner state without exposing target,
+// credential, request, or evidence data to callers.
+type AdapterError struct {
+	Code  AdapterErrorCode
+	Owner string
+}
+
+func (err *AdapterError) Error() string {
+	if err == nil || strings.TrimSpace(err.Owner) == "" {
+		return string(AdapterUnavailable)
+	}
+	return string(err.Code) + ": " + strings.TrimSpace(err.Owner)
+}
+
+func NewAdapterUnavailableError(owner string) error {
+	return &AdapterError{Code: AdapterUnavailable, Owner: owner}
+}
+
 // TaskAdapter is an owner-specific bridge to an existing R4–R11 component.
 // Implementations performing requests must use the injected R1/R3/R10.5
 // controls; the registry itself owns no transport behavior.
 type TaskAdapter interface {
 	Owner() string
 	Execute(context.Context, TaskContext) (AdapterResult, error)
+}
+
+// RequestControlOwner is implemented only by adapters that acquire the shared
+// R10.5 controls around each individual request they delegate to an existing
+// owner. It prevents a task-wide lease from deadlocking nested owner requests.
+type RequestControlOwner interface {
+	OwnsRequestControls() bool
 }
 
 type TypedAdapter struct {
@@ -76,6 +106,17 @@ func (registry AdapterRegistry) Owner(taskType TaskType) (string, bool) {
 	return strings.TrimSpace(adapter.Owner()), true
 }
 
+// OwnsRequestControls reports whether an owner adapter safely consumes the
+// supplied RunContext before every delegated request. Missing owners are false.
+func (registry AdapterRegistry) OwnsRequestControls(taskType TaskType) bool {
+	adapter, exists := registry.adapters[taskType]
+	if !exists || adapter == nil {
+		return false
+	}
+	owner, ok := adapter.(RequestControlOwner)
+	return ok && owner.OwnsRequestControls()
+}
+
 // Dispatch invokes one owner adapter through the same identity and
 // secret-minimized context validation used by Execute. It owns no transport.
 func (registry AdapterRegistry) Dispatch(ctx context.Context, taskContext TaskContext) (AdapterResult, error) {
@@ -83,7 +124,7 @@ func (registry AdapterRegistry) Dispatch(ctx context.Context, taskContext TaskCo
 	if taskContext.Now != nil {
 		now = taskContext.Now
 	}
-	if len(registry.adapters) == 0 || ctx == nil || taskContext.RunContext.Budget == nil || taskContext.RunContext.Concurrency == nil || taskContext.RunContext.Rate == nil || taskContext.AssessmentID == "" || taskContext.AssessmentID != taskContext.Task.AssessmentID || taskContext.Scope.ProjectID == "" || taskContext.Scope.ProjectID != taskContext.Task.ProjectID || taskContext.Scope.Target != taskContext.Task.Target || !taskContext.Scope.Authorized || taskContext.Scope.ExpiresAt.IsZero() || !taskContext.Scope.ExpiresAt.After(now().UTC()) || !knownTaskType(taskContext.Task.Type) {
+	if len(registry.adapters) == 0 || ctx == nil || taskContext.RunContext.Budget == nil || taskContext.RunContext.Concurrency == nil || taskContext.RunContext.Rate == nil || taskContext.AssessmentID == "" || taskContext.AssessmentID != taskContext.Task.AssessmentID || taskContext.Scope.ProjectID == "" || taskContext.Scope.ProjectID != taskContext.Task.ProjectID || taskContext.Scope.Target != taskContext.Task.Target || invalidTaskTarget(taskContext.Scope.Target) || !taskContext.Scope.Authorized || taskContext.Scope.ExpiresAt.IsZero() || !taskContext.Scope.ExpiresAt.After(now().UTC()) || !validLimits(taskContext.Scope.Limits) || !knownTaskType(taskContext.Task.Type) {
 		return AdapterResult{}, errors.New("invalid assessment task context")
 	}
 	adapter, exists := registry.adapters[taskContext.Task.Type]
@@ -98,6 +139,29 @@ func (registry AdapterRegistry) Dispatch(ctx context.Context, taskContext TaskCo
 		return AdapterResult{}, errors.New("invalid assessment adapter result")
 	}
 	return result, nil
+}
+
+func invalidTaskTarget(value string) bool {
+	parsed, err := url.Parse(value)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" || parsed.User != nil {
+		return true
+	}
+	for key := range parsed.Query() {
+		if secretLikeTargetKey(key) {
+			return true
+		}
+	}
+	return false
+}
+
+func secretLikeTargetKey(value string) bool {
+	lower := strings.ToLower(strings.TrimSpace(value))
+	for _, marker := range []string{"password", "token", "secret", "authorization", "cookie", "bearer", "api_key", "apikey", "access_key", "signature"} {
+		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func invalidEvidenceRefs(references []string) bool {

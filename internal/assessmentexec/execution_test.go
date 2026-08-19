@@ -215,6 +215,26 @@ func TestEngineBlocksWorkWhenSharedTaskBudgetIsExhausted(t *testing.T) {
 	}
 }
 
+func TestEngineLetsRequestOwningAdapterConsumeTheSingleSharedBudget(t *testing.T) {
+	plan := testPlan(t)
+	plan.Tasks = plan.Tasks[:1]
+	registry, err := assessment.NewAdapterRegistry(assessment.TypedAdapter{TaskType: assessment.TaskCrawl, Adapter: requestControlAdapter{owner: "test.r15.crawl"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	deps := testDependencies(t)
+	deps.RunContext = testRunContextWithRequests(t, 1)
+	engine := NewEngine(&registry, deps)
+
+	summary, err := engine.Execute(context.Background(), ExecutionRequest{Plan: plan, ProjectID: plan.Scope.ProjectID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary.Status != StatusCompleted || summary.Tasks[0].Status != StatusCompleted {
+		t.Fatalf("summary=%#v, want one completed request-owning task", summary)
+	}
+}
+
 func TestEngineDryRunNeverInvokesAdapter(t *testing.T) {
 	plan := testPlan(t)
 	calls := 0
@@ -336,6 +356,27 @@ func (adapter blockingAdapter) Owner() string { return adapter.owner }
 func (blockingAdapter) Execute(ctx context.Context, _ assessment.TaskContext) (assessment.AdapterResult, error) {
 	<-ctx.Done()
 	return assessment.AdapterResult{}, ctx.Err()
+}
+
+type requestControlAdapter struct{ owner string }
+
+func (adapter requestControlAdapter) Owner() string { return adapter.owner }
+func (requestControlAdapter) OwnsRequestControls() bool {
+	return true
+}
+func (adapter requestControlAdapter) Execute(ctx context.Context, taskContext assessment.TaskContext) (assessment.AdapterResult, error) {
+	if err := taskContext.RunContext.Budget.Consume(pentest.BudgetUse{Requests: 1}); err != nil {
+		return assessment.AdapterResult{}, err
+	}
+	if err := taskContext.RunContext.Rate.Wait(ctx); err != nil {
+		return assessment.AdapterResult{}, err
+	}
+	release, err := taskContext.RunContext.Concurrency.Acquire(ctx)
+	if err != nil {
+		return assessment.AdapterResult{}, err
+	}
+	defer release()
+	return assessment.AdapterResult{Owner: adapter.owner, TaskID: taskContext.Task.ID, SignalCount: 1}, nil
 }
 
 type sensitiveResultAdapter struct{ owner string }

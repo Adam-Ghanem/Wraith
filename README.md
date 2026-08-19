@@ -52,6 +52,7 @@ Most reconnaissance tools optimize for reach. Wraith is intentionally narrow: ea
 | R13.1 | Implemented on feature branch | Single-owner execution adapter registry with a secret-free task context and result identity validation | No new transport, DNS, socket, subprocess, credential storage, scanner, or owner implementation |
 | R13.2 | Implemented on feature branch | Deterministic, timeout/cancellation-aware assessment execution, R1 rechecks, R10.5 controls, explicit run/dry-run CLI, and R10.5 lifecycle persistence reuse | No auto-wired live owner capability; placeholders fail closed, dry-run invokes no adapter or lifecycle write, and no R14 work is started |
 | R14 | Implemented on feature branch | Project-scoped bounded campaign state, immutable R11.6 surface references, deterministic checkpoints, explicit create/status/run CLI, and R13.2 handoff through R10.5 lifecycle runs | No background scheduler, transport, scanner, direct adapter dispatch, automatic authorization expansion, or configured live owner adapter; dry-run remains zero-execution and unconfigured owners produce partial fail-closed checkpoints |
+| R15 | Implemented on feature branch | Built-in R13.1 owners delegate bounded R4 crawling, passive R5 endpoint inventory, and R11.2 Smart Discovery verification through R13.2/R14 | No new transport, resolver, scanner, or persistence model; R3 carries every request, owners consume the supplied R10.5 controls, and all unconfigured task owners return typed `ADAPTER_UNAVAILABLE` failures |
 
 ## Quick start: inspect real sample output without scanning
 
@@ -236,6 +237,7 @@ Do not use random public hosts, shared networks, employer networks, bug-bounty t
 - [`docs/r14/r14-audit.md`](docs/r14/r14-audit.md) — R14 reuse, persistence, lifecycle, and security-boundary audit.
 - [`docs/r14/r14-campaign-orchestration.md`](docs/r14/r14-campaign-orchestration.md) — R14 campaign state, checkpoint, CLI, ownership, and limitations.
 - [`docs/r14/r14-security-review.md`](docs/r14/r14-security-review.md) — R14 project isolation, egress, dry-run, secret-minimization, and deferred-lifecycle review.
+- [`docs/r15/r15-audit.md`](docs/r15/r15-audit.md) — R15 owner-seam audit, R4/R5/R11.2 delegation boundary, security invariants, and acceptance criteria.
 - [`docs/phase-2-3-real-target-verification.md`](docs/phase-2-3-real-target-verification.md) — redacted record of authorized Phase 2+3 live verification and its limitations.
 - [`docs/phase-5-implementation.md`](docs/phase-5-implementation.md) — static fixture dashboard, export command, hard exclusions, and Phase 5 testing limitations.
 - [`docs/dependency-review.md`](docs/dependency-review.md) — reviewed Go and pnpm dependency inventory, license evidence, exceptions, and CI update control.

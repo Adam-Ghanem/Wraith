@@ -4,14 +4,36 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/Adam-Ghanem/Wraith/internal/assessment"
+	"github.com/Adam-Ghanem/Wraith/internal/assessmentbuiltin"
+	"github.com/Adam-Ghanem/Wraith/internal/httpengine"
 	"github.com/Adam-Ghanem/Wraith/internal/policy"
 	"github.com/Adam-Ghanem/Wraith/internal/storage"
 )
+
+func TestAssessmentRunRegistryBindsBuiltInOwnersWithoutPretendingAllTasksAreConfigured(t *testing.T) {
+	registry, err := assessmentRunRegistry(assessmentbuiltin.Dependencies{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if owner, ok := registry.Owner(assessment.TaskCrawl); !ok || owner != assessmentbuiltin.OwnerCrawler {
+		t.Fatalf("crawl owner=%q exists=%t", owner, ok)
+	}
+	if owner, ok := registry.Owner(assessment.TaskEndpoints); !ok || owner != assessmentbuiltin.OwnerEndpoints {
+		t.Fatalf("endpoint owner=%q exists=%t", owner, ok)
+	}
+	if owner, ok := registry.Owner(assessment.TaskInjection); !ok || !strings.HasPrefix(owner, "unavailable.") {
+		t.Fatalf("injection owner=%q exists=%t, want explicit unavailable owner", owner, ok)
+	}
+}
 
 func TestPentestAssessmentPlanIsAuthorizedAndNoNetwork(t *testing.T) {
 	args := []string{"pentest", "assessment", "plan", "https://app.test", "--project", "alpha", "--authorized", "--scope-version", "scope-v1", "--profile", "safe", "--max-requests", "8", "--max-duration", "1m", "--max-concurrency", "1", "--rate", "1", "--json"}
@@ -98,6 +120,38 @@ func TestPentestAssessmentRunPersistsFailClosedUnwiredOwnerLifecycle(t *testing.
 	}
 }
 
+func TestPentestAssessmentRunDelegatesBuiltInCrawlThroughRealR3OnLocalhost(t *testing.T) {
+	ctx := context.Background()
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		requests.Add(1)
+		if request.URL.Path == "/.well-known/security.txt" {
+			writer.WriteHeader(http.StatusNotFound)
+			return
+		}
+		writer.Header().Set("Content-Type", "text/html")
+		_, _ = writer.Write([]byte("<html><body>R15 localhost fixture</body></html>"))
+	}))
+	defer server.Close()
+	databasePath := filepath.Join(t.TempDir(), "assessment-r15-localhost.db")
+	seedAssessmentScopeForTarget(t, ctx, databasePath, server.URL)
+
+	originalTransportFactory := assessmentTransportFactory
+	assessmentTransportFactory = func(database *storage.DB, limits assessment.Limits) *httpengine.Engine {
+		return httpengine.NewEngine(httpengine.Config{Gateway: policy.NewGateway(policy.NewEvaluator(database)), ObservationSink: sqliteObservationSink{repository: database}, DestinationPolicy: httpengine.DestinationPolicy{AllowPrivate: true}, MaxConcurrentRequests: limits.MaxConcurrency, MaxResponseBytes: 1 << 20, RequestTimeout: time.Second, UserAgent: "Wraith/r15-assessment-test"})
+	}
+	t.Cleanup(func() { assessmentTransportFactory = originalTransportFactory })
+
+	args := []string{"pentest", "assessment", "run", server.URL, "--project", "alpha", "--authorized", "--scope-version", "scope-v1", "--profile", "safe", "--db", databasePath, "--max-tasks", "1", "--max-requests", "2", "--max-duration", "1m", "--max-concurrency", "1", "--rate", "20", "--json"}
+	var output bytes.Buffer
+	if err := Run(ctx, args, &output, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	if requests.Load() != 2 || !strings.Contains(output.String(), `"status":"completed"`) || !strings.Contains(output.String(), assessmentbuiltin.OwnerCrawler) {
+		t.Fatalf("requests=%d output=%s", requests.Load(), output.String())
+	}
+}
+
 func TestPentestAssessmentRunDryRunLimitsDependencyClosedTaskPrefix(t *testing.T) {
 	ctx := context.Background()
 	databasePath := filepath.Join(t.TempDir(), "assessment-limit.db")
@@ -116,6 +170,10 @@ func TestPentestAssessmentRunDryRunLimitsDependencyClosedTaskPrefix(t *testing.T
 }
 
 func seedAssessmentScope(t *testing.T, ctx context.Context, databasePath string) {
+	seedAssessmentScopeForTarget(t, ctx, databasePath, "https://app.test")
+}
+
+func seedAssessmentScopeForTarget(t *testing.T, ctx context.Context, databasePath, target string) {
 	t.Helper()
 	database, err := storage.Open(databasePath)
 	if err != nil {
@@ -126,11 +184,15 @@ func seedAssessmentScope(t *testing.T, ctx context.Context, databasePath string)
 		t.Fatal(err)
 	}
 	expires := time.Now().UTC().Add(time.Hour)
+	rules := []policy.ScopeRule{{ID: "allow-app", ProjectID: "alpha", Effect: policy.EffectAllow, TargetType: policy.TargetTypeURL, Value: target, CreatedAt: time.Now().UTC()}}
+	if strings.HasPrefix(target, "http://127.0.0.1:") {
+		rules = append(rules, policy.ScopeRule{ID: "allow-loopback-connect", ProjectID: "alpha", Effect: policy.EffectAllow, TargetType: policy.TargetTypeIPv4CIDR, Value: "127.0.0.1/32", CreatedAt: time.Now().UTC()})
+	}
 	scope := policy.ProjectScope{
 		VersionID:     "scope-v1",
 		ProjectID:     "alpha",
-		Authorization: policy.AuthorizationRecord{ID: "authorization-v1", ProjectID: "alpha", ScopeVersionID: "scope-v1", OwnerID: "owner-a", ApprovedActions: []policy.Action{policy.ActionHTTP}, ExpiresAt: &expires, CreatedAt: time.Now().UTC()},
-		Rules:         []policy.ScopeRule{{ID: "allow-app", ProjectID: "alpha", Effect: policy.EffectAllow, TargetType: policy.TargetTypeURL, Value: "https://app.test", CreatedAt: time.Now().UTC()}},
+		Authorization: policy.AuthorizationRecord{ID: "authorization-v1", ProjectID: "alpha", ScopeVersionID: "scope-v1", OwnerID: "owner-a", ApprovedActions: []policy.Action{policy.ActionHTTP, policy.ActionConnect}, ExpiresAt: &expires, CreatedAt: time.Now().UTC()},
+		Rules:         rules,
 	}
 	if err := database.SaveProjectScope(ctx, scope); err != nil {
 		t.Fatal(err)

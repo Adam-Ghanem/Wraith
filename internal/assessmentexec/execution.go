@@ -163,20 +163,26 @@ func (engine Engine) Execute(ctx context.Context, request ExecutionRequest) (Exe
 		index := ready[0]
 		task := request.Plan.Tasks[index]
 		execution := &summary.Tasks[index]
-		err := engine.deps.RunContext.Budget.Consume(pentest.BudgetUse{Requests: 1})
-		if err != nil {
-			completed++
-			engine.finishTask(&summary, index, err, now)
-			continue
+		ownerControlsRequests := engine.registry.OwnsRequestControls(task.Type)
+		var err error
+		if !ownerControlsRequests {
+			err = engine.deps.RunContext.Budget.Consume(pentest.BudgetUse{Requests: 1})
+			if err != nil {
+				completed++
+				engine.finishTask(&summary, index, err, now)
+				continue
+			}
 		}
 		if err := execution.Transition(StatusRunning, now()); err != nil {
 			return ExecutionSummary{}, err
 		}
 		summary.emit(now, "task.started", task.ID, StatusRunning, "")
 		var release func()
-		release, err = engine.deps.RunContext.Concurrency.Acquire(executionContext)
-		if err == nil {
-			err = engine.deps.RunContext.Rate.Wait(executionContext)
+		if !ownerControlsRequests {
+			release, err = engine.deps.RunContext.Concurrency.Acquire(executionContext)
+			if err == nil {
+				err = engine.deps.RunContext.Rate.Wait(executionContext)
+			}
 		}
 		if err == nil {
 			if authorizeErr := engine.deps.Authorize(executionContext, request.Plan.Scope); authorizeErr != nil {

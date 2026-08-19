@@ -11,7 +11,9 @@ import (
 	"time"
 
 	"github.com/Adam-Ghanem/Wraith/internal/assessment"
+	"github.com/Adam-Ghanem/Wraith/internal/assessmentbuiltin"
 	"github.com/Adam-Ghanem/Wraith/internal/assessmentexec"
+	"github.com/Adam-Ghanem/Wraith/internal/httpengine"
 	"github.com/Adam-Ghanem/Wraith/internal/pentest"
 	"github.com/Adam-Ghanem/Wraith/internal/policy"
 	"github.com/Adam-Ghanem/Wraith/internal/storage"
@@ -61,6 +63,8 @@ type assessmentRunOptions struct {
 	TaskTimeout                           time.Duration
 }
 
+var assessmentTransportFactory = assessmentTransport
+
 func runPentestAssessmentRun(ctx context.Context, args []string, stdout io.Writer) error {
 	const usage = "usage: wraith pentest assessment run TARGET --project PROJECT --authorized --scope-version VERSION --profile safe|standard|deep [--db PATH] [--dry-run] [--max-tasks N] [--max-requests N] [--max-duration D] [--max-concurrency N] [--rate N] [--task-timeout D] [--json]"
 	options, err := parseAssessmentRunOptions(ctx, args)
@@ -88,7 +92,9 @@ func runPentestAssessmentRun(ctx context.Context, args []string, stdout io.Write
 	if err != nil {
 		return err
 	}
-	registry, err := assessmentRunRegistry()
+	transport := assessmentTransportFactory(database, plan.Scope.Limits)
+	defer transport.CloseIdleConnections()
+	registry, err := assessmentRunRegistry(assessmentbuiltin.Dependencies{Client: transport, Repository: database, EndpointSource: database, DiscoveryEvidence: database})
 	if err != nil {
 		return err
 	}
@@ -214,20 +220,19 @@ func assessmentAuthorizer(ctx context.Context, database *storage.DB, projectID, 
 	return expiresAt, authorize, nil
 }
 
-type unavailableAssessmentAdapter struct{ owner string }
-
-func (adapter unavailableAssessmentAdapter) Owner() string { return adapter.owner }
-func (unavailableAssessmentAdapter) Execute(context.Context, assessment.TaskContext) (assessment.AdapterResult, error) {
-	return assessment.AdapterResult{}, errors.New("assessment owner adapter is not configured")
+func assessmentRunRegistry(dependencies assessmentbuiltin.Dependencies) (assessment.AdapterRegistry, error) {
+	return assessmentbuiltin.NewRegistry(dependencies)
 }
 
-func assessmentRunRegistry() (assessment.AdapterRegistry, error) {
-	types := []assessment.TaskType{assessment.TaskCrawl, assessment.TaskEndpoints, assessment.TaskJS, assessment.TaskBaseline, assessment.TaskDiscovery, assessment.TaskMutation, assessment.TaskFuzz, assessment.TaskInjection, assessment.TaskValidation, assessment.TaskCorrelation, assessment.TaskFinding, assessment.TaskRisk, assessment.TaskSurface, assessment.TaskReport}
-	bindings := make([]assessment.TypedAdapter, 0, len(types))
-	for _, taskType := range types {
-		bindings = append(bindings, assessment.TypedAdapter{TaskType: taskType, Adapter: unavailableAssessmentAdapter{owner: "unconfigured." + string(taskType)}})
+// assessmentTransport is the existing R3 construction pattern used by active
+// CLI modules. R15 owner adapters receive it through the registry; this helper
+// owns no request dispatch and does not relax R1/R3 destination policy.
+func assessmentTransport(database *storage.DB, limits assessment.Limits) *httpengine.Engine {
+	timeout := limits.MaxDuration
+	if timeout <= 0 || timeout > 30*time.Second {
+		timeout = 30 * time.Second
 	}
-	return assessment.NewAdapterRegistry(bindings...)
+	return httpengine.NewEngine(httpengine.Config{Gateway: policy.NewGateway(policy.NewEvaluator(database)), ObservationSink: sqliteObservationSink{repository: database}, MaxConcurrentRequests: limits.MaxConcurrency, MaxResponseBytes: 1 << 20, RequestTimeout: timeout, UserAgent: "Wraith/r15-assessment"})
 }
 
 func writeAssessmentRunOutput(stdout io.Writer, jsonOutput bool, summary assessmentexec.ExecutionSummary, dryRun bool) error {

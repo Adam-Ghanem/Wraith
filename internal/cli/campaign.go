@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Adam-Ghanem/Wraith/internal/assessment"
+	"github.com/Adam-Ghanem/Wraith/internal/assessmentbuiltin"
 	"github.com/Adam-Ghanem/Wraith/internal/assessmentexec"
 	"github.com/Adam-Ghanem/Wraith/internal/attacksurface"
 	"github.com/Adam-Ghanem/Wraith/internal/campaign"
@@ -73,7 +74,7 @@ func runPentestCampaignCreate(ctx context.Context, args []string, stdout io.Writ
 	if err != nil {
 		return errors.New(usage)
 	}
-	registry, err := assessmentRunRegistry()
+	registry, err := assessmentRunRegistry(assessmentbuiltin.Dependencies{Repository: database, EndpointSource: database})
 	if err != nil {
 		return err
 	}
@@ -206,7 +207,9 @@ func runPentestCampaignRun(ctx context.Context, args []string, stdout io.Writer)
 	if err != nil {
 		return err
 	}
-	registry, err := assessmentRunRegistry()
+	transport := assessmentTransport(database, plan.Scope.Limits)
+	defer transport.CloseIdleConnections()
+	registry, err := assessmentRunRegistry(assessmentbuiltin.Dependencies{Client: transport, Repository: database, EndpointSource: database, DiscoveryEvidence: database})
 	if err != nil {
 		return err
 	}
