@@ -55,3 +55,12 @@ The remaining review work belongs to later approved R11 stages: R1/R3 execution 
 | Score and lifecycle | Versioned `r11.5-v1` factors/bands are deterministic and bounded. Invalid transitions, cross-project suppression, and expired suppression fail closed. |
 | Storage/output minimization | Project-local SQLite records are indexed and history is append-only. Local output omits internal candidate fingerprints and raw secret-bearing material. |
 | Remaining limit | The named `r11.5_risk` phase has no automatic ingestion/active adapter, no full report integration, analyst mutation CLI, or resume semantics. |
+
+## R11.6 update
+
+| Audit | Result |
+| --- | --- |
+| Execution boundary | R11.6 is a local graph/campaign projection only. It imports no direct HTTP, DNS, socket, resolver, shell, or subprocess path. |
+| Graph integrity | Deterministic project-scoped nodes/edges reject cross-project and orphan relationships. Snapshot fingerprints exclude timestamps and task budgets are bounded. |
+| Lifecycle boundary | The registered `r11.6_attack_surface` phase does not execute work automatically. Campaign output is dry-run planning; R10.5/R1/R3 remain authoritative. |
+| Remaining limit | Rich source adapters, graph membership history, active phase execution, reports, analyst lifecycle mutation, and R12 are deferred. |

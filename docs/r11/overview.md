@@ -1,6 +1,15 @@
 # R11 — Advanced Active Web Security Engine
 
-R11 is a sequential program. **R11.1 through R11.5 are approved and implemented on separate feature branches.** R11.6 remains unstarted and requires separate explicit approval.
+R11 is a sequential program. **R11.1 through R11.6 are approved and implemented on separate feature branches.** R12 remains unstarted and requires separate explicit approval.
+
+## R11.6 update
+
+R11.6 projects existing R2/R5/R11.5 records into a deterministic project-scoped attack-surface graph with local snapshots, coverage, visibility gaps, and non-executing campaign recommendations. It never performs discovery, active testing, validation, transport, or scheduling.
+
+| R11.6 capability | Explicit boundary |
+| --- | --- |
+| Evidence-backed graph node/edge relationships with timestamp-free fingerprints and project-local snapshots. | It does not alter R2 observations, infer unsupported relationships, or claim graph paths are exploitable. |
+| Local surface and campaign dry-run output with bounded recommendation tasks. | R10.5/R1/R3 retain all execution lifecycle, authorization, and transport authority. |
 
 R11.1 adds a local, deterministic Request Mutation Engine. It consumes existing project-scoped R2 endpoint and parameter identities. R5 and R6 discoveries are already represented through those R2 identities; R10 identities remain metadata-only and no credential, cookie, token, or session secret is loaded or persisted. R10.5 provides the eventual bounded run model, but R11.1 does not execute a phase or create network work.
 

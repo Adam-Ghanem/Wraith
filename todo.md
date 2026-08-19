@@ -39,3 +39,5 @@
 - [x] Create `feature/r11.4-finding-validation` from R11.3 and implement only bounded, project-scoped signal validation and evidence correlation that reuses R1/R3, R2, R8, R9, R10, R10.5, and R11.3; add tests, fuzzing, benchmarks, documentation, security review, commit, and push. Stop and await approval before R11.5.
 
 - [x] After R11.4 is completed and pushed, create `feature/r11.5-risk-intelligence` from its exact completed commit and implement only deterministic, project-scoped risk intelligence over validated R11.4 and correlated R9 evidence; add tests, fuzzing, benchmarks, documentation, security review, commit, and push. Do not merge main or start R11.6/R12.
+
+- [x] Create `feature/r11.6-attack-surface-intelligence` from the completed R11.5 commit and implement only a deterministic, project-scoped attack-surface graph and campaign intelligence layer over existing evidence, relationships, findings, and risk; add tests, fuzzing, benchmarks, documentation, security review, commit, and push. Do not merge main or start R12.
