@@ -47,6 +47,7 @@ Most reconnaissance tools optimize for reach. Wraith is intentionally narrow: ea
 | R11.4 | Implemented on feature branch | Project-scoped controlled reproduction of R11.3 signals into R8-backed evidence and R9-ready finding candidates | Required R1 recheck before every injected-R3 request; GET/HEAD only; R10.5 controls; `429` and generic infrastructure instability are inconclusive; payloads remain memory-only; no final finding, scheduler, or CLI active execution |
 | R11.5 | Implemented on feature branch | Deterministic project-scoped security findings and risk intelligence over validated R11.4/R9 inputs | No network or scanner capability; fixed explainable `r11.5-v1` scoring, local SQLite lifecycle/history/suppression records, secret-free `findings`/`risk` output, and no R11.6/R12 work |
 | R11.6 | Implemented on feature branch | Deterministic project-scoped attack-surface graph and local campaign intelligence over existing evidence and R11.5 risk | No scanner or active testing; SQLite graph snapshots, known-surface coverage/gaps, local `surface` and campaign dry-run output, R10.5 phase registration only, and no R12 work |
+| R12 | Implemented on feature branch | Integration smoke tests, production validation, CI regression protection, and release-operational documentation for R1–R11.6 | No scanner, attack engine, deployment, external service, or security-semantic change; local temporary SQLite smoke coverage only and no R13 work |
 
 ## Quick start: inspect real sample output without scanning
 
@@ -222,6 +223,8 @@ Do not use random public hosts, shared networks, employer networks, bug-bounty t
 - [`docs/r11/r11.4-validation.md`](docs/r11/r11.4-validation.md) — R11.4 controlled reproduction, repeatability, R8 evidence, R9 handoff, and explicit exclusions.
 - [`docs/r11/r11.5-risk-intelligence.md`](docs/r11/r11.5-risk-intelligence.md) — R11.5 local deterministic findings, risk model, lifecycle, suppression, and output boundaries.
 - [`docs/r11/r11.6-attack-surface.md`](docs/r11/r11.6-attack-surface.md) — R11.6 deterministic graph, snapshots, coverage/gaps, and campaign dry-run boundary.
+- [`docs/r12/r12-integration-audit.md`](docs/r12/r12-integration-audit.md) — R12 verified integration audit and bounded smoke-test plan.
+- [`docs/r12/release-checklist.md`](docs/r12/release-checklist.md) — R12 release validation and operational safety checklist.
 - [`docs/phase-2-3-real-target-verification.md`](docs/phase-2-3-real-target-verification.md) — redacted record of authorized Phase 2+3 live verification and its limitations.
 - [`docs/phase-5-implementation.md`](docs/phase-5-implementation.md) — static fixture dashboard, export command, hard exclusions, and Phase 5 testing limitations.
 - [`docs/dependency-review.md`](docs/dependency-review.md) — reviewed Go and pnpm dependency inventory, license evidence, exceptions, and CI update control.

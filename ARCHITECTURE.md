@@ -32,6 +32,7 @@ Wraith is currently a **local-first Go CLI with an embedded SQLite scan ledger, 
 | History | Pure in-memory NEW/REMOVED/CHANGED diff functions over persisted scan snapshots. | Current finding-level diffs are presence-oriented and are not an asset graph or risk engine. |
 | Dashboard | Static React/Vite application reading local JSON fixtures. | Read-only, fixture-backed, no backend, network polling, authentication, or write actions. |
 | Quality/release | SHA-pinned GitHub Actions, Go/frontend tests, static analysis, dependency review, reproducible build metadata, and checksums. | Artifacts are checksummed, not signed or provenance-attested. |
+| R12 integration hardening | Temporary SQLite/project-isolated CLI smoke coverage, migration/reopen checks, CI regression protection, and release-operational guidance. | No new scanner, transport, worker, external service, deployment path, or runtime security authority is introduced. |
 
 ## Current repository map
 

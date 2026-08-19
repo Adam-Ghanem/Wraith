@@ -33,10 +33,14 @@ jobs:
             gofmt -l . >&2
             exit 1
           }
+      - name: Check whitespace errors
+        run: git diff --check
       - name: Run go vet
         run: go vet ./...
       - name: Run unit tests
         run: go test ./...
+      - name: Run R12 CLI smoke and migration checks
+        run: go test ./internal/cli -run TestR12LocalCommandSmokeAndAuthorizationMatrix -count=1 && go test ./internal/storage -run 'Migration|Restart|SchemaVersion' -count=1
       - name: Run race-detector tests
         run: go test -race ./...
       - name: Run golangci-lint
