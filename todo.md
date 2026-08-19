@@ -30,4 +30,5 @@
 - [x] Create `feature/r8-security-validation` from R7.5 and implement evidence-led, reproducible, R1/R3-only passive security validation with explicit endpoint selection, redacted validation evidence, migration compatibility, fuzzing, benchmarks, and no credential attacks, destructive testing, alternate transport, or main changes.
 - [x] Create `feature/r9-vulnerability-intelligence` from the reconciled main branch and implement a SQLite-compatible project-scoped graph schema, deterministic deduplication/correlation, explainable confidence, change detection, local CLI, fuzzing, and benchmarks without Neo4j, remote intelligence, fabricated findings, or main changes.
 - [x] R10 implemented on `feature/r10-authenticated-security`; stop after R10.
-- [ ] R10.5: audit R1–R10 integration seams, then implement a bounded R1/R3-only pentest orchestrator on `feature/r10.5-pentest-orchestrator`; keep main untouched and stop before R11.
+- [x] R10.5: audit R1–R10 integration seams, then implement a bounded R1/R3-only pentest orchestrator on `feature/r10.5-pentest-orchestrator`; keep main untouched and stop before R11.
+- [ ] After R10.5 quality gates pass, merge the approved feature branch into `main`; verify R10.5 is present and do not start R11.

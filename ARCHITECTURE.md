@@ -20,6 +20,7 @@ Wraith is currently a **local-first Go CLI with an embedded SQLite scan ledger, 
 | Security validation | `internal/validation` provides deterministic passive checks over one selected endpoint response and redacted lifecycle-ready validation observations. | The `validate` CLI makes at most one bounded R3 request after project-local endpoint selection; validators create observed evidence only and exclude payloads, authentication attacks, credentials, destructive testing, and exploit claims. |
 | Vulnerability intelligence | `internal/intelligence` builds deterministic project-local asset/endpoint graphs, correlates evidence-backed candidates, explains bounded confidence, and detects local snapshot changes. | It has no network path and uses only existing project-scoped evidence identities. SQLite stores compatible graph/correlation structures; no Neo4j, remote advisory feed, unqualified severity, or exploitability claim is introduced. |
 | Authenticated security | `internal/authsecurity` provides bounded plans, in-memory local credential input, response analysis, and protection stops. | No secrets persist; lockout, MFA, CAPTCHA, rate limit, cancellation, budgets, and instability stop safely. |
+| Pentest orchestration | `internal/pentest` and `wraith pentest` coordinate selected R1–R10 modules through deterministic plans, lifecycle events, project-scoped runs, bounded shared resources, fail-closed resume, and local reports. | The orchestrator introduces no alternate network client or security logic: live adapters reuse approved components; `auth_attack` remains gated by explicit `--attack-auth` and is never replayed by resume. |
 | Local discovery | Linux-first interface/CIDR validation, bounded ARP candidates, curated TCP checks, and limited metadata. | Phase 1 rejects public CIDRs and requires an explicit selected local IPv4 boundary. |
 | Domain/web collection | Certificate-transparency/DNS enumeration, bounded HTTP probing, content discovery, and JavaScript analysis. | `scan --project` routes target-web probes, paths, and scripts through R3; output-derived targets remain untrusted. |
 | Optional enrichment | Nmap and Nuclei wrappers. | Both are opt-in, optional external binaries; they do not become enabled by discovery output. |
@@ -59,7 +60,7 @@ docs/, README.md, SECURITY.md
   └── scope, responsible use, Phase implementation records, release, support, and threat documentation
 ```
 
-The current database schema has eleven embedded migrations, including project-scoped R10 identities and secret-free authentication metadata. Credentials never persist in SQLite.
+The current database schema has twelve embedded migrations, including project-scoped R10 identities, secret-free authentication metadata, and R10.5 pentest run, phase, and event metadata. Credentials never persist in SQLite.
 
 ## Current control flow
 
