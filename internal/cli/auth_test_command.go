@@ -88,7 +88,7 @@ func runAuthTest(ctx context.Context, args []string, stdout, _ io.Writer) error 
 		return err
 	}
 	engine := httpengine.NewEngine(httpengine.Config{Gateway: policy.NewGateway(policy.NewEvaluator(database)), RateLimiter: httpengine.NewRateLimiter(time.Second / time.Duration(plan.Rate)), MaxConcurrentRequests: plan.Concurrency, MaxResponseBytes: 2 << 20, RequestTimeout: options.Timeout})
-	defer func() { _ = engine.CloseIdleConnections() }()
+	defer engine.CloseIdleConnections()
 	scheduler, err := authsecurity.NewAttackScheduler(plan, authsecurity.SchedulerOptions{Cooldown: options.Cooldown, MaxServerErrors: 1})
 	if err != nil {
 		return err
