@@ -118,6 +118,20 @@ type GovernanceControl struct {
 	Decisions             []GovernanceDecision `json:"decisions"`
 }
 
+// AnalyticsControl is a read-only R21 historical-intelligence projection. It
+// is not a finding, risk score, execution result, or remediation assertion.
+type AnalyticsControl struct {
+	OverallTrend        string   `json:"overall_trend,omitempty"`
+	HealthIndex         int      `json:"assessment_health_index"`
+	Health              string   `json:"assessment_health,omitempty"`
+	RegressionCount     int      `json:"regression_count"`
+	GovernanceBacklog   int      `json:"governance_backlog"`
+	StaleEvidence       int      `json:"stale_evidence"`
+	DataQuality         string   `json:"data_quality,omitempty"`
+	SnapshotFingerprint string   `json:"snapshot_fingerprint,omitempty"`
+	Limitations         []string `json:"limitations"`
+}
+
 func (coverage CoverageMetric) Display() string {
 	if coverage.Denominator == 0 {
 		return "N/A"
@@ -135,6 +149,7 @@ type SnapshotInput struct {
 	Regression                                         RegressionIntelligence
 	Assessment                                         AssessmentControl
 	Governance                                         GovernanceControl
+	Analytics                                          AnalyticsControl
 }
 
 type Snapshot struct {
@@ -153,6 +168,7 @@ type Snapshot struct {
 	Regression     RegressionIntelligence `json:"security_regression"`
 	Assessment     AssessmentControl      `json:"continuous_assessment"`
 	Governance     GovernanceControl      `json:"continuous_assessment_governance"`
+	Analytics      AnalyticsControl       `json:"continuous_assessment_analytics"`
 }
 
 func NewSnapshot(input SnapshotInput) (Snapshot, error) {
@@ -160,6 +176,7 @@ func NewSnapshot(input SnapshotInput) (Snapshot, error) {
 		return Snapshot{}, errors.New("invalid report snapshot")
 	}
 	snapshot := Snapshot{ProjectID: input.ProjectID, CampaignID: input.CampaignID, CampaignStatus: input.CampaignStatus, Profile: input.Profile, Target: input.Target, ScopeVersion: input.ScopeVersion, SchemaVersion: input.SchemaVersion, Findings: append([]Finding{}, input.Findings...), Limitations: append([]string{}, input.Limitations...), Coverage: input.Coverage, Evidence: EvidenceVerification{Details: append([]EvidenceDetail{}, input.Evidence.Details...)}, Regression: RegressionIntelligence{ComparisonFingerprint: input.Regression.ComparisonFingerprint, BaselineFingerprint: input.Regression.BaselineFingerprint, CurrentFingerprint: input.Regression.CurrentFingerprint, BaselineCreatedAt: input.Regression.BaselineCreatedAt, CurrentCreatedAt: input.Regression.CurrentCreatedAt, ComparedAt: input.Regression.ComparedAt, Details: append([]RegressionDetail{}, input.Regression.Details...)}, Assessment: AssessmentControl{EvaluationFingerprint: input.Assessment.EvaluationFingerprint, PolicyFingerprint: input.Assessment.PolicyFingerprint, BaselineFingerprint: input.Assessment.BaselineFingerprint, CurrentSnapshotFingerprint: input.Assessment.CurrentSnapshotFingerprint, Status: input.Assessment.Status, FailedRules: input.Assessment.FailedRules, Decisions: append([]AssessmentDecision{}, input.Assessment.Decisions...), Actions: append([]AssessmentAction{}, input.Assessment.Actions...)}, Governance: GovernanceControl{Overall: input.Governance.Overall, PolicyFingerprint: input.Governance.PolicyFingerprint, BaselineFingerprint: input.Governance.BaselineFingerprint, EvaluationFingerprint: input.Governance.EvaluationFingerprint, ComparisonFingerprint: input.Governance.ComparisonFingerprint, UnresolvedActions: input.Governance.UnresolvedActions, StaleReasons: append([]string{}, input.Governance.StaleReasons...), Limitations: append([]string{}, input.Governance.Limitations...), Decisions: append([]GovernanceDecision{}, input.Governance.Decisions...)}}
+	snapshot.Analytics = AnalyticsControl{OverallTrend: input.Analytics.OverallTrend, HealthIndex: input.Analytics.HealthIndex, Health: input.Analytics.Health, RegressionCount: input.Analytics.RegressionCount, GovernanceBacklog: input.Analytics.GovernanceBacklog, StaleEvidence: input.Analytics.StaleEvidence, DataQuality: input.Analytics.DataQuality, SnapshotFingerprint: input.Analytics.SnapshotFingerprint, Limitations: append([]string{}, input.Analytics.Limitations...)}
 	for _, finding := range snapshot.Findings {
 		if strings.TrimSpace(finding.ID) == "" || secretLike(finding.ID) || finding.RiskScore < 0 || finding.RiskScore > 100 {
 			return Snapshot{}, errors.New("invalid report finding")
@@ -242,6 +259,14 @@ func NewSnapshot(input SnapshotInput) (Snapshot, error) {
 			}
 		}
 	}
+	if snapshot.Analytics.HealthIndex < 0 || snapshot.Analytics.HealthIndex > 100 || snapshot.Analytics.RegressionCount < 0 || snapshot.Analytics.GovernanceBacklog < 0 || snapshot.Analytics.StaleEvidence < 0 {
+		return Snapshot{}, errors.New("invalid report analytics control")
+	}
+	for _, value := range append([]string{snapshot.Analytics.OverallTrend, snapshot.Analytics.Health, snapshot.Analytics.DataQuality, snapshot.Analytics.SnapshotFingerprint}, snapshot.Analytics.Limitations...) {
+		if value != "" && secretLike(value) {
+			return Snapshot{}, errors.New("invalid report analytics control")
+		}
+	}
 	sort.Slice(snapshot.Findings, func(left, right int) bool { return snapshot.Findings[left].ID < snapshot.Findings[right].ID })
 	sort.Strings(snapshot.Limitations)
 	sort.Slice(snapshot.Evidence.Details, func(left, right int) bool {
@@ -260,6 +285,7 @@ func NewSnapshot(input SnapshotInput) (Snapshot, error) {
 	})
 	sort.Strings(snapshot.Governance.StaleReasons)
 	sort.Strings(snapshot.Governance.Limitations)
+	sort.Strings(snapshot.Analytics.Limitations)
 	sort.Slice(snapshot.Governance.Decisions, func(left, right int) bool {
 		leftDecision, rightDecision := snapshot.Governance.Decisions[left], snapshot.Governance.Decisions[right]
 		return leftDecision.RecommendationFingerprint+"\x00"+leftDecision.OccurredAt+"\x00"+leftDecision.EventFingerprint < rightDecision.RecommendationFingerprint+"\x00"+rightDecision.OccurredAt+"\x00"+rightDecision.EventFingerprint
@@ -273,7 +299,8 @@ func NewSnapshot(input SnapshotInput) (Snapshot, error) {
 		Regression                                                                          RegressionIntelligence
 		Assessment                                                                          AssessmentControl
 		Governance                                                                          GovernanceControl
-	}{snapshot.ProjectID, snapshot.CampaignID, snapshot.CampaignStatus, snapshot.Profile, snapshot.Target, snapshot.ScopeVersion, snapshot.SchemaVersion, snapshot.Findings, snapshot.Limitations, snapshot.Coverage, snapshot.Evidence, snapshot.Regression, snapshot.Assessment, snapshot.Governance})
+		Analytics                                                                           AnalyticsControl
+	}{snapshot.ProjectID, snapshot.CampaignID, snapshot.CampaignStatus, snapshot.Profile, snapshot.Target, snapshot.ScopeVersion, snapshot.SchemaVersion, snapshot.Findings, snapshot.Limitations, snapshot.Coverage, snapshot.Evidence, snapshot.Regression, snapshot.Assessment, snapshot.Governance, snapshot.Analytics})
 	if err != nil {
 		return Snapshot{}, err
 	}

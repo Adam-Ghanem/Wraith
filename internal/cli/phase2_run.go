@@ -70,6 +70,8 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 			return runAssess(ctx, args, stdout, stderr)
 		case "govern":
 			return runGovern(ctx, args, stdout, stderr)
+		case "analytics":
+			return runAnalytics(ctx, args, stdout, stderr)
 		case "surface":
 			return runSurface(ctx, args, stdout, stderr)
 		case "campaign":

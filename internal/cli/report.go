@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Adam-Ghanem/Wraith/internal/analytics"
 	"github.com/Adam-Ghanem/Wraith/internal/continuousassessment"
 	"github.com/Adam-Ghanem/Wraith/internal/governance"
 	"github.com/Adam-Ghanem/Wraith/internal/regression"
@@ -80,11 +81,15 @@ func runReport(ctx context.Context, args []string, stdout, _ io.Writer) error {
 	if err != nil {
 		return err
 	}
+	analyticsControl, analyticsLimitation, err := reportAnalyticsControl(ctx, database, campaign)
+	if err != nil {
+		return err
+	}
 	modelFindings := make([]reportmodel.Finding, 0, len(findings))
 	for _, finding := range findings {
 		modelFindings = append(modelFindings, reportmodel.Finding{ID: finding.FindingID, Severity: finding.Severity, RiskScore: finding.RiskScore})
 	}
-	snapshot, err := reportmodel.NewSnapshot(reportmodel.SnapshotInput{ProjectID: campaign.ProjectID, CampaignID: campaign.CampaignID, CampaignStatus: campaign.Status, Profile: campaign.Profile, Target: campaign.Target, ScopeVersion: campaign.ScopeVersion, SchemaVersion: reportmodel.SchemaVersion, Findings: modelFindings, Limitations: []string{"Read-only local report; findings and risk remain authoritative R11.5 records.", coverageLimitation, evidenceLimitation, regressionLimitation, assessmentLimitation, governanceLimitation}, Coverage: coverage, Evidence: evidence, Regression: regressionIntelligence, Assessment: assessmentControl, Governance: governanceControl})
+	snapshot, err := reportmodel.NewSnapshot(reportmodel.SnapshotInput{ProjectID: campaign.ProjectID, CampaignID: campaign.CampaignID, CampaignStatus: campaign.Status, Profile: campaign.Profile, Target: campaign.Target, ScopeVersion: campaign.ScopeVersion, SchemaVersion: reportmodel.SchemaVersion, Findings: modelFindings, Limitations: []string{"Read-only local report; findings and risk remain authoritative R11.5 records.", coverageLimitation, evidenceLimitation, regressionLimitation, assessmentLimitation, governanceLimitation, analyticsLimitation}, Coverage: coverage, Evidence: evidence, Regression: regressionIntelligence, Assessment: assessmentControl, Governance: governanceControl, Analytics: analyticsControl})
 	if err != nil {
 		return err
 	}
@@ -280,6 +285,22 @@ func reportAssessmentControl(ctx context.Context, database *storage.DB, campaign
 // reportGovernanceControl projects stored R20 operational treatment for the
 // latest R19 evaluation whose current R18 snapshot belongs to this campaign.
 // It never evaluates policy, executes recommendations, or mutates history.
+func reportAnalyticsControl(ctx context.Context, database *storage.DB, campaign storage.CampaignRecord) (reportmodel.AnalyticsControl, string, error) {
+	evaluations, err := database.ListAssessmentEvaluations(ctx, campaign.ProjectID)
+	if err != nil {
+		return reportmodel.AnalyticsControl{}, "", err
+	}
+	if len(evaluations) == 0 {
+		return reportmodel.AnalyticsControl{Health: "unknown", DataQuality: "insufficient", Limitations: []string{"no_verified_assessment_history"}}, "analytics_history_unavailable", nil
+	}
+	asOf := evaluations[len(evaluations)-1].CreatedAt.UTC()
+	snapshot, err := database.BuildAnalyticsSnapshot(ctx, campaign.ProjectID, storage.AnalyticsRequest{Window: analytics.Window{From: asOf.Add(-analytics.MaxWindowDuration), To: asOf}, AsOf: asOf})
+	if err != nil {
+		return reportmodel.AnalyticsControl{}, "", err
+	}
+	return reportmodel.AnalyticsControl{OverallTrend: string(snapshot.OverallTrend), HealthIndex: snapshot.Health.Index, Health: string(snapshot.Health.Classification), RegressionCount: snapshot.Summary.RegressionCount, GovernanceBacklog: snapshot.Summary.UnresolvedGovernanceCount, StaleEvidence: snapshot.Summary.Evidence.Stale + snapshot.Summary.Evidence.Contradictory, DataQuality: string(snapshot.DataQuality.Status), SnapshotFingerprint: snapshot.Fingerprint, Limitations: append([]string{}, snapshot.Limitations...)}, "project_scoped_historical_analytics", nil
+}
+
 func reportGovernanceControl(ctx context.Context, database *storage.DB, campaign storage.CampaignRecord) (reportmodel.GovernanceControl, string, error) {
 	records, err := database.ListAssessmentEvaluations(ctx, campaign.ProjectID)
 	if err != nil {
