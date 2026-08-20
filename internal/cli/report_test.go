@@ -29,6 +29,9 @@ func TestReportCommandIsProjectScopedAndReadOnly(t *testing.T) {
 	if err := database.UpsertSecurityFinding(ctx, storage.SecurityFindingRecord{FindingID: "finding-1", ProjectID: "alpha", RunID: "run-1", ValidationID: "validation-1", CorrelationID: "correlation-1", EndpointID: "endpoint-1", ParameterID: "parameter-1", Class: "sql", Subtype: "validated_sql", Title: "Validated behavior", Description: "Bounded evidence", RemediationHint: "Use parameterized queries.", Confidence: "high", Severity: "high", RiskScore: 70, RiskBand: "high", RiskModelVersion: "r11.5-v1", RiskFactorsJSON: `[]`, RiskReason: "deterministic", Status: "open", FirstSeenAt: now, LastSeenAt: now, ValidatedAt: now, RiskCalculatedAt: now, Fingerprint: "finding-fingerprint", EvidenceReferences: []string{"observation-1"}}); err != nil {
 		t.Fatal(err)
 	}
+	if err := database.SaveEvidenceCorrelationSnapshot(ctx, storage.EvidenceCorrelationSnapshotRecord{ProjectID: "alpha", CampaignID: "campaign-1", FindingID: "finding-1", Fingerprint: "evidence-fingerprint", VerificationState: "supported", FreshnessState: "current", ReproducibilityState: "single_observation", SnapshotJSON: `{"gaps":[],"contradictions":[]}`, CreatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
 	if err := database.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -36,7 +39,7 @@ func TestReportCommandIsProjectScopedAndReadOnly(t *testing.T) {
 	if err := Run(ctx, []string{"report", "--project", "alpha", "--campaign", "campaign-1", "--format", "json", "--db", path}, &output, &bytes.Buffer{}); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(output.String(), `"finding-1"`) || !strings.Contains(output.String(), `"schema_version":"r16.v1"`) {
+	if !strings.Contains(output.String(), `"finding-1"`) || !strings.Contains(output.String(), `"schema_version":"r16.v1"`) || !strings.Contains(output.String(), `"evidence_verification":{"details":[{"finding_id":"finding-1","verification":"supported"`) {
 		t.Fatalf("output=%s", output.String())
 	}
 	if err := Run(ctx, []string{"report", "--project", "beta", "--campaign", "campaign-1", "--format", "json", "--db", path}, &bytes.Buffer{}, &bytes.Buffer{}); err == nil {

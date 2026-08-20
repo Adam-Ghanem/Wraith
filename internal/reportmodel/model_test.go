@@ -73,3 +73,37 @@ func TestSnapshotNormalizesEmptyCollectionsToJSONArrays(t *testing.T) {
 		t.Fatalf("encoded=%s err=%v", encoded, err)
 	}
 }
+
+func TestSnapshotNormalizesEvidenceVerificationDetailsAndIncludesThemInFingerprint(t *testing.T) {
+	first, err := NewSnapshot(SnapshotInput{
+		ProjectID:     "alpha",
+		CampaignID:    "campaign-1",
+		ScopeVersion:  "scope-v1",
+		SchemaVersion: SchemaVersion,
+		Coverage:      CoverageMetric{Definition: "tasks", Numerator: 0, Denominator: 0},
+		Evidence: EvidenceVerification{Details: []EvidenceDetail{
+			{FindingID: "finding-b", Verification: "supported", Freshness: "current", Reproducibility: "single_observation", Gaps: []string{}, Contradictions: []string{}},
+			{FindingID: "finding-a", Verification: "contradictory", Freshness: "stale", Reproducibility: "cannot_reproduce", Gaps: []string{"OBSERVATION_MISSING"}, Contradictions: []string{"PROJECT_MISMATCH"}},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := NewSnapshot(SnapshotInput{
+		ProjectID:     "alpha",
+		CampaignID:    "campaign-1",
+		ScopeVersion:  "scope-v1",
+		SchemaVersion: SchemaVersion,
+		Coverage:      CoverageMetric{Definition: "tasks", Numerator: 0, Denominator: 0},
+		Evidence: EvidenceVerification{Details: []EvidenceDetail{
+			{FindingID: "finding-a", Verification: "contradictory", Freshness: "stale", Reproducibility: "cannot_reproduce", Gaps: []string{"OBSERVATION_MISSING"}, Contradictions: []string{"PROJECT_MISMATCH"}},
+			{FindingID: "finding-b", Verification: "supported", Freshness: "current", Reproducibility: "single_observation", Gaps: []string{}, Contradictions: []string{}},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Fingerprint != second.Fingerprint || first.Evidence.Details[0].FindingID != "finding-a" {
+		t.Fatalf("evidence state was not normalized: first=%+v second=%+v", first, second)
+	}
+}

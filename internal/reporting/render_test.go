@@ -51,3 +51,18 @@ func TestRenderExecutiveOmitsTechnicalFindingList(t *testing.T) {
 		t.Fatalf("technical=%q err=%v", technical, err)
 	}
 }
+
+func TestRenderSeparatesExecutiveEvidenceAggregationFromTechnicalDetails(t *testing.T) {
+	snapshot, err := reportmodel.NewSnapshot(reportmodel.SnapshotInput{ProjectID: "alpha", ScopeVersion: "scope-v1", SchemaVersion: reportmodel.SchemaVersion, Coverage: reportmodel.CoverageMetric{Definition: "recorded tasks", Numerator: 1, Denominator: 2}, Evidence: reportmodel.EvidenceVerification{Details: []reportmodel.EvidenceDetail{{FindingID: "finding-1", Verification: "contradictory", Freshness: "stale", Reproducibility: "cannot_reproduce", Gaps: []string{"OBSERVATION_MISSING"}, Contradictions: []string{"PROJECT_MISMATCH"}}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	executive, err := RenderExecutive("markdown", snapshot)
+	if err != nil || !strings.Contains(string(executive), "## Evidence & Verification") || !strings.Contains(string(executive), "1 persisted correlation snapshot") || strings.Contains(string(executive), "finding-1") || strings.Contains(string(executive), "PROJECT_MISMATCH") {
+		t.Fatalf("executive=%q err=%v", executive, err)
+	}
+	technical, err := Render("markdown", snapshot)
+	if err != nil || !strings.Contains(string(technical), "## Evidence & Verification") || !strings.Contains(string(technical), "finding-1") || !strings.Contains(string(technical), "PROJECT_MISMATCH") {
+		t.Fatalf("technical=%q err=%v", technical, err)
+	}
+}
