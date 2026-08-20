@@ -62,6 +62,35 @@ type RegressionIntelligence struct {
 	Details               []RegressionDetail `json:"details"`
 }
 
+type AssessmentDecision struct {
+	RuleID        string `json:"rule_id"`
+	Status        string `json:"status"`
+	ObservedValue int    `json:"observed_value"`
+	ExpectedValue int    `json:"expected_value"`
+	Unit          string `json:"unit"`
+	Explanation   string `json:"explanation"`
+}
+
+type AssessmentAction struct {
+	RuleID    string `json:"rule_id"`
+	Kind      string `json:"kind"`
+	Priority  string `json:"priority"`
+	Rationale string `json:"rationale"`
+}
+
+// AssessmentControl is a report-safe, read-only R19 projection. It cannot
+// execute actions or change existing owner lifecycle state.
+type AssessmentControl struct {
+	EvaluationFingerprint      string               `json:"evaluation_fingerprint,omitempty"`
+	PolicyFingerprint          string               `json:"policy_fingerprint,omitempty"`
+	BaselineFingerprint        string               `json:"baseline_fingerprint,omitempty"`
+	CurrentSnapshotFingerprint string               `json:"current_snapshot_fingerprint,omitempty"`
+	Status                     string               `json:"status,omitempty"`
+	FailedRules                int                  `json:"failed_rules"`
+	Decisions                  []AssessmentDecision `json:"decisions"`
+	Actions                    []AssessmentAction   `json:"actions"`
+}
+
 func (coverage CoverageMetric) Display() string {
 	if coverage.Denominator == 0 {
 		return "N/A"
@@ -77,6 +106,7 @@ type SnapshotInput struct {
 	Coverage                                           CoverageMetric
 	Evidence                                           EvidenceVerification
 	Regression                                         RegressionIntelligence
+	Assessment                                         AssessmentControl
 }
 
 type Snapshot struct {
@@ -93,13 +123,14 @@ type Snapshot struct {
 	Coverage       CoverageMetric         `json:"coverage"`
 	Evidence       EvidenceVerification   `json:"evidence_verification"`
 	Regression     RegressionIntelligence `json:"security_regression"`
+	Assessment     AssessmentControl      `json:"continuous_assessment"`
 }
 
 func NewSnapshot(input SnapshotInput) (Snapshot, error) {
 	if strings.TrimSpace(input.ProjectID) == "" || strings.TrimSpace(input.ScopeVersion) == "" || secretLike(input.ProjectID) || secretLike(input.CampaignID) || secretLike(input.ScopeVersion) || secretLike(input.Target) || input.SchemaVersion != SchemaVersion || input.Coverage.Numerator < 0 || input.Coverage.Denominator < 0 || input.Coverage.Numerator > input.Coverage.Denominator || strings.TrimSpace(input.Coverage.Definition) == "" {
 		return Snapshot{}, errors.New("invalid report snapshot")
 	}
-	snapshot := Snapshot{ProjectID: input.ProjectID, CampaignID: input.CampaignID, CampaignStatus: input.CampaignStatus, Profile: input.Profile, Target: input.Target, ScopeVersion: input.ScopeVersion, SchemaVersion: input.SchemaVersion, Findings: append([]Finding{}, input.Findings...), Limitations: append([]string{}, input.Limitations...), Coverage: input.Coverage, Evidence: EvidenceVerification{Details: append([]EvidenceDetail{}, input.Evidence.Details...)}, Regression: RegressionIntelligence{ComparisonFingerprint: input.Regression.ComparisonFingerprint, BaselineFingerprint: input.Regression.BaselineFingerprint, CurrentFingerprint: input.Regression.CurrentFingerprint, BaselineCreatedAt: input.Regression.BaselineCreatedAt, CurrentCreatedAt: input.Regression.CurrentCreatedAt, ComparedAt: input.Regression.ComparedAt, Details: append([]RegressionDetail{}, input.Regression.Details...)}}
+	snapshot := Snapshot{ProjectID: input.ProjectID, CampaignID: input.CampaignID, CampaignStatus: input.CampaignStatus, Profile: input.Profile, Target: input.Target, ScopeVersion: input.ScopeVersion, SchemaVersion: input.SchemaVersion, Findings: append([]Finding{}, input.Findings...), Limitations: append([]string{}, input.Limitations...), Coverage: input.Coverage, Evidence: EvidenceVerification{Details: append([]EvidenceDetail{}, input.Evidence.Details...)}, Regression: RegressionIntelligence{ComparisonFingerprint: input.Regression.ComparisonFingerprint, BaselineFingerprint: input.Regression.BaselineFingerprint, CurrentFingerprint: input.Regression.CurrentFingerprint, BaselineCreatedAt: input.Regression.BaselineCreatedAt, CurrentCreatedAt: input.Regression.CurrentCreatedAt, ComparedAt: input.Regression.ComparedAt, Details: append([]RegressionDetail{}, input.Regression.Details...)}, Assessment: AssessmentControl{EvaluationFingerprint: input.Assessment.EvaluationFingerprint, PolicyFingerprint: input.Assessment.PolicyFingerprint, BaselineFingerprint: input.Assessment.BaselineFingerprint, CurrentSnapshotFingerprint: input.Assessment.CurrentSnapshotFingerprint, Status: input.Assessment.Status, FailedRules: input.Assessment.FailedRules, Decisions: append([]AssessmentDecision{}, input.Assessment.Decisions...), Actions: append([]AssessmentAction{}, input.Assessment.Actions...)}}
 	for _, finding := range snapshot.Findings {
 		if strings.TrimSpace(finding.ID) == "" || secretLike(finding.ID) || finding.RiskScore < 0 || finding.RiskScore > 100 {
 			return Snapshot{}, errors.New("invalid report finding")
@@ -137,6 +168,31 @@ func NewSnapshot(input SnapshotInput) (Snapshot, error) {
 			}
 		}
 	}
+	if snapshot.Assessment.FailedRules < 0 {
+		return Snapshot{}, errors.New("invalid report assessment control")
+	}
+	for _, value := range []string{snapshot.Assessment.EvaluationFingerprint, snapshot.Assessment.PolicyFingerprint, snapshot.Assessment.BaselineFingerprint, snapshot.Assessment.CurrentSnapshotFingerprint, snapshot.Assessment.Status} {
+		if value != "" && secretLike(value) {
+			return Snapshot{}, errors.New("invalid report assessment control")
+		}
+	}
+	for _, decision := range snapshot.Assessment.Decisions {
+		if decision.ObservedValue < 0 || decision.ExpectedValue < 0 {
+			return Snapshot{}, errors.New("invalid report assessment control")
+		}
+		for _, value := range []string{decision.RuleID, decision.Status, decision.Unit, decision.Explanation} {
+			if strings.TrimSpace(value) == "" || secretLike(value) {
+				return Snapshot{}, errors.New("invalid report assessment control")
+			}
+		}
+	}
+	for _, action := range snapshot.Assessment.Actions {
+		for _, value := range []string{action.RuleID, action.Kind, action.Priority, action.Rationale} {
+			if strings.TrimSpace(value) == "" || secretLike(value) {
+				return Snapshot{}, errors.New("invalid report assessment control")
+			}
+		}
+	}
 	sort.Slice(snapshot.Findings, func(left, right int) bool { return snapshot.Findings[left].ID < snapshot.Findings[right].ID })
 	sort.Strings(snapshot.Limitations)
 	sort.Slice(snapshot.Evidence.Details, func(left, right int) bool {
@@ -146,6 +202,13 @@ func NewSnapshot(input SnapshotInput) (Snapshot, error) {
 		leftDetail, rightDetail := snapshot.Regression.Details[left], snapshot.Regression.Details[right]
 		return leftDetail.Category+"\x00"+leftDetail.Impact+"\x00"+leftDetail.Subject+"\x00"+leftDetail.Change+"\x00"+leftDetail.Reason < rightDetail.Category+"\x00"+rightDetail.Impact+"\x00"+rightDetail.Subject+"\x00"+rightDetail.Change+"\x00"+rightDetail.Reason
 	})
+	sort.Slice(snapshot.Assessment.Decisions, func(left, right int) bool {
+		return snapshot.Assessment.Decisions[left].RuleID < snapshot.Assessment.Decisions[right].RuleID
+	})
+	sort.Slice(snapshot.Assessment.Actions, func(left, right int) bool {
+		leftAction, rightAction := snapshot.Assessment.Actions[left], snapshot.Assessment.Actions[right]
+		return leftAction.RuleID+"\x00"+leftAction.Kind+"\x00"+leftAction.Priority < rightAction.RuleID+"\x00"+rightAction.Kind+"\x00"+rightAction.Priority
+	})
 	normalized, err := json.Marshal(struct {
 		ProjectID, CampaignID, CampaignStatus, Profile, Target, ScopeVersion, SchemaVersion string
 		Findings                                                                            []Finding
@@ -153,7 +216,8 @@ func NewSnapshot(input SnapshotInput) (Snapshot, error) {
 		Coverage                                                                            CoverageMetric
 		Evidence                                                                            EvidenceVerification
 		Regression                                                                          RegressionIntelligence
-	}{snapshot.ProjectID, snapshot.CampaignID, snapshot.CampaignStatus, snapshot.Profile, snapshot.Target, snapshot.ScopeVersion, snapshot.SchemaVersion, snapshot.Findings, snapshot.Limitations, snapshot.Coverage, snapshot.Evidence, snapshot.Regression})
+		Assessment                                                                          AssessmentControl
+	}{snapshot.ProjectID, snapshot.CampaignID, snapshot.CampaignStatus, snapshot.Profile, snapshot.Target, snapshot.ScopeVersion, snapshot.SchemaVersion, snapshot.Findings, snapshot.Limitations, snapshot.Coverage, snapshot.Evidence, snapshot.Regression, snapshot.Assessment})
 	if err != nil {
 		return Snapshot{}, err
 	}

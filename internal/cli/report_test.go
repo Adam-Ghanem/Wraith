@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Adam-Ghanem/Wraith/internal/continuousassessment"
 	"github.com/Adam-Ghanem/Wraith/internal/regression"
 	"github.com/Adam-Ghanem/Wraith/internal/storage"
 )
@@ -272,6 +273,86 @@ func TestReportCommandIncludesLatestPersistedRegressionForSelectedCampaign(t *te
 	}
 	var output bytes.Buffer
 	if err := Run(ctx, []string{"report", "--project", "alpha", "--campaign", "campaign-1", "--format", "json", "--db", path}, &output, &bytes.Buffer{}); err != nil || !strings.Contains(output.String(), `"security_regression"`) || !strings.Contains(output.String(), "endpoint-new") {
+		t.Fatalf("output=%s err=%v", output.String(), err)
+	}
+}
+
+func TestReportCommandIncludesLatestPersistedAssessmentEvaluationForSelectedCampaign(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "report-assessment.db")
+	database, err := storage.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	createdAt := time.Date(2026, time.August, 20, 6, 0, 0, 0, time.UTC)
+	if err := database.CreateCampaign(ctx, storage.CampaignRecord{ProjectID: "alpha", CampaignID: "campaign-1", ScopeVersion: "scope-v1", Profile: "safe", AssessmentID: "assessment-1", Target: "https://app.test", AssessmentPlanJSON: `{"plan":1}`, SurfaceSnapshotID: "surface-1", SurfaceFingerprint: "surface-fingerprint", SurfaceSourceVersion: "r11.6-v1", Status: "completed", Revision: 1, Fingerprint: "campaign-fingerprint", CreatedAt: createdAt}); err != nil {
+		t.Fatal(err)
+	}
+	baselineSnapshot, err := regression.NewSnapshot(regression.SnapshotInput{ProjectID: "alpha", CampaignID: "campaign-old", ScopeVersion: "scope-v1", SchemaVersion: regression.SchemaVersion, CreatedAt: createdAt, Coverage: regression.Coverage{Definition: "recorded_tasks", Numerator: 1, Denominator: 1}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	currentSnapshot, err := regression.NewSnapshot(regression.SnapshotInput{ProjectID: "alpha", CampaignID: "campaign-1", ScopeVersion: "scope-v1", SchemaVersion: regression.SchemaVersion, CreatedAt: createdAt.Add(time.Hour), EndpointIDs: []string{"endpoint-new"}, Coverage: regression.Coverage{Definition: "recorded_tasks", Numerator: 1, Denominator: 1}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, snapshot := range []regression.Snapshot{baselineSnapshot, currentSnapshot} {
+		encoded, err := json.Marshal(snapshot)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := database.SaveRegressionSnapshot(ctx, storage.RegressionSnapshotRecord{ProjectID: "alpha", SnapshotID: snapshot.Fingerprint, CampaignID: snapshot.CampaignID, ScopeVersion: snapshot.ScopeVersion, SnapshotFingerprint: snapshot.Fingerprint, SnapshotJSON: string(encoded), CreatedAt: snapshot.CreatedAt}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	comparison, err := regression.Compare(baselineSnapshot, currentSnapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	comparisonJSON, err := json.Marshal(comparison)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.SaveRegressionComparison(ctx, storage.RegressionComparisonRecord{ProjectID: "alpha", BaselineSnapshotID: baselineSnapshot.Fingerprint, CurrentSnapshotID: currentSnapshot.Fingerprint, Fingerprint: comparison.Fingerprint, ComparisonJSON: string(comparisonJSON), CreatedAt: currentSnapshot.CreatedAt}); err != nil {
+		t.Fatal(err)
+	}
+	policy, err := continuousassessment.NewPolicy(continuousassessment.PolicyInput{ProjectID: "alpha", Name: "production-security", Version: 1, Rules: []continuousassessment.PolicyRule{{ID: "no-regressions", Type: continuousassessment.RuleRegression, Operator: continuousassessment.OperatorMaximum, Threshold: continuousassessment.Threshold{Value: 0, Unit: continuousassessment.UnitCount}, Effect: continuousassessment.EffectFail}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.SaveAssessmentPolicy(ctx, storage.AssessmentPolicyRecord{ProjectID: "alpha", PolicyID: policy.Fingerprint, Name: policy.Name, Version: policy.Version, Fingerprint: policy.Fingerprint, PolicyJSON: `{"project_id":"alpha","name":"production-security","version":1,"rules":[{"id":"no-regressions","type":"regression","operator":"maximum","threshold":{"value":0,"unit":"count"},"effect":"fail"}]}`, CreatedAt: createdAt}); err != nil {
+		t.Fatal(err)
+	}
+	baseline, err := continuousassessment.NewBaseline(continuousassessment.BaselineInput{ProjectID: "alpha", SnapshotFingerprint: baselineSnapshot.Fingerprint, SnapshotCreatedAt: baselineSnapshot.CreatedAt, PolicyFingerprint: policy.Fingerprint, CampaignID: baselineSnapshot.CampaignID, CreatedAt: createdAt})
+	if err != nil {
+		t.Fatal(err)
+	}
+	baselineJSON, err := json.Marshal(baseline)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.SaveAssessmentBaseline(ctx, storage.AssessmentBaselineRecord{ProjectID: "alpha", BaselineID: baseline.Fingerprint, SnapshotID: baseline.SnapshotFingerprint, PolicyID: baseline.PolicyFingerprint, CampaignID: baseline.CampaignID, Fingerprint: baseline.Fingerprint, BaselineJSON: string(baselineJSON), CreatedAt: createdAt}); err != nil {
+		t.Fatal(err)
+	}
+	evaluation, err := continuousassessment.Evaluate(continuousassessment.EvaluationInput{ProjectID: "alpha", Policy: policy, Baseline: baseline, BaselineSnapshot: baselineSnapshot, CurrentSnapshot: currentSnapshot, Comparison: comparison, EvaluatedAt: currentSnapshot.CreatedAt})
+	if err != nil {
+		t.Fatal(err)
+	}
+	evaluationJSON, err := json.Marshal(evaluation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.SaveAssessmentEvaluation(ctx, storage.AssessmentEvaluationRecord{ProjectID: "alpha", EvaluationID: evaluation.Fingerprint, PolicyID: policy.Fingerprint, BaselineID: baseline.Fingerprint, BaselineSnapshotID: baselineSnapshot.Fingerprint, CurrentSnapshotID: currentSnapshot.Fingerprint, ComparisonID: comparison.Fingerprint, Status: "failed", Fingerprint: evaluation.Fingerprint, EvaluationJSON: string(evaluationJSON), CreatedAt: currentSnapshot.CreatedAt}); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.Close(); err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	if err := Run(ctx, []string{"report", "--project", "alpha", "--campaign", "campaign-1", "--format", "json", "--db", path}, &output, &bytes.Buffer{}); err != nil || !strings.Contains(output.String(), `"continuous_assessment":{"evaluation_fingerprint"`) || !strings.Contains(output.String(), `"status":"failed"`) {
 		t.Fatalf("output=%s err=%v", output.String(), err)
 	}
 }

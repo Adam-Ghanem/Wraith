@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Adam-Ghanem/Wraith/internal/continuousassessment"
 	"github.com/Adam-Ghanem/Wraith/internal/regression"
 	"github.com/Adam-Ghanem/Wraith/internal/reporting"
 	"github.com/Adam-Ghanem/Wraith/internal/reportmodel"
@@ -70,11 +71,15 @@ func runReport(ctx context.Context, args []string, stdout, _ io.Writer) error {
 	if err != nil {
 		return err
 	}
+	assessmentControl, assessmentLimitation, err := reportAssessmentControl(ctx, database, campaign)
+	if err != nil {
+		return err
+	}
 	modelFindings := make([]reportmodel.Finding, 0, len(findings))
 	for _, finding := range findings {
 		modelFindings = append(modelFindings, reportmodel.Finding{ID: finding.FindingID, Severity: finding.Severity, RiskScore: finding.RiskScore})
 	}
-	snapshot, err := reportmodel.NewSnapshot(reportmodel.SnapshotInput{ProjectID: campaign.ProjectID, CampaignID: campaign.CampaignID, CampaignStatus: campaign.Status, Profile: campaign.Profile, Target: campaign.Target, ScopeVersion: campaign.ScopeVersion, SchemaVersion: reportmodel.SchemaVersion, Findings: modelFindings, Limitations: []string{"Read-only local report; findings and risk remain authoritative R11.5 records.", coverageLimitation, evidenceLimitation, regressionLimitation}, Coverage: coverage, Evidence: evidence, Regression: regressionIntelligence})
+	snapshot, err := reportmodel.NewSnapshot(reportmodel.SnapshotInput{ProjectID: campaign.ProjectID, CampaignID: campaign.CampaignID, CampaignStatus: campaign.Status, Profile: campaign.Profile, Target: campaign.Target, ScopeVersion: campaign.ScopeVersion, SchemaVersion: reportmodel.SchemaVersion, Findings: modelFindings, Limitations: []string{"Read-only local report; findings and risk remain authoritative R11.5 records.", coverageLimitation, evidenceLimitation, regressionLimitation, assessmentLimitation}, Coverage: coverage, Evidence: evidence, Regression: regressionIntelligence, Assessment: assessmentControl})
 	if err != nil {
 		return err
 	}
@@ -221,4 +226,48 @@ func reportRegressionIntelligence(ctx context.Context, database *storage.DB, cam
 		projection.Details = append(projection.Details, reportmodel.RegressionDetail{Category: string(item.Category), Change: string(item.Change), Subject: item.Subject, Impact: string(item.Impact), Confidence: string(item.Confidence), Reason: item.Reason})
 	}
 	return projection, "Regression intelligence reflects the latest persisted R18 comparison whose current snapshot belongs to the selected campaign; it is a read-only, offline comparison projection.", nil
+}
+
+// reportAssessmentControl projects the latest persisted R19 evaluation whose
+// current R18 snapshot belongs to the selected campaign. It does not evaluate
+// policy, run recommendations, or alter existing records.
+func reportAssessmentControl(ctx context.Context, database *storage.DB, campaign storage.CampaignRecord) (reportmodel.AssessmentControl, string, error) {
+	records, err := database.ListAssessmentEvaluations(ctx, campaign.ProjectID)
+	if err != nil {
+		return reportmodel.AssessmentControl{}, "", err
+	}
+	var selected storage.AssessmentEvaluationRecord
+	var evaluation continuousassessment.ControlEvaluation
+	found := false
+	for _, record := range records {
+		current, err := database.LoadRegressionSnapshot(ctx, campaign.ProjectID, record.CurrentSnapshotID)
+		if err != nil {
+			return reportmodel.AssessmentControl{}, "", err
+		}
+		if current.CampaignID != campaign.CampaignID {
+			continue
+		}
+		baseline, err := database.LoadAssessmentBaseline(ctx, campaign.ProjectID, record.BaselineID)
+		if err != nil {
+			return reportmodel.AssessmentControl{}, "", err
+		}
+		var parsed continuousassessment.ControlEvaluation
+		if err := json.Unmarshal([]byte(record.EvaluationJSON), &parsed); err != nil || parsed.ProjectID != campaign.ProjectID || parsed.Fingerprint != record.Fingerprint || parsed.Fingerprint != record.EvaluationID || parsed.PolicyFingerprint != record.PolicyID || parsed.BaselineFingerprint != baseline.Fingerprint || parsed.BaselineSnapshot != record.BaselineSnapshotID || parsed.CurrentSnapshot != record.CurrentSnapshotID || parsed.ComparisonFingerprint != record.ComparisonID {
+			return reportmodel.AssessmentControl{}, "", errors.New("invalid persisted assessment evaluation")
+		}
+		if !found || record.CreatedAt.After(selected.CreatedAt) || (record.CreatedAt.Equal(selected.CreatedAt) && record.Fingerprint > selected.Fingerprint) {
+			selected, evaluation, found = record, parsed, true
+		}
+	}
+	if !found {
+		return reportmodel.AssessmentControl{Decisions: []reportmodel.AssessmentDecision{}, Actions: []reportmodel.AssessmentAction{}}, "No persisted R19 continuous assessment evaluation is available for the selected campaign.", nil
+	}
+	projection := reportmodel.AssessmentControl{EvaluationFingerprint: evaluation.Fingerprint, PolicyFingerprint: evaluation.PolicyFingerprint, BaselineFingerprint: evaluation.BaselineFingerprint, CurrentSnapshotFingerprint: evaluation.CurrentSnapshot, Status: selected.Status, FailedRules: evaluation.Summary.Failed, Decisions: make([]reportmodel.AssessmentDecision, 0, len(evaluation.Decisions)), Actions: make([]reportmodel.AssessmentAction, 0, len(evaluation.Actions))}
+	for _, decision := range evaluation.Decisions {
+		projection.Decisions = append(projection.Decisions, reportmodel.AssessmentDecision{RuleID: decision.RuleID, Status: string(decision.Status), ObservedValue: decision.ObservedValue, ExpectedValue: decision.ExpectedValue, Unit: string(decision.Unit), Explanation: decision.Explanation})
+	}
+	for _, action := range evaluation.Actions {
+		projection.Actions = append(projection.Actions, reportmodel.AssessmentAction{RuleID: action.RuleID, Kind: action.Kind, Priority: action.Priority, Rationale: action.Rationale})
+	}
+	return projection, "Continuous assessment control reflects the latest persisted R19 evaluation whose current snapshot belongs to the selected campaign; it is a read-only offline projection.", nil
 }

@@ -81,3 +81,18 @@ func TestRenderSeparatesExecutiveRegressionAggregationFromTechnicalDetails(t *te
 		t.Fatalf("technical=%q err=%v", technical, err)
 	}
 }
+
+func TestRenderSeparatesExecutiveAssessmentAggregationFromTechnicalDetails(t *testing.T) {
+	snapshot, err := reportmodel.NewSnapshot(reportmodel.SnapshotInput{ProjectID: "alpha", ScopeVersion: "scope-v1", SchemaVersion: reportmodel.SchemaVersion, Coverage: reportmodel.CoverageMetric{Definition: "recorded tasks"}, Assessment: reportmodel.AssessmentControl{EvaluationFingerprint: "evaluation-1", PolicyFingerprint: "policy-1", BaselineFingerprint: "baseline-1", CurrentSnapshotFingerprint: "current-1", Status: "failed", FailedRules: 1, Decisions: []reportmodel.AssessmentDecision{{RuleID: "coverage", Status: "fail", ObservedValue: 7000, ExpectedValue: 8000, Unit: "basis_points", Explanation: "recorded coverage is below threshold"}}, Actions: []reportmodel.AssessmentAction{{RuleID: "coverage", Kind: "rerun_bounded_assessment", Priority: "high", Rationale: "coverage is incomplete"}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	executive, err := RenderExecutive("markdown", snapshot)
+	if err != nil || !strings.Contains(string(executive), "## Continuous Assessment Control") || !strings.Contains(string(executive), "Policy status: failed") || strings.Contains(string(executive), "coverage is incomplete") || strings.Contains(string(executive), "evaluation-1") {
+		t.Fatalf("executive=%q err=%v", executive, err)
+	}
+	technical, err := Render("markdown", snapshot)
+	if err != nil || !strings.Contains(string(technical), "## Continuous Assessment Control") || !strings.Contains(string(technical), "evaluation-1") || !strings.Contains(string(technical), "coverage is incomplete") || !strings.Contains(string(technical), "recorded coverage is below threshold") {
+		t.Fatalf("technical=%q err=%v", technical, err)
+	}
+}

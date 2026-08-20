@@ -66,6 +66,8 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 			return runEvidence(ctx, args, stdout, stderr)
 		case "regression":
 			return runRegression(ctx, args, stdout, stderr)
+		case "assess":
+			return runAssess(ctx, args, stdout, stderr)
 		case "surface":
 			return runSurface(ctx, args, stdout, stderr)
 		case "campaign":

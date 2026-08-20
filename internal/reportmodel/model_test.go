@@ -121,3 +121,17 @@ func TestSnapshotNormalizesRegressionDetailsAndIncludesThemInFingerprint(t *test
 		t.Fatalf("regression state was not normalized: first=%+v second=%+v", first, second)
 	}
 }
+
+func TestSnapshotNormalizesAssessmentControlAndIncludesItInFingerprint(t *testing.T) {
+	first, err := NewSnapshot(SnapshotInput{ProjectID: "alpha", ScopeVersion: "scope-v1", SchemaVersion: SchemaVersion, Coverage: CoverageMetric{Definition: "tasks"}, Assessment: AssessmentControl{EvaluationFingerprint: "evaluation-1", PolicyFingerprint: "policy-1", BaselineFingerprint: "baseline-1", CurrentSnapshotFingerprint: "snapshot-1", Status: "failed", FailedRules: 1, Decisions: []AssessmentDecision{{RuleID: "coverage", Status: "fail", ObservedValue: 7000, ExpectedValue: 8000, Unit: "basis_points", Explanation: "recorded coverage is below threshold"}, {RuleID: "new-findings", Status: "pass", ObservedValue: 0, ExpectedValue: 0, Unit: "count", Explanation: "no new findings"}}, Actions: []AssessmentAction{{RuleID: "coverage", Kind: "rerun_bounded_assessment", Priority: "high", Rationale: "coverage is incomplete"}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := NewSnapshot(SnapshotInput{ProjectID: "alpha", ScopeVersion: "scope-v1", SchemaVersion: SchemaVersion, Coverage: CoverageMetric{Definition: "tasks"}, Assessment: AssessmentControl{EvaluationFingerprint: "evaluation-1", PolicyFingerprint: "policy-1", BaselineFingerprint: "baseline-1", CurrentSnapshotFingerprint: "snapshot-1", Status: "failed", FailedRules: 1, Decisions: []AssessmentDecision{{RuleID: "new-findings", Status: "pass", ObservedValue: 0, ExpectedValue: 0, Unit: "count", Explanation: "no new findings"}, {RuleID: "coverage", Status: "fail", ObservedValue: 7000, ExpectedValue: 8000, Unit: "basis_points", Explanation: "recorded coverage is below threshold"}}, Actions: []AssessmentAction{{RuleID: "coverage", Kind: "rerun_bounded_assessment", Priority: "high", Rationale: "coverage is incomplete"}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Fingerprint != second.Fingerprint || first.Assessment.Decisions[0].RuleID != "coverage" || first.Assessment.Actions[0].Kind != "rerun_bounded_assessment" {
+		t.Fatalf("assessment control was not normalized: first=%+v second=%+v", first, second)
+	}
+}
