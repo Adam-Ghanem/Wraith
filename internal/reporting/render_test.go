@@ -66,3 +66,18 @@ func TestRenderSeparatesExecutiveEvidenceAggregationFromTechnicalDetails(t *test
 		t.Fatalf("technical=%q err=%v", technical, err)
 	}
 }
+
+func TestRenderSeparatesExecutiveRegressionAggregationFromTechnicalDetails(t *testing.T) {
+	snapshot, err := reportmodel.NewSnapshot(reportmodel.SnapshotInput{ProjectID: "alpha", ScopeVersion: "scope-v1", SchemaVersion: reportmodel.SchemaVersion, Coverage: reportmodel.CoverageMetric{Definition: "recorded tasks"}, Regression: reportmodel.RegressionIntelligence{ComparisonFingerprint: "comparison-1", BaselineFingerprint: "baseline-1", CurrentFingerprint: "current-1", BaselineCreatedAt: "2026-08-20T04:00:00Z", CurrentCreatedAt: "2026-08-20T05:00:00Z", ComparedAt: "2026-08-20T05:00:00Z", Details: []reportmodel.RegressionDetail{{Category: "evidence", Change: "evidence_stale", Subject: "finding-1", Impact: "high", Confidence: "confirmed", Reason: "evidence_stale"}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	executive, err := RenderExecutive("markdown", snapshot)
+	if err != nil || !strings.Contains(string(executive), "## Security Regression / Continuous Assessment") || !strings.Contains(string(executive), "Evidence became stale: 1") || strings.Contains(string(executive), "finding-1") {
+		t.Fatalf("executive=%q err=%v", executive, err)
+	}
+	technical, err := Render("markdown", snapshot)
+	if err != nil || !strings.Contains(string(technical), "## Security Regression / Continuous Assessment") || !strings.Contains(string(technical), "finding-1") || !strings.Contains(string(technical), "evidence_stale") || !strings.Contains(string(technical), "Baseline fingerprint: `baseline-1`") || !strings.Contains(string(technical), "Current recorded at: `2026-08-20T05:00:00Z`") {
+		t.Fatalf("technical=%q err=%v", technical, err)
+	}
+}

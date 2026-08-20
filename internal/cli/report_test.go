@@ -3,12 +3,14 @@ package cli
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/Adam-Ghanem/Wraith/internal/regression"
 	"github.com/Adam-Ghanem/Wraith/internal/storage"
 )
 
@@ -220,5 +222,56 @@ func TestReportCommandIncludesAuthoritativeCampaignMetadata(t *testing.T) {
 		if !strings.Contains(output.String(), expected) {
 			t.Fatalf("missing %s in %s", expected, output.String())
 		}
+	}
+}
+
+func TestReportCommandIncludesLatestPersistedRegressionForSelectedCampaign(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "report-regression.db")
+	database, err := storage.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	createdAt := time.Date(2026, time.August, 20, 4, 0, 0, 0, time.UTC)
+	if err := database.CreateCampaign(ctx, storage.CampaignRecord{ProjectID: "alpha", CampaignID: "campaign-1", ScopeVersion: "scope-v1", Profile: "safe", AssessmentID: "assessment-1", Target: "https://app.test", AssessmentPlanJSON: `{"plan":1}`, SurfaceSnapshotID: "surface-1", SurfaceFingerprint: "surface-fingerprint", SurfaceSourceVersion: "r11.6-v1", Status: "completed", Revision: 1, Fingerprint: "campaign-fingerprint", CreatedAt: createdAt}); err != nil {
+		t.Fatal(err)
+	}
+	baseline, err := regression.NewSnapshot(regression.SnapshotInput{ProjectID: "alpha", CampaignID: "campaign-old", ScopeVersion: "scope-v1", SchemaVersion: regression.SchemaVersion, CreatedAt: createdAt, EndpointIDs: []string{"endpoint-old"}, Coverage: regression.Coverage{Definition: "recorded_tasks"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	current, err := regression.NewSnapshot(regression.SnapshotInput{ProjectID: "alpha", CampaignID: "campaign-1", ScopeVersion: "scope-v1", SchemaVersion: regression.SchemaVersion, CreatedAt: createdAt.Add(time.Hour), EndpointIDs: []string{"endpoint-old", "endpoint-new"}, Coverage: regression.Coverage{Definition: "recorded_tasks"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, snapshot := range []regression.Snapshot{baseline, current} {
+		encoded, err := json.Marshal(snapshot)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := database.SaveRegressionSnapshot(ctx, storage.RegressionSnapshotRecord{ProjectID: "alpha", SnapshotID: snapshot.Fingerprint, CampaignID: snapshot.CampaignID, ScopeVersion: "scope-v1", SnapshotFingerprint: snapshot.Fingerprint, SnapshotJSON: string(encoded), CreatedAt: snapshot.CreatedAt}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	comparison, err := regression.Compare(baseline, current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	comparisonJSON, err := json.Marshal(comparison)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.SaveRegressionComparison(ctx, storage.RegressionComparisonRecord{ProjectID: "alpha", BaselineSnapshotID: baseline.Fingerprint, CurrentSnapshotID: current.Fingerprint, Fingerprint: comparison.Fingerprint, ComparisonJSON: string(comparisonJSON), CreatedAt: current.CreatedAt}); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.Close(); err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	if err := Run(ctx, []string{"report", "--project", "alpha", "--campaign", "campaign-1", "--format", "json", "--db", path}, &output, &bytes.Buffer{}); err != nil || !strings.Contains(output.String(), `"security_regression"`) || !strings.Contains(output.String(), "endpoint-new") {
+		t.Fatalf("output=%s err=%v", output.String(), err)
 	}
 }

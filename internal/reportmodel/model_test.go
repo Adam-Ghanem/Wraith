@@ -107,3 +107,17 @@ func TestSnapshotNormalizesEvidenceVerificationDetailsAndIncludesThemInFingerpri
 		t.Fatalf("evidence state was not normalized: first=%+v second=%+v", first, second)
 	}
 }
+
+func TestSnapshotNormalizesRegressionDetailsAndIncludesThemInFingerprint(t *testing.T) {
+	first, err := NewSnapshot(SnapshotInput{ProjectID: "alpha", ScopeVersion: "scope-v1", SchemaVersion: SchemaVersion, Coverage: CoverageMetric{Definition: "tasks"}, Regression: RegressionIntelligence{ComparisonFingerprint: "comparison-1", Details: []RegressionDetail{{Category: "evidence", Change: "evidence_stale", Subject: "finding-b", Impact: "high", Confidence: "confirmed", Reason: "evidence_stale"}, {Category: "surface", Change: "new_endpoint", Subject: "endpoint-a", Impact: "informational", Confidence: "confirmed", Reason: "endpoint_added"}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := NewSnapshot(SnapshotInput{ProjectID: "alpha", ScopeVersion: "scope-v1", SchemaVersion: SchemaVersion, Coverage: CoverageMetric{Definition: "tasks"}, Regression: RegressionIntelligence{ComparisonFingerprint: "comparison-1", Details: []RegressionDetail{{Category: "surface", Change: "new_endpoint", Subject: "endpoint-a", Impact: "informational", Confidence: "confirmed", Reason: "endpoint_added"}, {Category: "evidence", Change: "evidence_stale", Subject: "finding-b", Impact: "high", Confidence: "confirmed", Reason: "evidence_stale"}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Fingerprint != second.Fingerprint || first.Regression.Details[0].Subject != "finding-b" {
+		t.Fatalf("regression state was not normalized: first=%+v second=%+v", first, second)
+	}
+}

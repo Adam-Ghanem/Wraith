@@ -9,7 +9,9 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"time"
 
+	"github.com/Adam-Ghanem/Wraith/internal/regression"
 	"github.com/Adam-Ghanem/Wraith/internal/reporting"
 	"github.com/Adam-Ghanem/Wraith/internal/reportmodel"
 	"github.com/Adam-Ghanem/Wraith/internal/storage"
@@ -64,11 +66,15 @@ func runReport(ctx context.Context, args []string, stdout, _ io.Writer) error {
 	if err != nil {
 		return err
 	}
+	regressionIntelligence, regressionLimitation, err := reportRegressionIntelligence(ctx, database, campaign)
+	if err != nil {
+		return err
+	}
 	modelFindings := make([]reportmodel.Finding, 0, len(findings))
 	for _, finding := range findings {
 		modelFindings = append(modelFindings, reportmodel.Finding{ID: finding.FindingID, Severity: finding.Severity, RiskScore: finding.RiskScore})
 	}
-	snapshot, err := reportmodel.NewSnapshot(reportmodel.SnapshotInput{ProjectID: campaign.ProjectID, CampaignID: campaign.CampaignID, CampaignStatus: campaign.Status, Profile: campaign.Profile, Target: campaign.Target, ScopeVersion: campaign.ScopeVersion, SchemaVersion: reportmodel.SchemaVersion, Findings: modelFindings, Limitations: []string{"Read-only local report; findings and risk remain authoritative R11.5 records.", coverageLimitation, evidenceLimitation}, Coverage: coverage, Evidence: evidence})
+	snapshot, err := reportmodel.NewSnapshot(reportmodel.SnapshotInput{ProjectID: campaign.ProjectID, CampaignID: campaign.CampaignID, CampaignStatus: campaign.Status, Profile: campaign.Profile, Target: campaign.Target, ScopeVersion: campaign.ScopeVersion, SchemaVersion: reportmodel.SchemaVersion, Findings: modelFindings, Limitations: []string{"Read-only local report; findings and risk remain authoritative R11.5 records.", coverageLimitation, evidenceLimitation, regressionLimitation}, Coverage: coverage, Evidence: evidence, Regression: regressionIntelligence})
 	if err != nil {
 		return err
 	}
@@ -162,4 +168,57 @@ func reportCampaignCoverage(ctx context.Context, database *storage.DB, campaign 
 		return coverage, "No recorded campaign task outcomes are available; coverage is N/A.", nil
 	}
 	return coverage, "Coverage is limited to latest recorded campaign task outcomes; blocked, failed, skipped, and unavailable work remains incomplete.", nil
+}
+
+// reportRegressionIntelligence is a read-only R16 projection of the latest
+// persisted R18 comparison whose current snapshot belongs to the selected
+// campaign. It never recalculates comparisons or mutates the underlying R11.5
+// findings, R17 evidence snapshots, or campaign lifecycle records.
+func reportRegressionIntelligence(ctx context.Context, database *storage.DB, campaign storage.CampaignRecord) (reportmodel.RegressionIntelligence, string, error) {
+	comparisons, err := database.ListRegressionComparisons(ctx, campaign.ProjectID)
+	if err != nil {
+		return reportmodel.RegressionIntelligence{}, "", err
+	}
+	var selected storage.RegressionComparisonRecord
+	var selectedComparison regression.Comparison
+	selectedFound := false
+	for _, record := range comparisons {
+		current, err := database.LoadRegressionSnapshot(ctx, campaign.ProjectID, record.CurrentSnapshotID)
+		if err != nil {
+			return reportmodel.RegressionIntelligence{}, "", err
+		}
+		if current.CampaignID != campaign.CampaignID {
+			continue
+		}
+		baseline, err := database.LoadRegressionSnapshot(ctx, campaign.ProjectID, record.BaselineSnapshotID)
+		if err != nil {
+			return reportmodel.RegressionIntelligence{}, "", err
+		}
+		var comparison regression.Comparison
+		if err := json.Unmarshal([]byte(record.ComparisonJSON), &comparison); err != nil {
+			return reportmodel.RegressionIntelligence{}, "", err
+		}
+		if comparison.ProjectID != campaign.ProjectID || comparison.BaselineFingerprint != baseline.SnapshotFingerprint || comparison.CurrentFingerprint != current.SnapshotFingerprint || comparison.Fingerprint != record.Fingerprint {
+			return reportmodel.RegressionIntelligence{}, "", errors.New("invalid persisted regression comparison")
+		}
+		if !selectedFound || record.CreatedAt.After(selected.CreatedAt) || (record.CreatedAt.Equal(selected.CreatedAt) && record.Fingerprint > selected.Fingerprint) {
+			selected, selectedComparison, selectedFound = record, comparison, true
+		}
+	}
+	if !selectedFound {
+		return reportmodel.RegressionIntelligence{Details: []reportmodel.RegressionDetail{}}, "No persisted R18 regression comparison is available for the selected campaign.", nil
+	}
+	baseline, err := database.LoadRegressionSnapshot(ctx, campaign.ProjectID, selected.BaselineSnapshotID)
+	if err != nil {
+		return reportmodel.RegressionIntelligence{}, "", err
+	}
+	current, err := database.LoadRegressionSnapshot(ctx, campaign.ProjectID, selected.CurrentSnapshotID)
+	if err != nil {
+		return reportmodel.RegressionIntelligence{}, "", err
+	}
+	projection := reportmodel.RegressionIntelligence{ComparisonFingerprint: selected.Fingerprint, BaselineFingerprint: selectedComparison.BaselineFingerprint, CurrentFingerprint: selectedComparison.CurrentFingerprint, BaselineCreatedAt: baseline.CreatedAt.UTC().Format(time.RFC3339Nano), CurrentCreatedAt: current.CreatedAt.UTC().Format(time.RFC3339Nano), ComparedAt: selected.CreatedAt.UTC().Format(time.RFC3339Nano), Details: make([]reportmodel.RegressionDetail, 0, len(selectedComparison.Items))}
+	for _, item := range selectedComparison.Items {
+		projection.Details = append(projection.Details, reportmodel.RegressionDetail{Category: string(item.Category), Change: string(item.Change), Subject: item.Subject, Impact: string(item.Impact), Confidence: string(item.Confidence), Reason: item.Reason})
+	}
+	return projection, "Regression intelligence reflects the latest persisted R18 comparison whose current snapshot belongs to the selected campaign; it is a read-only, offline comparison projection.", nil
 }
