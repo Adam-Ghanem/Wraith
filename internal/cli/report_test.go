@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Adam-Ghanem/Wraith/internal/continuousassessment"
+	"github.com/Adam-Ghanem/Wraith/internal/governance"
 	"github.com/Adam-Ghanem/Wraith/internal/regression"
 	"github.com/Adam-Ghanem/Wraith/internal/storage"
 )
@@ -348,11 +349,33 @@ func TestReportCommandIncludesLatestPersistedAssessmentEvaluationForSelectedCamp
 	if err := database.SaveAssessmentEvaluation(ctx, storage.AssessmentEvaluationRecord{ProjectID: "alpha", EvaluationID: evaluation.Fingerprint, PolicyID: policy.Fingerprint, BaselineID: baseline.Fingerprint, BaselineSnapshotID: baselineSnapshot.Fingerprint, CurrentSnapshotID: currentSnapshot.Fingerprint, ComparisonID: comparison.Fingerprint, Status: "failed", Fingerprint: evaluation.Fingerprint, EvaluationJSON: string(evaluationJSON), CreatedAt: currentSnapshot.CreatedAt}); err != nil {
 		t.Fatal(err)
 	}
+	if len(evaluation.Actions) != 1 {
+		t.Fatalf("actions=%+v", evaluation.Actions)
+	}
+	action := evaluation.Actions[0]
+	actionJSON, err := json.Marshal(action)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.SaveAssessmentAction(ctx, storage.AssessmentActionRecord{ProjectID: "alpha", ActionID: action.ID, EvaluationID: evaluation.Fingerprint, RuleID: action.RuleID, Kind: action.Kind, Priority: action.Priority, Status: string(action.Status), CampaignID: action.CampaignID, Fingerprint: action.ID, ActionJSON: string(actionJSON), CreatedAt: currentSnapshot.CreatedAt}); err != nil {
+		t.Fatal(err)
+	}
+	initial, err := governance.NewRecommendationState(governance.StateInput{ProjectID: "alpha", RecommendationID: action.ID, EvaluationFingerprint: evaluation.Fingerprint, PolicyFingerprint: policy.Fingerprint, BaselineFingerprint: baseline.Fingerprint, RecommendationFingerprint: action.ID, UpdatedAt: currentSnapshot.CreatedAt})
+	if err != nil {
+		t.Fatal(err)
+	}
+	transition, err := governance.Transition(governance.TransitionInput{State: initial, ExpectedState: governance.RecommendationRecommended, NextState: governance.RecommendationAcknowledged, Actor: "operator-a", Reason: "reviewed documented regression", At: currentSnapshot.CreatedAt.Add(time.Minute)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.ApplyGovernanceTransition(ctx, initial, transition); err != nil {
+		t.Fatal(err)
+	}
 	if err := database.Close(); err != nil {
 		t.Fatal(err)
 	}
 	var output bytes.Buffer
-	if err := Run(ctx, []string{"report", "--project", "alpha", "--campaign", "campaign-1", "--format", "json", "--db", path}, &output, &bytes.Buffer{}); err != nil || !strings.Contains(output.String(), `"continuous_assessment":{"evaluation_fingerprint"`) || !strings.Contains(output.String(), `"status":"failed"`) {
+	if err := Run(ctx, []string{"report", "--project", "alpha", "--campaign", "campaign-1", "--format", "json", "--db", path}, &output, &bytes.Buffer{}); err != nil || !strings.Contains(output.String(), `"continuous_assessment":{"evaluation_fingerprint"`) || !strings.Contains(output.String(), `"status":"failed"`) || !strings.Contains(output.String(), `"continuous_assessment_governance":{"overall":"failed"`) || !strings.Contains(output.String(), `"state":"acknowledged"`) {
 		t.Fatalf("output=%s err=%v", output.String(), err)
 	}
 }

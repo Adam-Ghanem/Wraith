@@ -1,6 +1,6 @@
 # Wraith Architecture Audit
 
-**Audit status:** Local-first CLI architecture through R19 on feature branches. This document distinguishes implemented boundary contracts—including read-only deterministic reporting, comparison, and policy control—from later proposed hosted, scheduled, and remote subsystems.
+**Audit status:** Local-first CLI architecture through R20 on feature branches. This document distinguishes implemented boundary contracts—including read-only deterministic reporting, comparison, policy control, and governance—from later proposed hosted, scheduled, and remote subsystems.
 
 ## Executive architecture summary
 
@@ -37,6 +37,7 @@ Wraith is currently a **local-first Go CLI with an embedded SQLite scan ledger, 
 | R17 evidence correlation | `internal/evidencecorrelation`, `wraith evidence`, project-scoped snapshot persistence, and the optional R16 report projection correlate existing R2/R11.5/R14 records. | The correlation model is pure and deterministic with injected time/freshness policy; it has no storage, HTTP, DNS, socket, subprocess, or lifecycle-mutation dependency. Explicit `correlate --persist` is idempotent; `verify` is read-only and R1-gated. |
 | R18 regression intelligence | `internal/regression`, `wraith regression`, project-scoped immutable snapshot/comparison persistence, and the R16 regression report projection compare existing R1–R17 artifacts. | The comparison model is pure/deterministic and offline; cross-project or secret-bearing input fails closed, unknown coverage is not compared, `check` uses a distinct regression sentinel, and R18 never creates new egress, scanners, lifecycle/risk mutations, or R17 snapshot changes. |
 | R19 continuous assessment control | `internal/continuousassessment`, `wraith assess`, project-scoped policy/baseline/evaluation/action persistence, and the R16 assessment-control report projection evaluate immutable R18 state. | Strict bounded JSON policy parsing, deterministic fingerprints, project filtering, and non-executing recommendations only; no HTTP/DNS/socket/process path, scanner, scheduler, R11.5/R14/R17/R18 mutation, or scope/authorization expansion. |
+| R20 assessment operations and governance | `internal/governance`, `wraith govern`, project-scoped recommendation-state/decision/event persistence, and the R16 governance report projection govern existing R19 recommendations. | Pure deterministic lifecycle/status logic, fingerprint and secret screening, expected-state transactional transitions, immutable audit events, strict local CI, and non-executing operational treatment only; no HTTP/DNS/socket/process path, scanner, scheduler, worker, dispatch, or R11.5/R14/R17/R18/R19 mutation. |
 
 ## Current repository map
 
@@ -63,6 +64,7 @@ internal/
 			  ├── evidencecorrelation                   R17 pure verification, freshness, reproducibility, gap, and contradiction model
 			  ├── regression                            R18 pure immutable assessment snapshot and comparison model
 			  ├── continuousassessment                  R19 pure policy, baseline, control decision, and non-executing recommendation model
+			  ├── governance                            R20 pure recommendation-treatment lifecycle, operational status, and immutable audit-event model
   ├── metadata, model, output, executil, buildinfo
   └── testutil           test-support package boundary (currently no Go source)
 
@@ -73,7 +75,7 @@ docs/, README.md, SECURITY.md
   └── scope, responsible use, Phase implementation records, release, support, and threat documentation
 ```
 
-The current database schema has eighteen embedded migrations, including project-scoped R10 identities, secret-free authentication metadata, R10.5 lifecycle records, R11.5 risk intelligence, R11.6 surface snapshots, R14 campaign orchestration, R17 idempotent evidence-correlation snapshots, R18 idempotent regression snapshots/comparisons, and R19 idempotent policy/baseline/evaluation/recommendation records. R16 adds no migration or report table; it builds deterministic in-memory views from authoritative records and, when present, project/campaign-scoped R17, R18, and R19 records. Credentials never persist in SQLite.
+The current database schema has nineteen embedded migrations, including project-scoped R10 identities, secret-free authentication metadata, R10.5 lifecycle records, R11.5 risk intelligence, R11.6 surface snapshots, R14 campaign orchestration, R17 idempotent evidence-correlation snapshots, R18 idempotent regression snapshots/comparisons, R19 idempotent policy/baseline/evaluation/recommendation records, and R20 project-scoped recommendation governance state plus immutable decision/event records. R16 adds no migration or report table; it builds deterministic in-memory views from authoritative records and, when present, project/campaign-scoped R17, R18, R19, and R20 records. Credentials never persist in SQLite.
 
 ## Current control flow
 

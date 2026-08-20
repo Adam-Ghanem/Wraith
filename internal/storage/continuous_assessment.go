@@ -185,6 +185,26 @@ func (db *DB) ListAssessmentActions(ctx context.Context, projectID, evaluationID
 	return records, rows.Err()
 }
 
+func (db *DB) LoadAssessmentAction(ctx context.Context, projectID, actionID string) (AssessmentActionRecord, error) {
+	if db == nil || db.sql == nil || !requiredSecretFree(projectID, actionID) || !validFingerprint(actionID) {
+		return AssessmentActionRecord{}, errors.New("invalid assessment action query")
+	}
+	var record AssessmentActionRecord
+	var createdAt string
+	err := db.sql.QueryRowContext(ctx, `SELECT project_id,action_id,evaluation_id,rule_id,kind,priority,status,COALESCE(campaign_id,''),fingerprint,action_json,created_at FROM assessment_actions WHERE project_id=? AND action_id=?`, projectID, actionID).Scan(&record.ProjectID, &record.ActionID, &record.EvaluationID, &record.RuleID, &record.Kind, &record.Priority, &record.Status, &record.CampaignID, &record.Fingerprint, &record.ActionJSON, &createdAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return AssessmentActionRecord{}, errors.New("assessment action is absent from selected project")
+	}
+	if err != nil {
+		return AssessmentActionRecord{}, err
+	}
+	record.CreatedAt, err = parseStorageTime(createdAt)
+	if err != nil || !validAssessmentAction(record) {
+		return AssessmentActionRecord{}, errors.New("invalid persisted assessment action")
+	}
+	return record, nil
+}
+
 func validAssessmentPolicy(record AssessmentPolicyRecord) bool {
 	return requiredSecretFree(record.ProjectID, record.PolicyID, record.Name, record.Fingerprint) && record.Version > 0 && validFingerprint(record.PolicyID) && validFingerprint(record.Fingerprint) && validAssessmentJSON(record.PolicyJSON) && !record.CreatedAt.IsZero()
 }

@@ -91,6 +91,33 @@ type AssessmentControl struct {
 	Actions                    []AssessmentAction   `json:"actions"`
 }
 
+// GovernanceDecision is a report-safe R20 operational decision/event lineage.
+// It records local operator treatment only and never implies remediation.
+type GovernanceDecision struct {
+	RecommendationFingerprint string `json:"recommendation_fingerprint"`
+	State                     string `json:"state"`
+	PreviousState             string `json:"previous_state"`
+	EventType                 string `json:"event_type"`
+	Actor                     string `json:"actor"`
+	Reason                    string `json:"reason"`
+	OccurredAt                string `json:"occurred_at"`
+	EventFingerprint          string `json:"event_fingerprint"`
+}
+
+// GovernanceControl is a read-only R20 projection for aggregate executive
+// posture and technical audit lineage. It cannot execute a recommendation.
+type GovernanceControl struct {
+	Overall               string               `json:"overall,omitempty"`
+	PolicyFingerprint     string               `json:"policy_fingerprint,omitempty"`
+	BaselineFingerprint   string               `json:"baseline_fingerprint,omitempty"`
+	EvaluationFingerprint string               `json:"evaluation_fingerprint,omitempty"`
+	ComparisonFingerprint string               `json:"comparison_fingerprint,omitempty"`
+	UnresolvedActions     int                  `json:"unresolved_actions"`
+	StaleReasons          []string             `json:"stale_reasons"`
+	Limitations           []string             `json:"limitations"`
+	Decisions             []GovernanceDecision `json:"decisions"`
+}
+
 func (coverage CoverageMetric) Display() string {
 	if coverage.Denominator == 0 {
 		return "N/A"
@@ -107,6 +134,7 @@ type SnapshotInput struct {
 	Evidence                                           EvidenceVerification
 	Regression                                         RegressionIntelligence
 	Assessment                                         AssessmentControl
+	Governance                                         GovernanceControl
 }
 
 type Snapshot struct {
@@ -124,13 +152,14 @@ type Snapshot struct {
 	Evidence       EvidenceVerification   `json:"evidence_verification"`
 	Regression     RegressionIntelligence `json:"security_regression"`
 	Assessment     AssessmentControl      `json:"continuous_assessment"`
+	Governance     GovernanceControl      `json:"continuous_assessment_governance"`
 }
 
 func NewSnapshot(input SnapshotInput) (Snapshot, error) {
 	if strings.TrimSpace(input.ProjectID) == "" || strings.TrimSpace(input.ScopeVersion) == "" || secretLike(input.ProjectID) || secretLike(input.CampaignID) || secretLike(input.ScopeVersion) || secretLike(input.Target) || input.SchemaVersion != SchemaVersion || input.Coverage.Numerator < 0 || input.Coverage.Denominator < 0 || input.Coverage.Numerator > input.Coverage.Denominator || strings.TrimSpace(input.Coverage.Definition) == "" {
 		return Snapshot{}, errors.New("invalid report snapshot")
 	}
-	snapshot := Snapshot{ProjectID: input.ProjectID, CampaignID: input.CampaignID, CampaignStatus: input.CampaignStatus, Profile: input.Profile, Target: input.Target, ScopeVersion: input.ScopeVersion, SchemaVersion: input.SchemaVersion, Findings: append([]Finding{}, input.Findings...), Limitations: append([]string{}, input.Limitations...), Coverage: input.Coverage, Evidence: EvidenceVerification{Details: append([]EvidenceDetail{}, input.Evidence.Details...)}, Regression: RegressionIntelligence{ComparisonFingerprint: input.Regression.ComparisonFingerprint, BaselineFingerprint: input.Regression.BaselineFingerprint, CurrentFingerprint: input.Regression.CurrentFingerprint, BaselineCreatedAt: input.Regression.BaselineCreatedAt, CurrentCreatedAt: input.Regression.CurrentCreatedAt, ComparedAt: input.Regression.ComparedAt, Details: append([]RegressionDetail{}, input.Regression.Details...)}, Assessment: AssessmentControl{EvaluationFingerprint: input.Assessment.EvaluationFingerprint, PolicyFingerprint: input.Assessment.PolicyFingerprint, BaselineFingerprint: input.Assessment.BaselineFingerprint, CurrentSnapshotFingerprint: input.Assessment.CurrentSnapshotFingerprint, Status: input.Assessment.Status, FailedRules: input.Assessment.FailedRules, Decisions: append([]AssessmentDecision{}, input.Assessment.Decisions...), Actions: append([]AssessmentAction{}, input.Assessment.Actions...)}}
+	snapshot := Snapshot{ProjectID: input.ProjectID, CampaignID: input.CampaignID, CampaignStatus: input.CampaignStatus, Profile: input.Profile, Target: input.Target, ScopeVersion: input.ScopeVersion, SchemaVersion: input.SchemaVersion, Findings: append([]Finding{}, input.Findings...), Limitations: append([]string{}, input.Limitations...), Coverage: input.Coverage, Evidence: EvidenceVerification{Details: append([]EvidenceDetail{}, input.Evidence.Details...)}, Regression: RegressionIntelligence{ComparisonFingerprint: input.Regression.ComparisonFingerprint, BaselineFingerprint: input.Regression.BaselineFingerprint, CurrentFingerprint: input.Regression.CurrentFingerprint, BaselineCreatedAt: input.Regression.BaselineCreatedAt, CurrentCreatedAt: input.Regression.CurrentCreatedAt, ComparedAt: input.Regression.ComparedAt, Details: append([]RegressionDetail{}, input.Regression.Details...)}, Assessment: AssessmentControl{EvaluationFingerprint: input.Assessment.EvaluationFingerprint, PolicyFingerprint: input.Assessment.PolicyFingerprint, BaselineFingerprint: input.Assessment.BaselineFingerprint, CurrentSnapshotFingerprint: input.Assessment.CurrentSnapshotFingerprint, Status: input.Assessment.Status, FailedRules: input.Assessment.FailedRules, Decisions: append([]AssessmentDecision{}, input.Assessment.Decisions...), Actions: append([]AssessmentAction{}, input.Assessment.Actions...)}, Governance: GovernanceControl{Overall: input.Governance.Overall, PolicyFingerprint: input.Governance.PolicyFingerprint, BaselineFingerprint: input.Governance.BaselineFingerprint, EvaluationFingerprint: input.Governance.EvaluationFingerprint, ComparisonFingerprint: input.Governance.ComparisonFingerprint, UnresolvedActions: input.Governance.UnresolvedActions, StaleReasons: append([]string{}, input.Governance.StaleReasons...), Limitations: append([]string{}, input.Governance.Limitations...), Decisions: append([]GovernanceDecision{}, input.Governance.Decisions...)}}
 	for _, finding := range snapshot.Findings {
 		if strings.TrimSpace(finding.ID) == "" || secretLike(finding.ID) || finding.RiskScore < 0 || finding.RiskScore > 100 {
 			return Snapshot{}, errors.New("invalid report finding")
@@ -193,6 +222,26 @@ func NewSnapshot(input SnapshotInput) (Snapshot, error) {
 			}
 		}
 	}
+	if snapshot.Governance.UnresolvedActions < 0 {
+		return Snapshot{}, errors.New("invalid report governance control")
+	}
+	for _, value := range []string{snapshot.Governance.Overall, snapshot.Governance.PolicyFingerprint, snapshot.Governance.BaselineFingerprint, snapshot.Governance.EvaluationFingerprint, snapshot.Governance.ComparisonFingerprint} {
+		if value != "" && secretLike(value) {
+			return Snapshot{}, errors.New("invalid report governance control")
+		}
+	}
+	for _, value := range append(append([]string{}, snapshot.Governance.StaleReasons...), snapshot.Governance.Limitations...) {
+		if strings.TrimSpace(value) == "" || secretLike(value) {
+			return Snapshot{}, errors.New("invalid report governance control")
+		}
+	}
+	for _, decision := range snapshot.Governance.Decisions {
+		for _, value := range []string{decision.RecommendationFingerprint, decision.State, decision.PreviousState, decision.EventType, decision.Actor, decision.Reason, decision.OccurredAt, decision.EventFingerprint} {
+			if strings.TrimSpace(value) == "" || secretLike(value) {
+				return Snapshot{}, errors.New("invalid report governance control")
+			}
+		}
+	}
 	sort.Slice(snapshot.Findings, func(left, right int) bool { return snapshot.Findings[left].ID < snapshot.Findings[right].ID })
 	sort.Strings(snapshot.Limitations)
 	sort.Slice(snapshot.Evidence.Details, func(left, right int) bool {
@@ -209,6 +258,12 @@ func NewSnapshot(input SnapshotInput) (Snapshot, error) {
 		leftAction, rightAction := snapshot.Assessment.Actions[left], snapshot.Assessment.Actions[right]
 		return leftAction.RuleID+"\x00"+leftAction.Kind+"\x00"+leftAction.Priority < rightAction.RuleID+"\x00"+rightAction.Kind+"\x00"+rightAction.Priority
 	})
+	sort.Strings(snapshot.Governance.StaleReasons)
+	sort.Strings(snapshot.Governance.Limitations)
+	sort.Slice(snapshot.Governance.Decisions, func(left, right int) bool {
+		leftDecision, rightDecision := snapshot.Governance.Decisions[left], snapshot.Governance.Decisions[right]
+		return leftDecision.RecommendationFingerprint+"\x00"+leftDecision.OccurredAt+"\x00"+leftDecision.EventFingerprint < rightDecision.RecommendationFingerprint+"\x00"+rightDecision.OccurredAt+"\x00"+rightDecision.EventFingerprint
+	})
 	normalized, err := json.Marshal(struct {
 		ProjectID, CampaignID, CampaignStatus, Profile, Target, ScopeVersion, SchemaVersion string
 		Findings                                                                            []Finding
@@ -217,7 +272,8 @@ func NewSnapshot(input SnapshotInput) (Snapshot, error) {
 		Evidence                                                                            EvidenceVerification
 		Regression                                                                          RegressionIntelligence
 		Assessment                                                                          AssessmentControl
-	}{snapshot.ProjectID, snapshot.CampaignID, snapshot.CampaignStatus, snapshot.Profile, snapshot.Target, snapshot.ScopeVersion, snapshot.SchemaVersion, snapshot.Findings, snapshot.Limitations, snapshot.Coverage, snapshot.Evidence, snapshot.Regression, snapshot.Assessment})
+		Governance                                                                          GovernanceControl
+	}{snapshot.ProjectID, snapshot.CampaignID, snapshot.CampaignStatus, snapshot.Profile, snapshot.Target, snapshot.ScopeVersion, snapshot.SchemaVersion, snapshot.Findings, snapshot.Limitations, snapshot.Coverage, snapshot.Evidence, snapshot.Regression, snapshot.Assessment, snapshot.Governance})
 	if err != nil {
 		return Snapshot{}, err
 	}

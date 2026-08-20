@@ -335,6 +335,80 @@ func validEvaluationInput(input EvaluationInput) bool {
 	return err == nil && expected.Fingerprint == input.Comparison.Fingerprint
 }
 
+// ValidateControlEvaluation verifies the canonical deterministic integrity of a
+// persisted evaluation without re-running policy evaluation or mutating state.
+func ValidateControlEvaluation(evaluation ControlEvaluation) bool {
+	if !validID(evaluation.ProjectID) || !validFingerprint(evaluation.PolicyFingerprint) || !validFingerprint(evaluation.BaselineFingerprint) || !validFingerprint(evaluation.BaselineSnapshot) || !validFingerprint(evaluation.CurrentSnapshot) || !validFingerprint(evaluation.ComparisonFingerprint) || !validFingerprint(evaluation.Fingerprint) || evaluation.EvaluatedAt.IsZero() || len(evaluation.Decisions) > MaxRules || len(evaluation.Actions) > MaxActions {
+		return false
+	}
+	decisions := map[string]ControlDecision{}
+	summary := AssessmentSummary{}
+	previousRuleID := ""
+	for _, decision := range evaluation.Decisions {
+		if !validControlDecision(decision, evaluation) || (previousRuleID != "" && previousRuleID >= decision.RuleID) {
+			return false
+		}
+		previousRuleID = decision.RuleID
+		decisions[decision.Fingerprint] = decision
+		applySummary(&summary, decision.Status)
+	}
+	if summary != evaluation.Summary {
+		return false
+	}
+	for _, action := range evaluation.Actions {
+		decision, ok := decisions[action.SourceDecisionFingerprint]
+		if !ok || !validAssessmentAction(action, evaluation.ProjectID, decision) {
+			return false
+		}
+	}
+	return evaluation.Fingerprint == controlEvaluationFingerprint(evaluation)
+}
+
+func validControlDecision(decision ControlDecision, evaluation ControlEvaluation) bool {
+	return validID(decision.RuleID) && validDecisionStatus(decision.Status) && decision.ObservedValue >= 0 && decision.ExpectedValue >= 0 && (decision.Unit == UnitCount || decision.Unit == UnitBasisPoints) && validID(decision.Explanation) && decision.BaselineFingerprint == evaluation.BaselineSnapshot && decision.CurrentFingerprint == evaluation.CurrentSnapshot && decision.ComparisonFingerprint == evaluation.ComparisonFingerprint && validFingerprint(decision.Fingerprint) && decision.Fingerprint == controlDecisionFingerprint(decision)
+}
+
+func validAssessmentAction(action AssessmentAction, projectID string, decision ControlDecision) bool {
+	if action.ProjectID != projectID || !validID(action.RuleID) || !validID(action.Kind) || !validID(action.Priority) || !validID(action.Rationale) || !validOptionalID(action.CampaignID) || action.Status != ActionRecommended || action.SourceDecisionFingerprint != decision.Fingerprint || !validFingerprint(action.ID) {
+		return false
+	}
+	expectedID := fingerprint(struct{ ProjectID, RuleID, Kind, Decision string }{action.ProjectID, action.RuleID, action.Kind, decision.Fingerprint})
+	if action.ID != expectedID {
+		return false
+	}
+	if decision.Status == StatusFail {
+		return action.Priority == "high"
+	}
+	return decision.Status == StatusWarning && action.Priority == "medium"
+}
+
+func validDecisionStatus(status DecisionStatus) bool {
+	switch status {
+	case StatusPass, StatusFail, StatusWarning, StatusInformational, StatusSkipped, StatusUnsupported, StatusUnknown:
+		return true
+	default:
+		return false
+	}
+}
+
+func controlDecisionFingerprint(decision ControlDecision) string {
+	return fingerprint(struct {
+		RuleID, Explanation, BaselineFingerprint, CurrentFingerprint, ComparisonFingerprint string
+		Status                                                                              DecisionStatus
+		ObservedValue, ExpectedValue                                                        int
+		Unit                                                                                Unit
+	}{decision.RuleID, decision.Explanation, decision.BaselineFingerprint, decision.CurrentFingerprint, decision.ComparisonFingerprint, decision.Status, decision.ObservedValue, decision.ExpectedValue, decision.Unit})
+}
+
+func controlEvaluationFingerprint(evaluation ControlEvaluation) string {
+	return fingerprint(struct {
+		ProjectID, PolicyFingerprint, BaselineFingerprint, BaselineSnapshot, CurrentSnapshot, ComparisonFingerprint string
+		EvaluatedAt                                                                                                 time.Time
+		Decisions                                                                                                   []ControlDecision
+		Actions                                                                                                     []AssessmentAction
+	}{evaluation.ProjectID, evaluation.PolicyFingerprint, evaluation.BaselineFingerprint, evaluation.BaselineSnapshot, evaluation.CurrentSnapshot, evaluation.ComparisonFingerprint, evaluation.EvaluatedAt.UTC(), evaluation.Decisions, evaluation.Actions})
+}
+
 func evaluateRule(rule PolicyRule, input EvaluationInput, evaluation ControlEvaluation) ControlDecision {
 	observed, available, explanation := observedValue(rule, input)
 	status := StatusPass

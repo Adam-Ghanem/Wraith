@@ -135,3 +135,17 @@ func TestSnapshotNormalizesAssessmentControlAndIncludesItInFingerprint(t *testin
 		t.Fatalf("assessment control was not normalized: first=%+v second=%+v", first, second)
 	}
 }
+
+func TestSnapshotNormalizesGovernanceAndIncludesItInFingerprint(t *testing.T) {
+	first, err := NewSnapshot(SnapshotInput{ProjectID: "alpha", ScopeVersion: "scope-v1", SchemaVersion: SchemaVersion, Coverage: CoverageMetric{Definition: "tasks"}, Governance: GovernanceControl{Overall: "stale", PolicyFingerprint: "policy-1", BaselineFingerprint: "baseline-1", EvaluationFingerprint: "evaluation-1", ComparisonFingerprint: "comparison-1", UnresolvedActions: 2, StaleReasons: []string{"evaluation_max_age_exceeded", "policy_changed"}, Limitations: []string{"evidence_freshness_unknown"}, Decisions: []GovernanceDecision{{RecommendationFingerprint: "action-b", State: "acknowledged", PreviousState: "recommended", EventType: "governance.recommendation.acknowledged", Actor: "operator-a", Reason: "reviewed regression", OccurredAt: "2026-08-20T12:00:00Z", EventFingerprint: "event-b"}, {RecommendationFingerprint: "action-a", State: "accepted", PreviousState: "acknowledged", EventType: "governance.recommendation.accepted", Actor: "operator-a", Reason: "accepted triage", OccurredAt: "2026-08-20T12:01:00Z", EventFingerprint: "event-a"}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := NewSnapshot(SnapshotInput{ProjectID: "alpha", ScopeVersion: "scope-v1", SchemaVersion: SchemaVersion, Coverage: CoverageMetric{Definition: "tasks"}, Governance: GovernanceControl{Overall: "stale", PolicyFingerprint: "policy-1", BaselineFingerprint: "baseline-1", EvaluationFingerprint: "evaluation-1", ComparisonFingerprint: "comparison-1", UnresolvedActions: 2, StaleReasons: []string{"policy_changed", "evaluation_max_age_exceeded"}, Limitations: []string{"evidence_freshness_unknown"}, Decisions: []GovernanceDecision{{RecommendationFingerprint: "action-a", State: "accepted", PreviousState: "acknowledged", EventType: "governance.recommendation.accepted", Actor: "operator-a", Reason: "accepted triage", OccurredAt: "2026-08-20T12:01:00Z", EventFingerprint: "event-a"}, {RecommendationFingerprint: "action-b", State: "acknowledged", PreviousState: "recommended", EventType: "governance.recommendation.acknowledged", Actor: "operator-a", Reason: "reviewed regression", OccurredAt: "2026-08-20T12:00:00Z", EventFingerprint: "event-b"}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Fingerprint != second.Fingerprint || first.Governance.Decisions[0].RecommendationFingerprint != "action-a" || first.Governance.StaleReasons[0] != "evaluation_max_age_exceeded" {
+		t.Fatalf("governance state was not normalized: first=%+v second=%+v", first, second)
+	}
+}

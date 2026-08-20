@@ -11,10 +11,19 @@ func ExitCode(err error) int {
 	if errors.Is(err, ErrAssessmentPolicyFailed) {
 		return 1
 	}
+	if errors.Is(err, ErrGovernanceFailed) {
+		return 1
+	}
 	if errors.Is(err, ErrAssessmentInvalidInput) {
 		return 2
 	}
+	if errors.Is(err, ErrGovernanceInvalidInput) {
+		return 2
+	}
 	if errors.Is(err, ErrAssessmentInternal) {
+		return 3
+	}
+	if errors.Is(err, ErrGovernanceInternal) {
 		return 3
 	}
 	return 2

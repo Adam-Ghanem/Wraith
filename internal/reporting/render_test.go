@@ -96,3 +96,18 @@ func TestRenderSeparatesExecutiveAssessmentAggregationFromTechnicalDetails(t *te
 		t.Fatalf("technical=%q err=%v", technical, err)
 	}
 }
+
+func TestRenderSeparatesExecutiveGovernanceAggregationFromTechnicalAuditLineage(t *testing.T) {
+	snapshot, err := reportmodel.NewSnapshot(reportmodel.SnapshotInput{ProjectID: "alpha", ScopeVersion: "scope-v1", SchemaVersion: reportmodel.SchemaVersion, Coverage: reportmodel.CoverageMetric{Definition: "recorded tasks"}, Governance: reportmodel.GovernanceControl{Overall: "stale", PolicyFingerprint: "policy-1", BaselineFingerprint: "baseline-1", EvaluationFingerprint: "evaluation-1", ComparisonFingerprint: "comparison-1", UnresolvedActions: 1, StaleReasons: []string{"evaluation_max_age_exceeded"}, Limitations: []string{"evidence_freshness_unknown"}, Decisions: []reportmodel.GovernanceDecision{{RecommendationFingerprint: "action-1", State: "acknowledged", PreviousState: "recommended", EventType: "governance.recommendation.acknowledged", Actor: "operator-a", Reason: "reviewed documented regression", OccurredAt: "2026-08-20T12:00:00Z", EventFingerprint: "event-1"}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	executive, err := RenderExecutive("markdown", snapshot)
+	if err != nil || !strings.Contains(string(executive), "## Continuous Assessment Governance") || !strings.Contains(string(executive), "Governance status: stale") || strings.Contains(string(executive), "reviewed documented regression") || strings.Contains(string(executive), "action-1") {
+		t.Fatalf("executive=%q err=%v", executive, err)
+	}
+	technical, err := Render("markdown", snapshot)
+	if err != nil || !strings.Contains(string(technical), "## Continuous Assessment Governance") || !strings.Contains(string(technical), "action-1") || !strings.Contains(string(technical), "reviewed documented regression") || !strings.Contains(string(technical), "event-1") {
+		t.Fatalf("technical=%q err=%v", technical, err)
+	}
+}

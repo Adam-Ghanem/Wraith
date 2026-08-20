@@ -127,6 +127,35 @@ func TestEvaluateRejectsForgedBaselineFingerprint(t *testing.T) {
 	}
 }
 
+func TestValidateControlEvaluationRejectsForgedPersistedDecisionContent(t *testing.T) {
+	createdAt := time.Date(2026, time.August, 20, 8, 0, 0, 0, time.UTC)
+	snapshot, err := regression.NewSnapshot(regression.SnapshotInput{ProjectID: "alpha", ScopeVersion: "scope-v1", SchemaVersion: regression.SchemaVersion, CreatedAt: createdAt, EndpointIDs: []string{"endpoint-1"}, Coverage: regression.Coverage{Definition: "recorded_tasks", Numerator: 1, Denominator: 1}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy, err := NewPolicy(PolicyInput{ProjectID: "alpha", Name: "policy", Version: 1, Rules: []PolicyRule{{ID: "regression", Type: RuleRegression, Operator: OperatorMaximum, Threshold: Threshold{Value: 0, Unit: UnitCount}, Effect: EffectFail}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	baseline, err := NewBaseline(BaselineInput{ProjectID: "alpha", SnapshotFingerprint: snapshot.Fingerprint, SnapshotCreatedAt: createdAt, PolicyFingerprint: policy.Fingerprint, CreatedAt: createdAt})
+	if err != nil {
+		t.Fatal(err)
+	}
+	comparison, err := regression.Compare(snapshot, snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	evaluation, err := Evaluate(EvaluationInput{ProjectID: "alpha", Policy: policy, Baseline: baseline, BaselineSnapshot: snapshot, CurrentSnapshot: snapshot, Comparison: comparison, EvaluatedAt: createdAt})
+	if err != nil || !ValidateControlEvaluation(evaluation) {
+		t.Fatalf("evaluation=%+v err=%v", evaluation, err)
+	}
+	forged := evaluation
+	forged.Decisions[0].Explanation = "forged provenance"
+	if ValidateControlEvaluation(forged) {
+		t.Fatal("expected forged decision content rejection")
+	}
+}
+
 func TestEvaluateUsesBasisPointsForEvidenceVerificationRate(t *testing.T) {
 	createdAt := time.Date(2026, time.August, 20, 8, 0, 0, 0, time.UTC)
 	snapshot, err := regression.NewSnapshot(regression.SnapshotInput{ProjectID: "alpha", ScopeVersion: "scope-v1", SchemaVersion: regression.SchemaVersion, CreatedAt: createdAt, Evidence: []regression.Evidence{{FindingID: "finding-1", Verification: "supported", Freshness: "current", Reproducibility: "repeated_consistent"}}, Coverage: regression.Coverage{Definition: "recorded_tasks", Numerator: 1, Denominator: 1}})
