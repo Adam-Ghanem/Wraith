@@ -54,6 +54,32 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 			return runCompare(ctx, args, stdout, stderr)
 		case "pentest":
 			return runPentest(ctx, args, stdout, stderr)
+		case "inject":
+			return runInject(ctx, args, stdout, stderr)
+		case "findings":
+			return runFindings(ctx, args, stdout, stderr)
+		case "risk":
+			return runRisk(ctx, args, stdout, stderr)
+		case "report":
+			return runReport(ctx, args, stdout, stderr)
+		case "evidence":
+			return runEvidence(ctx, args, stdout, stderr)
+		case "regression":
+			return runRegression(ctx, args, stdout, stderr)
+		case "assess":
+			return runAssess(ctx, args, stdout, stderr)
+		case "govern":
+			return runGovern(ctx, args, stdout, stderr)
+		case "analytics":
+			return runAnalytics(ctx, args, stdout, stderr)
+		case "decision":
+			return runDecision(ctx, args, stdout)
+		case "authorization":
+			return runAuthorization(ctx, args, stdout)
+		case "surface":
+			return runSurface(ctx, args, stdout, stderr)
+		case "campaign":
+			return runCampaign(ctx, args, stdout, stderr)
 		case "history":
 			return runHistory(ctx, args, stdout, stderr)
 		case "export-fixtures":

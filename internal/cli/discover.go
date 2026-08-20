@@ -178,6 +178,9 @@ func persistPhase1Result(ctx context.Context, databasePath string, result model.
 }
 
 func runDiscover(ctx context.Context, args []string, stdout, stderr io.Writer) error {
+	if len(args) > 1 && !strings.HasPrefix(args[1], "-") {
+		return runSmartDiscover(ctx, args, stdout, stderr)
+	}
 	options, err := parseOptions(args)
 	if err != nil {
 		return err

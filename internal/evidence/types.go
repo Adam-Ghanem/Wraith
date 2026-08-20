@@ -122,6 +122,7 @@ type APIEndpointEvidence struct{ Observation }
 type ClientSideEvidence struct{ Observation }
 type FuzzEvidence struct{ Observation }
 type ContentDiscoveryEvidence struct{ Observation }
+type DiscoveryEvidence struct{ Observation }
 type ValidationEvidence struct{ Observation }
 
 func (observation HTTPObservation) Record() Observation          { return observation.Observation }
@@ -131,6 +132,7 @@ func (observation APIEndpointEvidence) Record() Observation      { return observ
 func (observation ClientSideEvidence) Record() Observation       { return observation.Observation }
 func (observation FuzzEvidence) Record() Observation             { return observation.Observation }
 func (observation ContentDiscoveryEvidence) Record() Observation { return observation.Observation }
+func (observation DiscoveryEvidence) Record() Observation        { return observation.Observation }
 func (observation ValidationEvidence) Record() Observation       { return observation.Observation }
 
 type ClientSideEvidenceInput struct {
@@ -156,6 +158,15 @@ type ContentDiscoveryObservationInput struct {
 	StatusCode, RedirectCount                      int
 	ContentLength, DurationMS                      int64
 	BaselineSimilarity                             float64
+}
+
+// DiscoveryObservationInput deliberately excludes candidate values, bodies,
+// headers, cookies, and credentials from R11.2 verification evidence.
+type DiscoveryObservationInput struct {
+	CandidateID, CandidateType, VerificationStatus, ContentType string
+	ObservedAt                                                  time.Time
+	StatusCode, RedirectCount                                   int
+	ContentLength, DurationMS                                   int64
 }
 
 type ValidationObservationInput struct {
@@ -309,6 +320,33 @@ func NewContentDiscoveryObservation(projectID string, endpoint Endpoint, input C
 		return ContentDiscoveryEvidence{}, err
 	}
 	return ContentDiscoveryEvidence{Observation: record}, nil
+}
+
+// NewDiscoveryObservation records a secret-free R11.2 verification result. It
+// is evidence of a response classification and never proof of a vulnerability.
+func NewDiscoveryObservation(projectID string, endpoint Endpoint, input DiscoveryObservationInput) (DiscoveryEvidence, error) {
+	const source = "smart-discovery.r11.2.verify"
+	if err := validateSubject(projectID, endpoint.ProjectID, endpoint.Identity, source, input.ObservedAt); err != nil {
+		return DiscoveryEvidence{}, err
+	}
+	if !boundedText(input.CandidateID, 128) || containsSensitive(input.CandidateID) || !validDiscoveryCandidateType(input.CandidateType) || !validDiscoveryVerificationStatus(input.VerificationStatus) || input.StatusCode < 0 || input.StatusCode > 999 || input.ContentLength < 0 || input.ContentLength > 4<<20 || input.DurationMS < 0 || input.DurationMS > 300000 || input.RedirectCount < 0 || input.RedirectCount > 5 || len(input.ContentType) > 1024 {
+		return DiscoveryEvidence{}, ErrInvalidEvidence
+	}
+	payload := struct {
+		CandidateID        string `json:"candidate_id"`
+		CandidateType      string `json:"candidate_type"`
+		VerificationStatus string `json:"verification_status"`
+		StatusCode         int    `json:"status_code"`
+		ContentType        string `json:"content_type,omitempty"`
+		ContentLength      int64  `json:"content_length"`
+		RedirectCount      int    `json:"redirect_count"`
+		DurationMS         int64  `json:"duration_ms"`
+	}{strings.TrimSpace(input.CandidateID), strings.TrimSpace(input.CandidateType), strings.TrimSpace(input.VerificationStatus), input.StatusCode, strings.TrimSpace(input.ContentType), input.ContentLength, input.RedirectCount, input.DurationMS}
+	record, err := newObservation(projectID, ObservationKindContent, endpoint.Identity, source, input.ObservedAt, payload, true)
+	if err != nil {
+		return DiscoveryEvidence{}, err
+	}
+	return DiscoveryEvidence{Observation: record}, nil
 }
 
 func NewValidationObservation(projectID string, endpoint Endpoint, input ValidationObservationInput) (ValidationEvidence, error) {
@@ -489,6 +527,32 @@ func isParameterName(name string) bool {
 func boundedText(value string, maximum int) bool {
 	value = strings.TrimSpace(value)
 	return value != "" && len(value) <= maximum && !strings.ContainsAny(value, "\r\n\x00")
+}
+
+func validDiscoveryCandidateType(value string) bool {
+	switch strings.TrimSpace(value) {
+	case "endpoint", "path", "parameter", "parameter_value", "api_route", "api_version", "virtual_host", "static_resource", "documentation", "backup_like_resource", "configuration_like_resource":
+		return true
+	}
+	return false
+}
+
+func validDiscoveryVerificationStatus(value string) bool {
+	switch strings.TrimSpace(value) {
+	case "not_found", "found", "redirect", "forbidden", "unauthorized", "rate_limited", "server_error", "timeout", "network_error", "unknown":
+		return true
+	}
+	return false
+}
+
+func containsSensitive(value string) bool {
+	lower := strings.ToLower(value)
+	for _, marker := range []string{"bearer ", "token", "password", "cookie", "authorization", "api_key", "apikey", "private key", "-----begin"} {
+		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func validConfidence(value string) bool {

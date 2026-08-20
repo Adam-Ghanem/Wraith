@@ -1,0 +1,50 @@
+# R11 — Advanced Active Web Security Engine
+
+R11 is a sequential program. **R11.1 through R11.6 are approved and implemented on separate feature branches.** R12 remains unstarted and requires separate explicit approval.
+
+## R11.6 update
+
+R11.6 projects existing R2/R5/R11.5 records into a deterministic project-scoped attack-surface graph with local snapshots, coverage, visibility gaps, and non-executing campaign recommendations. It never performs discovery, active testing, validation, transport, or scheduling.
+
+| R11.6 capability | Explicit boundary |
+| --- | --- |
+| Evidence-backed graph node/edge relationships with timestamp-free fingerprints and project-local snapshots. | It does not alter R2 observations, infer unsupported relationships, or claim graph paths are exploitable. |
+| Local surface and campaign dry-run output with bounded recommendation tasks. | R10.5/R1/R3 retain all execution lifecycle, authorization, and transport authority. |
+
+R11.1 adds a local, deterministic Request Mutation Engine. It consumes existing project-scoped R2 endpoint and parameter identities. R5 and R6 discoveries are already represented through those R2 identities; R10 identities remain metadata-only and no credential, cookie, token, or session secret is loaded or persisted. R10.5 provides the eventual bounded run model, but R11.1 does not execute a phase or create network work.
+
+| Approved R11.1 behavior | Explicitly excluded until a later approved stage |
+| --- | --- |
+| Construct immutable query, path, form, JSON, and safe-header variants. | HTTP execution, R1 evaluation, R3 dispatch, request scheduling, or new workers. |
+| Emit deterministic estimates and secret-safe fingerprints. | Security signals, validation, correlation, findings, coverage claims, or reports of vulnerabilities. |
+| Enforce authorization intent, project matching, bounds, and sensitive-header exclusion before candidate construction. | Authentication attacks, raw cookie handling, session replay, secret persistence, or a new asset/evidence model. |
+
+## R11.3 update
+
+R11.3 adds a bounded injection-test planner and an explicit active runner seam. It reuses R11.1 payload composition, R7 baseline analysis, R2 redacted observations, the caller-supplied R3 client, and R10.5 budget/rate/concurrency controls. It accepts only `GET` and `HEAD`, requires explicit authorization and active-execution opt-in, and halts after a `429` service-instability response.
+
+| R11.3 capability | Explicit boundary |
+| --- | --- |
+| Immutable, profile-filtered payload registry for SQL, NoSQL, command canary, SSTI, HPP, header, and path/input signal classes. | Payload values remain memory-only; no arbitrary user payloads, destructive values, OS command execution, callbacks, or credential testing are accepted. |
+| One baseline and one bounded payload request per test through R3. | The CLI is plan/dry-run only; no direct client, transport, resolver, DNS, socket, or subprocess is introduced. |
+| Redacted R2 injection observations and an explicit validation submission interface. | Signals are not findings. R8 validates; R9 correlates validated evidence later. |
+
+## R11.4 update
+
+R11.4 turns one R11.3 signal into bounded reproduction work without equating a differential with a vulnerability. Candidate construction enforces project-local endpoint, parameter, and test identity. The runner rechecks R1 before every injected R3 dispatch, uses the existing R10.5 capacity controls, accepts only approved `GET`/`HEAD` templates, stops on `429`, and treats generic infrastructure failures as inconclusive.
+
+| R11.4 capability | Explicit boundary |
+| --- | --- |
+| Deterministic candidate, response-diff, repeatability, confidence, and temporary finding-candidate models. | Confidence is not severity; no final finding, accepted lifecycle state, arbitrary payload, or raw evidence is created. |
+| R8 adapter writes redacted append-only R2 validation observations. | R11.4 neither replaces R8 validation semantics nor creates another evidence store. |
+| R9 adapter receives only validated evidence-backed candidates. | R11.4 does not group, deduplicate, correlate, or claim root cause; R9 remains authoritative. |
+
+## R11.5 update
+
+R11.5 consumes only validated, repeatable R11.4 candidates with R9 correlation input. It creates local project-scoped findings, a versioned deterministic risk assessment, explicit lifecycle/history/suppression records, and stable local findings/risk views. It has no egress, payload, validation, correlation, or exploit capability.
+
+| R11.5 capability | Explicit boundary |
+| --- | --- |
+| Fixed `r11.5-v1` risk factors and bands with a reason/factor explanation. | Confidence is preserved from R11.4 and does not become severity; unknown context never becomes an inferred critical asset or sensitive dataset. |
+| SQLite findings, history, assessments, suppressions, filters, and deterministic local `findings`/`risk` output. | Existing R2 observations are referenced instead of copied; candidate fingerprints, raw payloads, bodies, credentials, cookies, and authorization material are excluded. |
+| Explicit project-local lifecycle and suppression controls. | Rejected/inconclusive validation cannot become active; invalid transitions and cross-project/expired suppressions fail closed. |

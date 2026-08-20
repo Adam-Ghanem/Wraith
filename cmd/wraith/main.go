@@ -11,6 +11,6 @@ import (
 func main() {
 	if err := cli.Run(context.Background(), os.Args[1:], os.Stdout, os.Stderr); err != nil {
 		_, _ = fmt.Fprintln(os.Stderr, err)
-		os.Exit(2)
+		os.Exit(cli.ExitCode(err))
 	}
 }

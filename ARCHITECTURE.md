@@ -1,6 +1,6 @@
 # Wraith Architecture Audit
 
-**Audit status:** Baseline assessment of the Phase 1–6 implementation with R1 Policy Core, R2 Web Evidence, and R3 Unified HTTP Engine addenda on their respective feature branches. This document distinguishes implemented boundary contracts from later proposed subsystems.
+**Audit status:** Local-first CLI architecture through R20 on feature branches. This document distinguishes implemented boundary contracts—including read-only deterministic reporting, comparison, policy control, and governance—from later proposed hosted, scheduled, and remote subsystems.
 
 ## Executive architecture summary
 
@@ -21,6 +21,10 @@ Wraith is currently a **local-first Go CLI with an embedded SQLite scan ledger, 
 | Vulnerability intelligence | `internal/intelligence` builds deterministic project-local asset/endpoint graphs, correlates evidence-backed candidates, explains bounded confidence, and detects local snapshot changes. | It has no network path and uses only existing project-scoped evidence identities. SQLite stores compatible graph/correlation structures; no Neo4j, remote advisory feed, unqualified severity, or exploitability claim is introduced. |
 | Authenticated security | `internal/authsecurity` provides bounded plans, in-memory local credential input, response analysis, and protection stops. | No secrets persist; lockout, MFA, CAPTCHA, rate limit, cancellation, budgets, and instability stop safely. |
 | Pentest orchestration | `internal/pentest` and `wraith pentest` coordinate selected R1–R10 modules through deterministic plans, lifecycle events, project-scoped runs, bounded shared resources, fail-closed resume, and local reports. | The orchestrator introduces no alternate network client or security logic: live adapters reuse approved components; `auth_attack` remains gated by explicit `--attack-auth` and is never replayed by resume. |
+| Request mutation planning | `internal/requestmutation` creates immutable, bounded request variants for existing R2 endpoint and parameter identities. | R11.1 has no HTTP, DNS, socket, subprocess, policy-evaluation, persistence, or execution path; a future approved executor must independently enforce R1 and use R3. |
+| Smart discovery | `internal/smartdiscovery` turns project-local R5/R2 inventory, existing R6 static references, and explicitly supplied safe wordlists into deterministic candidates with merged provenance. | Passive planning has no network path; optional verification consumes R10.5 budget/rate/concurrency controls and sends `HEAD` through an injected R3 client only, then writes a redacted R2 observation. |
+| Injection testing | `internal/injection` builds deterministic tests from R2 identities and an immutable canary registry, then compares one R3-dispatched baseline and test response through R7 analysis. | Only explicit, authorized `GET`/`HEAD` execution is possible with injected R3/R10.5 controls. Values stay memory-only; redacted R2 signals go to R8 validation, with no local finding or R9 correlation path. |
+| Finding validation | `internal/findingvalidation` converts one R11.3 signal and approved test into bounded reproduction pairs, deterministic repeatability/confidence, redacted R8 evidence, and an R9-ready temporary candidate. | Every request requires an injected R1 recheck, R3 client, and R10.5 controls. It cannot create final findings, duplicate R9, persist payloads, add transport, or schedule work. |
 | Local discovery | Linux-first interface/CIDR validation, bounded ARP candidates, curated TCP checks, and limited metadata. | Phase 1 rejects public CIDRs and requires an explicit selected local IPv4 boundary. |
 | Domain/web collection | Certificate-transparency/DNS enumeration, bounded HTTP probing, content discovery, and JavaScript analysis. | `scan --project` routes target-web probes, paths, and scripts through R3; output-derived targets remain untrusted. |
 | Optional enrichment | Nmap and Nuclei wrappers. | Both are opt-in, optional external binaries; they do not become enabled by discovery output. |
@@ -28,6 +32,12 @@ Wraith is currently a **local-first Go CLI with an embedded SQLite scan ledger, 
 | History | Pure in-memory NEW/REMOVED/CHANGED diff functions over persisted scan snapshots. | Current finding-level diffs are presence-oriented and are not an asset graph or risk engine. |
 | Dashboard | Static React/Vite application reading local JSON fixtures. | Read-only, fixture-backed, no backend, network polling, authentication, or write actions. |
 | Quality/release | SHA-pinned GitHub Actions, Go/frontend tests, static analysis, dependency review, reproducible build metadata, and checksums. | Artifacts are checksummed, not signed or provenance-attested. |
+| R12 integration hardening | Temporary SQLite/project-isolated CLI smoke coverage, migration/reopen checks, CI regression protection, and release-operational guidance. | No new scanner, transport, worker, external service, deployment path, or runtime security authority is introduced. |
+| R16 reporting | `internal/reportmodel`, `internal/correlation`, `internal/reporting`, and `wraith report` assemble normalized project-scoped campaign report snapshots from existing SQLite owners. | Read-only local output only: no HTTP/DNS/socket/process path, lifecycle mutation, finding/risk creation, risk rescoring, or report-time graph reconstruction. |
+| R17 evidence correlation | `internal/evidencecorrelation`, `wraith evidence`, project-scoped snapshot persistence, and the optional R16 report projection correlate existing R2/R11.5/R14 records. | The correlation model is pure and deterministic with injected time/freshness policy; it has no storage, HTTP, DNS, socket, subprocess, or lifecycle-mutation dependency. Explicit `correlate --persist` is idempotent; `verify` is read-only and R1-gated. |
+| R18 regression intelligence | `internal/regression`, `wraith regression`, project-scoped immutable snapshot/comparison persistence, and the R16 regression report projection compare existing R1–R17 artifacts. | The comparison model is pure/deterministic and offline; cross-project or secret-bearing input fails closed, unknown coverage is not compared, `check` uses a distinct regression sentinel, and R18 never creates new egress, scanners, lifecycle/risk mutations, or R17 snapshot changes. |
+| R19 continuous assessment control | `internal/continuousassessment`, `wraith assess`, project-scoped policy/baseline/evaluation/action persistence, and the R16 assessment-control report projection evaluate immutable R18 state. | Strict bounded JSON policy parsing, deterministic fingerprints, project filtering, and non-executing recommendations only; no HTTP/DNS/socket/process path, scanner, scheduler, R11.5/R14/R17/R18 mutation, or scope/authorization expansion. |
+| R20 assessment operations and governance | `internal/governance`, `wraith govern`, project-scoped recommendation-state/decision/event persistence, and the R16 governance report projection govern existing R19 recommendations. | Pure deterministic lifecycle/status logic, fingerprint and secret screening, expected-state transactional transitions, immutable audit events, strict local CI, and non-executing operational treatment only; no HTTP/DNS/socket/process path, scanner, scheduler, worker, dispatch, or R11.5/R14/R17/R18/R19 mutation. |
 
 ## Current repository map
 
@@ -49,7 +59,12 @@ internal/
 	  ├── jsanalysis         legacy R3-backed JavaScript collection plus separate R6 static local analysis and client-side metadata
   ├── portscan           optional Nmap adapter
   ├── vulncheck          optional Nuclei adapter
-  ├── storage            SQLite migrations, persistence, and snapshot diffs
+		  ├── storage            SQLite migrations, persistence, and snapshot diffs
+			  ├── reportmodel, correlation, reporting   R16 normalized report contracts, exact-ID correlation, and deterministic local renderers
+			  ├── evidencecorrelation                   R17 pure verification, freshness, reproducibility, gap, and contradiction model
+			  ├── regression                            R18 pure immutable assessment snapshot and comparison model
+			  ├── continuousassessment                  R19 pure policy, baseline, control decision, and non-executing recommendation model
+			  ├── governance                            R20 pure recommendation-treatment lifecycle, operational status, and immutable audit-event model
   ├── metadata, model, output, executil, buildinfo
   └── testutil           test-support package boundary (currently no Go source)
 
@@ -60,7 +75,7 @@ docs/, README.md, SECURITY.md
   └── scope, responsible use, Phase implementation records, release, support, and threat documentation
 ```
 
-The current database schema has twelve embedded migrations, including project-scoped R10 identities, secret-free authentication metadata, and R10.5 pentest run, phase, and event metadata. Credentials never persist in SQLite.
+The current database schema has nineteen embedded migrations, including project-scoped R10 identities, secret-free authentication metadata, R10.5 lifecycle records, R11.5 risk intelligence, R11.6 surface snapshots, R14 campaign orchestration, R17 idempotent evidence-correlation snapshots, R18 idempotent regression snapshots/comparisons, R19 idempotent policy/baseline/evaluation/recommendation records, and R20 project-scoped recommendation governance state plus immutable decision/event records. R16 adds no migration or report table; it builds deterministic in-memory views from authoritative records and, when present, project/campaign-scoped R17, R18, R19, and R20 records. Credentials never persist in SQLite.
 
 ## Current control flow
 
@@ -118,8 +133,8 @@ Wraith application boundary
 ├── Persistence ports
 │   ├── SQLite local adapter (current evolution path)
 	│   └── optional future adapters only after a separate decision
-└── Presentation adapters
-    ├── JSON/terminal output (current)
+	└── Presentation adapters
+	    ├── JSON/terminal/Markdown/offline HTML local output (current)
 	    └── static fixture UI (current, non-priority)
 ```
 
