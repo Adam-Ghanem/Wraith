@@ -74,6 +74,8 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 			return runAnalytics(ctx, args, stdout, stderr)
 		case "decision":
 			return runDecision(ctx, args, stdout)
+		case "authorization":
+			return runAuthorization(ctx, args, stdout)
 		case "surface":
 			return runSurface(ctx, args, stdout, stderr)
 		case "campaign":
