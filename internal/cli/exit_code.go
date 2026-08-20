@@ -14,6 +14,9 @@ func ExitCode(err error) int {
 	if errors.Is(err, ErrGovernanceFailed) {
 		return 1
 	}
+	if errors.Is(err, ErrDecisionFailed) {
+		return 1
+	}
 	if errors.Is(err, ErrAssessmentInvalidInput) {
 		return 2
 	}
@@ -23,6 +26,9 @@ func ExitCode(err error) int {
 	if errors.Is(err, ErrAnalyticsInvalidInput) {
 		return 2
 	}
+	if errors.Is(err, ErrDecisionInvalidInput) {
+		return 2
+	}
 	if errors.Is(err, ErrAssessmentInternal) {
 		return 3
 	}
@@ -30,6 +36,9 @@ func ExitCode(err error) int {
 		return 3
 	}
 	if errors.Is(err, ErrAnalyticsInternal) {
+		return 3
+	}
+	if errors.Is(err, ErrDecisionInternal) {
 		return 3
 	}
 	return 2

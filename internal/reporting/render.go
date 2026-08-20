@@ -15,7 +15,7 @@ func Render(format string, snapshot reportmodel.Snapshot) ([]byte, error) {
 	case "json":
 		return json.Marshal(snapshot)
 	case "terminal":
-		return []byte(fmt.Sprintf("project=%s campaign=%s fingerprint=%s findings=%d coverage=%s evidence_snapshots=%d regressions=%d assessment_status=%s governance_status=%s", snapshot.ProjectID, snapshot.CampaignID, snapshot.Fingerprint, len(snapshot.Findings), snapshot.Coverage.Display(), len(snapshot.Evidence.Details), len(snapshot.Regression.Details), assessmentStatus(snapshot), governanceStatus(snapshot))), nil
+		return []byte(fmt.Sprintf("project=%s campaign=%s fingerprint=%s findings=%d coverage=%s evidence_snapshots=%d regressions=%d assessment_status=%s governance_status=%s decision_status=%s", snapshot.ProjectID, snapshot.CampaignID, snapshot.Fingerprint, len(snapshot.Findings), snapshot.Coverage.Display(), len(snapshot.Evidence.Details), len(snapshot.Regression.Details), assessmentStatus(snapshot), governanceStatus(snapshot), decisionStatus(snapshot))), nil
 	case "markdown":
 		var report strings.Builder
 		fmt.Fprintf(&report, "# Wraith Assessment Report\n\nProject: `%s`\n\nFingerprint: `%s`\n\n## Executive Summary\n\n%s\n\n## Findings\n", markdown(snapshot.ProjectID), markdown(snapshot.Fingerprint), markdown(executiveSummary(snapshot)))
@@ -26,6 +26,7 @@ func Render(format string, snapshot reportmodel.Snapshot) ([]byte, error) {
 		writeTechnicalRegressionMarkdown(&report, snapshot)
 		writeTechnicalAssessmentMarkdown(&report, snapshot)
 		writeTechnicalGovernanceMarkdown(&report, snapshot)
+		writeTechnicalDecisionMarkdown(&report, snapshot)
 		fmt.Fprintln(&report, "\n## Limitations")
 		for _, limitation := range snapshot.Limitations {
 			fmt.Fprintf(&report, "- %s\n", markdown(limitation))
@@ -42,6 +43,7 @@ func Render(format string, snapshot reportmodel.Snapshot) ([]byte, error) {
 		writeTechnicalRegressionHTML(&report, snapshot)
 		writeTechnicalAssessmentHTML(&report, snapshot)
 		writeTechnicalGovernanceHTML(&report, snapshot)
+		writeTechnicalDecisionHTML(&report, snapshot)
 		fmt.Fprint(&report, "<h2>Limitations</h2><ul>")
 		for _, limitation := range snapshot.Limitations {
 			fmt.Fprintf(&report, "<li>%s</li>", html.EscapeString(limitation))
@@ -58,27 +60,29 @@ func RenderExecutive(format string, snapshot reportmodel.Snapshot) ([]byte, erro
 	switch format {
 	case "json":
 		return json.Marshal(struct {
-			ProjectID              string                     `json:"project_id"`
-			CampaignID             string                     `json:"campaign_id,omitempty"`
-			CampaignStatus         string                     `json:"campaign_status,omitempty"`
-			Profile                string                     `json:"profile,omitempty"`
-			Target                 string                     `json:"target,omitempty"`
-			ScopeVersion           string                     `json:"scope_version"`
-			Fingerprint            string                     `json:"fingerprint"`
-			FindingCount           int                        `json:"recorded_finding_count"`
-			Coverage               reportmodel.CoverageMetric `json:"coverage"`
-			EvidenceSnapshotCount  int                        `json:"evidence_snapshot_count"`
-			RegressionCount        int                        `json:"regression_count"`
-			AssessmentStatus       string                     `json:"assessment_status,omitempty"`
-			FailedRuleCount        int                        `json:"failed_rule_count"`
-			RecommendedActionCount int                        `json:"recommended_action_count"`
-			GovernanceStatus       string                     `json:"governance_status,omitempty"`
-			UnresolvedActionCount  int                        `json:"unresolved_action_count"`
-			GovernanceStaleCount   int                        `json:"governance_stale_reason_count"`
-			Limitations            []string                   `json:"limitations"`
-		}{snapshot.ProjectID, snapshot.CampaignID, snapshot.CampaignStatus, snapshot.Profile, snapshot.Target, snapshot.ScopeVersion, snapshot.Fingerprint, len(snapshot.Findings), snapshot.Coverage, len(snapshot.Evidence.Details), len(snapshot.Regression.Details), assessmentStatus(snapshot), snapshot.Assessment.FailedRules, len(snapshot.Assessment.Actions), governanceStatus(snapshot), snapshot.Governance.UnresolvedActions, len(snapshot.Governance.StaleReasons), snapshot.Limitations})
+			ProjectID                   string                     `json:"project_id"`
+			CampaignID                  string                     `json:"campaign_id,omitempty"`
+			CampaignStatus              string                     `json:"campaign_status,omitempty"`
+			Profile                     string                     `json:"profile,omitempty"`
+			Target                      string                     `json:"target,omitempty"`
+			ScopeVersion                string                     `json:"scope_version"`
+			Fingerprint                 string                     `json:"fingerprint"`
+			FindingCount                int                        `json:"recorded_finding_count"`
+			Coverage                    reportmodel.CoverageMetric `json:"coverage"`
+			EvidenceSnapshotCount       int                        `json:"evidence_snapshot_count"`
+			RegressionCount             int                        `json:"regression_count"`
+			AssessmentStatus            string                     `json:"assessment_status,omitempty"`
+			FailedRuleCount             int                        `json:"failed_rule_count"`
+			RecommendedActionCount      int                        `json:"recommended_action_count"`
+			GovernanceStatus            string                     `json:"governance_status,omitempty"`
+			UnresolvedActionCount       int                        `json:"unresolved_action_count"`
+			GovernanceStaleCount        int                        `json:"governance_stale_reason_count"`
+			DecisionStatus              string                     `json:"decision_intelligence_status"`
+			DecisionRecommendationCount int                        `json:"non_executing_decision_recommendation_count"`
+			Limitations                 []string                   `json:"limitations"`
+		}{snapshot.ProjectID, snapshot.CampaignID, snapshot.CampaignStatus, snapshot.Profile, snapshot.Target, snapshot.ScopeVersion, snapshot.Fingerprint, len(snapshot.Findings), snapshot.Coverage, len(snapshot.Evidence.Details), len(snapshot.Regression.Details), assessmentStatus(snapshot), snapshot.Assessment.FailedRules, len(snapshot.Assessment.Actions), governanceStatus(snapshot), snapshot.Governance.UnresolvedActions, len(snapshot.Governance.StaleReasons), decisionStatus(snapshot), len(snapshot.Decision.Recommendations), snapshot.Limitations})
 	case "terminal":
-		return []byte(fmt.Sprintf("project=%s campaign=%s findings=%d coverage=%s evidence_snapshots=%d regressions=%d assessment_status=%s governance_status=%s summary=%s", snapshot.ProjectID, snapshot.CampaignID, len(snapshot.Findings), snapshot.Coverage.Display(), len(snapshot.Evidence.Details), len(snapshot.Regression.Details), assessmentStatus(snapshot), governanceStatus(snapshot), summary)), nil
+		return []byte(fmt.Sprintf("project=%s campaign=%s findings=%d coverage=%s evidence_snapshots=%d regressions=%d assessment_status=%s governance_status=%s decision_status=%s summary=%s", snapshot.ProjectID, snapshot.CampaignID, len(snapshot.Findings), snapshot.Coverage.Display(), len(snapshot.Evidence.Details), len(snapshot.Regression.Details), assessmentStatus(snapshot), governanceStatus(snapshot), decisionStatus(snapshot), summary)), nil
 	case "markdown":
 		var report strings.Builder
 		fmt.Fprintf(&report, "# Wraith Executive Assessment Summary\n\nProject: `%s`\n\nFingerprint: `%s`\n\n## Executive Summary\n\n%s\n\n## Limitations\n", markdown(snapshot.ProjectID), markdown(snapshot.Fingerprint), markdown(summary))
@@ -89,6 +93,7 @@ func RenderExecutive(format string, snapshot reportmodel.Snapshot) ([]byte, erro
 		fmt.Fprintf(&report, "\n## Security Regression / Continuous Assessment\n\n%s\n", regressionSummary(snapshot))
 		fmt.Fprintf(&report, "\n## Continuous Assessment Control\n\n%s\n", assessmentSummary(snapshot))
 		fmt.Fprintf(&report, "\n## Continuous Assessment Governance\n\n%s\n", governanceSummary(snapshot))
+		fmt.Fprintf(&report, "\n## Continuous Assessment Decision Intelligence\n\n%s\n", decisionSummary(snapshot))
 		return []byte(report.String()), nil
 	case "html":
 		var report strings.Builder
@@ -96,7 +101,7 @@ func RenderExecutive(format string, snapshot reportmodel.Snapshot) ([]byte, erro
 		for _, limitation := range snapshot.Limitations {
 			fmt.Fprintf(&report, "<li>%s</li>", html.EscapeString(limitation))
 		}
-		fmt.Fprintf(&report, "</ul><h2>Evidence &amp; Verification</h2><p>%s</p><h2>Security Regression / Continuous Assessment</h2><p>%s</p><h2>Continuous Assessment Control</h2><p>%s</p><h2>Continuous Assessment Governance</h2><p>%s</p></body></html>", html.EscapeString(evidenceSummary(snapshot)), html.EscapeString(regressionSummary(snapshot)), html.EscapeString(assessmentSummary(snapshot)), html.EscapeString(governanceSummary(snapshot)))
+		fmt.Fprintf(&report, "</ul><h2>Evidence &amp; Verification</h2><p>%s</p><h2>Security Regression / Continuous Assessment</h2><p>%s</p><h2>Continuous Assessment Control</h2><p>%s</p><h2>Continuous Assessment Governance</h2><p>%s</p><h2>Continuous Assessment Decision Intelligence</h2><p>%s</p></body></html>", html.EscapeString(evidenceSummary(snapshot)), html.EscapeString(regressionSummary(snapshot)), html.EscapeString(assessmentSummary(snapshot)), html.EscapeString(governanceSummary(snapshot)), html.EscapeString(decisionSummary(snapshot)))
 		return []byte(report.String()), nil
 	default:
 		return nil, errors.New("unsupported report format")
@@ -236,6 +241,28 @@ func writeTechnicalGovernanceHTML(report *strings.Builder, snapshot reportmodel.
 	fmt.Fprint(report, "</ul>")
 }
 
+func writeTechnicalDecisionMarkdown(report *strings.Builder, snapshot reportmodel.Snapshot) {
+	fmt.Fprintln(report, "\n## Continuous Assessment Decision Intelligence")
+	fmt.Fprintf(report, "\n%s\n", decisionSummary(snapshot))
+	if snapshot.Decision.SnapshotFingerprint != "" {
+		fmt.Fprintf(report, "\nDecision snapshot fingerprint: `%s`\n", markdown(snapshot.Decision.SnapshotFingerprint))
+	}
+	for _, recommendation := range snapshot.Decision.Recommendations {
+		fmt.Fprintf(report, "- id=%s priority=%s state=%s action=%s confidence=%s quality=%s non_executing=%t reasons=%s factors=%d constraints=%d\n", markdown(recommendation.ID), markdown(recommendation.Priority), markdown(recommendation.State), markdown(recommendation.Action), markdown(recommendation.Confidence), markdown(recommendation.Quality), recommendation.NonExecuting, markdown(strings.Join(recommendation.Reasons, ",")), len(recommendation.Factors), len(recommendation.Constraints))
+	}
+}
+
+func writeTechnicalDecisionHTML(report *strings.Builder, snapshot reportmodel.Snapshot) {
+	fmt.Fprintf(report, "<h2>Continuous Assessment Decision Intelligence</h2><p>%s</p><ul>", html.EscapeString(decisionSummary(snapshot)))
+	if snapshot.Decision.SnapshotFingerprint != "" {
+		fmt.Fprintf(report, "<li>Decision snapshot fingerprint: <code>%s</code></li>", html.EscapeString(snapshot.Decision.SnapshotFingerprint))
+	}
+	for _, recommendation := range snapshot.Decision.Recommendations {
+		fmt.Fprintf(report, "<li>id=%s priority=%s state=%s action=%s confidence=%s quality=%s non_executing=%t reasons=%s factors=%d constraints=%d</li>", html.EscapeString(recommendation.ID), html.EscapeString(recommendation.Priority), html.EscapeString(recommendation.State), html.EscapeString(recommendation.Action), html.EscapeString(recommendation.Confidence), html.EscapeString(recommendation.Quality), recommendation.NonExecuting, html.EscapeString(strings.Join(recommendation.Reasons, ",")), len(recommendation.Factors), len(recommendation.Constraints))
+	}
+	fmt.Fprint(report, "</ul>")
+}
+
 func evidenceSummary(snapshot reportmodel.Snapshot) string {
 	if len(snapshot.Evidence.Details) == 1 {
 		return "1 persisted correlation snapshot is available."
@@ -291,6 +318,20 @@ func governanceSummary(snapshot reportmodel.Snapshot) string {
 		return "No persisted continuous assessment governance status is available for this report. This does not establish that recommendations are resolved, remediation occurred, or the assessed system is secure."
 	}
 	return fmt.Sprintf("Governance status: %s. Unresolved actions: %d. Stale reasons: %d. Recorded governance decisions: %d.", governanceStatus(snapshot), snapshot.Governance.UnresolvedActions, len(snapshot.Governance.StaleReasons), len(snapshot.Governance.Decisions))
+}
+
+func decisionStatus(snapshot reportmodel.Snapshot) string {
+	if snapshot.Decision.Status == "" {
+		return "unavailable"
+	}
+	return snapshot.Decision.Status
+}
+
+func decisionSummary(snapshot reportmodel.Snapshot) string {
+	if snapshot.Decision.SnapshotFingerprint == "" {
+		return "No verified R22 decision-intelligence projection is available for this report. This does not establish that remediation occurred, sources are complete, or the assessed system is secure."
+	}
+	return fmt.Sprintf("Decision posture: %s. Data quality: %s. Non-executing candidates: %d (P0=%d, P1=%d, P2=%d, P3=%d, P4=%d). Recommendations are descriptive metadata only and do not schedule, dispatch, remediate, or revalidate anything.", decisionStatus(snapshot), snapshot.Decision.DataQuality, len(snapshot.Decision.Recommendations), snapshot.Decision.PriorityP0, snapshot.Decision.PriorityP1, snapshot.Decision.PriorityP2, snapshot.Decision.PriorityP3, snapshot.Decision.PriorityP4)
 }
 
 func markdown(value string) string {

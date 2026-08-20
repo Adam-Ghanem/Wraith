@@ -132,6 +132,40 @@ type AnalyticsControl struct {
 	Limitations         []string `json:"limitations"`
 }
 
+// DecisionFactor is a report-safe projection of one R22 factor. It holds only
+// fixed type, bounded weight, and safe lineage metadata.
+type DecisionFactor struct {
+	Type              string `json:"type"`
+	Weight            int    `json:"weight"`
+	SourceFingerprint string `json:"source_fingerprint"`
+}
+
+type DecisionConstraint struct {
+	Type   string `json:"type"`
+	Reason string `json:"reason"`
+}
+
+// DecisionRecommendation is descriptive only. A valid report projection must
+// retain NonExecuting=true, so it cannot be read as an execution record.
+type DecisionRecommendation struct {
+	ID, Fingerprint, Priority, State, Action, Confidence, Quality string
+	NonExecuting                                                  bool
+	Reasons                                                       []string
+	Factors                                                       []DecisionFactor
+	Constraints                                                   []DecisionConstraint
+	Lineage                                                       []string
+}
+
+// DecisionIntelligenceControl is the R22 read-only executive and technical
+// decision projection. It never creates work, alters a lifecycle, or claims
+// that a recommended action occurred.
+type DecisionIntelligenceControl struct {
+	Status, SnapshotFingerprint, DataQuality, Confidence       string
+	PriorityP0, PriorityP1, PriorityP2, PriorityP3, PriorityP4 int
+	GovernanceBlockers, Limitations                            []string
+	Recommendations                                            []DecisionRecommendation
+}
+
 func (coverage CoverageMetric) Display() string {
 	if coverage.Denominator == 0 {
 		return "N/A"
@@ -150,25 +184,27 @@ type SnapshotInput struct {
 	Assessment                                         AssessmentControl
 	Governance                                         GovernanceControl
 	Analytics                                          AnalyticsControl
+	Decision                                           DecisionIntelligenceControl
 }
 
 type Snapshot struct {
-	ProjectID      string                 `json:"project_id"`
-	CampaignID     string                 `json:"campaign_id,omitempty"`
-	CampaignStatus string                 `json:"campaign_status,omitempty"`
-	Profile        string                 `json:"profile,omitempty"`
-	Target         string                 `json:"target,omitempty"`
-	ScopeVersion   string                 `json:"scope_version"`
-	SchemaVersion  string                 `json:"schema_version"`
-	Fingerprint    string                 `json:"fingerprint"`
-	Findings       []Finding              `json:"findings"`
-	Limitations    []string               `json:"limitations"`
-	Coverage       CoverageMetric         `json:"coverage"`
-	Evidence       EvidenceVerification   `json:"evidence_verification"`
-	Regression     RegressionIntelligence `json:"security_regression"`
-	Assessment     AssessmentControl      `json:"continuous_assessment"`
-	Governance     GovernanceControl      `json:"continuous_assessment_governance"`
-	Analytics      AnalyticsControl       `json:"continuous_assessment_analytics"`
+	ProjectID      string                      `json:"project_id"`
+	CampaignID     string                      `json:"campaign_id,omitempty"`
+	CampaignStatus string                      `json:"campaign_status,omitempty"`
+	Profile        string                      `json:"profile,omitempty"`
+	Target         string                      `json:"target,omitempty"`
+	ScopeVersion   string                      `json:"scope_version"`
+	SchemaVersion  string                      `json:"schema_version"`
+	Fingerprint    string                      `json:"fingerprint"`
+	Findings       []Finding                   `json:"findings"`
+	Limitations    []string                    `json:"limitations"`
+	Coverage       CoverageMetric              `json:"coverage"`
+	Evidence       EvidenceVerification        `json:"evidence_verification"`
+	Regression     RegressionIntelligence      `json:"security_regression"`
+	Assessment     AssessmentControl           `json:"continuous_assessment"`
+	Governance     GovernanceControl           `json:"continuous_assessment_governance"`
+	Analytics      AnalyticsControl            `json:"continuous_assessment_analytics"`
+	Decision       DecisionIntelligenceControl `json:"continuous_assessment_decision_intelligence"`
 }
 
 func NewSnapshot(input SnapshotInput) (Snapshot, error) {
@@ -177,6 +213,7 @@ func NewSnapshot(input SnapshotInput) (Snapshot, error) {
 	}
 	snapshot := Snapshot{ProjectID: input.ProjectID, CampaignID: input.CampaignID, CampaignStatus: input.CampaignStatus, Profile: input.Profile, Target: input.Target, ScopeVersion: input.ScopeVersion, SchemaVersion: input.SchemaVersion, Findings: append([]Finding{}, input.Findings...), Limitations: append([]string{}, input.Limitations...), Coverage: input.Coverage, Evidence: EvidenceVerification{Details: append([]EvidenceDetail{}, input.Evidence.Details...)}, Regression: RegressionIntelligence{ComparisonFingerprint: input.Regression.ComparisonFingerprint, BaselineFingerprint: input.Regression.BaselineFingerprint, CurrentFingerprint: input.Regression.CurrentFingerprint, BaselineCreatedAt: input.Regression.BaselineCreatedAt, CurrentCreatedAt: input.Regression.CurrentCreatedAt, ComparedAt: input.Regression.ComparedAt, Details: append([]RegressionDetail{}, input.Regression.Details...)}, Assessment: AssessmentControl{EvaluationFingerprint: input.Assessment.EvaluationFingerprint, PolicyFingerprint: input.Assessment.PolicyFingerprint, BaselineFingerprint: input.Assessment.BaselineFingerprint, CurrentSnapshotFingerprint: input.Assessment.CurrentSnapshotFingerprint, Status: input.Assessment.Status, FailedRules: input.Assessment.FailedRules, Decisions: append([]AssessmentDecision{}, input.Assessment.Decisions...), Actions: append([]AssessmentAction{}, input.Assessment.Actions...)}, Governance: GovernanceControl{Overall: input.Governance.Overall, PolicyFingerprint: input.Governance.PolicyFingerprint, BaselineFingerprint: input.Governance.BaselineFingerprint, EvaluationFingerprint: input.Governance.EvaluationFingerprint, ComparisonFingerprint: input.Governance.ComparisonFingerprint, UnresolvedActions: input.Governance.UnresolvedActions, StaleReasons: append([]string{}, input.Governance.StaleReasons...), Limitations: append([]string{}, input.Governance.Limitations...), Decisions: append([]GovernanceDecision{}, input.Governance.Decisions...)}}
 	snapshot.Analytics = AnalyticsControl{OverallTrend: input.Analytics.OverallTrend, HealthIndex: input.Analytics.HealthIndex, Health: input.Analytics.Health, RegressionCount: input.Analytics.RegressionCount, GovernanceBacklog: input.Analytics.GovernanceBacklog, StaleEvidence: input.Analytics.StaleEvidence, DataQuality: input.Analytics.DataQuality, SnapshotFingerprint: input.Analytics.SnapshotFingerprint, Limitations: append([]string{}, input.Analytics.Limitations...)}
+	snapshot.Decision = DecisionIntelligenceControl{Status: input.Decision.Status, SnapshotFingerprint: input.Decision.SnapshotFingerprint, DataQuality: input.Decision.DataQuality, Confidence: input.Decision.Confidence, PriorityP0: input.Decision.PriorityP0, PriorityP1: input.Decision.PriorityP1, PriorityP2: input.Decision.PriorityP2, PriorityP3: input.Decision.PriorityP3, PriorityP4: input.Decision.PriorityP4, GovernanceBlockers: append([]string{}, input.Decision.GovernanceBlockers...), Limitations: append([]string{}, input.Decision.Limitations...), Recommendations: append([]DecisionRecommendation{}, input.Decision.Recommendations...)}
 	for _, finding := range snapshot.Findings {
 		if strings.TrimSpace(finding.ID) == "" || secretLike(finding.ID) || finding.RiskScore < 0 || finding.RiskScore > 100 {
 			return Snapshot{}, errors.New("invalid report finding")
@@ -267,6 +304,57 @@ func NewSnapshot(input SnapshotInput) (Snapshot, error) {
 			return Snapshot{}, errors.New("invalid report analytics control")
 		}
 	}
+	if snapshot.Decision.PriorityP0 < 0 || snapshot.Decision.PriorityP1 < 0 || snapshot.Decision.PriorityP2 < 0 || snapshot.Decision.PriorityP3 < 0 || snapshot.Decision.PriorityP4 < 0 {
+		return Snapshot{}, errors.New("invalid report decision control")
+	}
+	for _, value := range append(append([]string{snapshot.Decision.Status, snapshot.Decision.SnapshotFingerprint, snapshot.Decision.DataQuality, snapshot.Decision.Confidence}, snapshot.Decision.GovernanceBlockers...), snapshot.Decision.Limitations...) {
+		if value != "" && secretLike(value) {
+			return Snapshot{}, errors.New("invalid report decision control")
+		}
+	}
+	for recommendationIndex := range snapshot.Decision.Recommendations {
+		recommendation := &snapshot.Decision.Recommendations[recommendationIndex]
+		for _, value := range []string{recommendation.ID, recommendation.Fingerprint, recommendation.Priority, recommendation.State, recommendation.Action, recommendation.Confidence, recommendation.Quality} {
+			if strings.TrimSpace(value) == "" || secretLike(value) {
+				return Snapshot{}, errors.New("invalid report decision control")
+			}
+		}
+		if !recommendation.NonExecuting || len(recommendation.Reasons) == 0 {
+			return Snapshot{}, errors.New("invalid report decision control")
+		}
+		for _, reason := range recommendation.Reasons {
+			if strings.TrimSpace(reason) == "" || secretLike(reason) {
+				return Snapshot{}, errors.New("invalid report decision control")
+			}
+		}
+		for _, factor := range recommendation.Factors {
+			if strings.TrimSpace(factor.Type) == "" || factor.Weight < 0 || factor.Weight > 100 || strings.TrimSpace(factor.SourceFingerprint) == "" || secretLike(factor.Type) || secretLike(factor.SourceFingerprint) {
+				return Snapshot{}, errors.New("invalid report decision control")
+			}
+		}
+		for _, constraint := range recommendation.Constraints {
+			if strings.TrimSpace(constraint.Type) == "" || strings.TrimSpace(constraint.Reason) == "" || secretLike(constraint.Type) || secretLike(constraint.Reason) {
+				return Snapshot{}, errors.New("invalid report decision control")
+			}
+		}
+		for _, source := range recommendation.Lineage {
+			if strings.TrimSpace(source) == "" || secretLike(source) {
+				return Snapshot{}, errors.New("invalid report decision control")
+			}
+		}
+		recommendation.Reasons = append([]string{}, recommendation.Reasons...)
+		recommendation.Factors = append([]DecisionFactor{}, recommendation.Factors...)
+		recommendation.Constraints = append([]DecisionConstraint{}, recommendation.Constraints...)
+		recommendation.Lineage = append([]string{}, recommendation.Lineage...)
+		sort.Strings(recommendation.Reasons)
+		sort.Strings(recommendation.Lineage)
+		sort.Slice(recommendation.Factors, func(left, right int) bool {
+			return recommendation.Factors[left].Type+"\x00"+recommendation.Factors[left].SourceFingerprint < recommendation.Factors[right].Type+"\x00"+recommendation.Factors[right].SourceFingerprint
+		})
+		sort.Slice(recommendation.Constraints, func(left, right int) bool {
+			return recommendation.Constraints[left].Type+"\x00"+recommendation.Constraints[left].Reason < recommendation.Constraints[right].Type+"\x00"+recommendation.Constraints[right].Reason
+		})
+	}
 	sort.Slice(snapshot.Findings, func(left, right int) bool { return snapshot.Findings[left].ID < snapshot.Findings[right].ID })
 	sort.Strings(snapshot.Limitations)
 	sort.Slice(snapshot.Evidence.Details, func(left, right int) bool {
@@ -286,6 +374,11 @@ func NewSnapshot(input SnapshotInput) (Snapshot, error) {
 	sort.Strings(snapshot.Governance.StaleReasons)
 	sort.Strings(snapshot.Governance.Limitations)
 	sort.Strings(snapshot.Analytics.Limitations)
+	sort.Strings(snapshot.Decision.GovernanceBlockers)
+	sort.Strings(snapshot.Decision.Limitations)
+	sort.Slice(snapshot.Decision.Recommendations, func(left, right int) bool {
+		return snapshot.Decision.Recommendations[left].Priority+"\x00"+snapshot.Decision.Recommendations[left].ID < snapshot.Decision.Recommendations[right].Priority+"\x00"+snapshot.Decision.Recommendations[right].ID
+	})
 	sort.Slice(snapshot.Governance.Decisions, func(left, right int) bool {
 		leftDecision, rightDecision := snapshot.Governance.Decisions[left], snapshot.Governance.Decisions[right]
 		return leftDecision.RecommendationFingerprint+"\x00"+leftDecision.OccurredAt+"\x00"+leftDecision.EventFingerprint < rightDecision.RecommendationFingerprint+"\x00"+rightDecision.OccurredAt+"\x00"+rightDecision.EventFingerprint
@@ -300,7 +393,8 @@ func NewSnapshot(input SnapshotInput) (Snapshot, error) {
 		Assessment                                                                          AssessmentControl
 		Governance                                                                          GovernanceControl
 		Analytics                                                                           AnalyticsControl
-	}{snapshot.ProjectID, snapshot.CampaignID, snapshot.CampaignStatus, snapshot.Profile, snapshot.Target, snapshot.ScopeVersion, snapshot.SchemaVersion, snapshot.Findings, snapshot.Limitations, snapshot.Coverage, snapshot.Evidence, snapshot.Regression, snapshot.Assessment, snapshot.Governance, snapshot.Analytics})
+		Decision                                                                            DecisionIntelligenceControl
+	}{snapshot.ProjectID, snapshot.CampaignID, snapshot.CampaignStatus, snapshot.Profile, snapshot.Target, snapshot.ScopeVersion, snapshot.SchemaVersion, snapshot.Findings, snapshot.Limitations, snapshot.Coverage, snapshot.Evidence, snapshot.Regression, snapshot.Assessment, snapshot.Governance, snapshot.Analytics, snapshot.Decision})
 	if err != nil {
 		return Snapshot{}, err
 	}

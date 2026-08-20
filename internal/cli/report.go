@@ -13,6 +13,7 @@ import (
 
 	"github.com/Adam-Ghanem/Wraith/internal/analytics"
 	"github.com/Adam-Ghanem/Wraith/internal/continuousassessment"
+	"github.com/Adam-Ghanem/Wraith/internal/decisionintelligence"
 	"github.com/Adam-Ghanem/Wraith/internal/governance"
 	"github.com/Adam-Ghanem/Wraith/internal/regression"
 	"github.com/Adam-Ghanem/Wraith/internal/reporting"
@@ -85,11 +86,15 @@ func runReport(ctx context.Context, args []string, stdout, _ io.Writer) error {
 	if err != nil {
 		return err
 	}
+	decisionControl, decisionLimitation, err := reportDecisionIntelligenceControl(ctx, database, campaign)
+	if err != nil {
+		return err
+	}
 	modelFindings := make([]reportmodel.Finding, 0, len(findings))
 	for _, finding := range findings {
 		modelFindings = append(modelFindings, reportmodel.Finding{ID: finding.FindingID, Severity: finding.Severity, RiskScore: finding.RiskScore})
 	}
-	snapshot, err := reportmodel.NewSnapshot(reportmodel.SnapshotInput{ProjectID: campaign.ProjectID, CampaignID: campaign.CampaignID, CampaignStatus: campaign.Status, Profile: campaign.Profile, Target: campaign.Target, ScopeVersion: campaign.ScopeVersion, SchemaVersion: reportmodel.SchemaVersion, Findings: modelFindings, Limitations: []string{"Read-only local report; findings and risk remain authoritative R11.5 records.", coverageLimitation, evidenceLimitation, regressionLimitation, assessmentLimitation, governanceLimitation, analyticsLimitation}, Coverage: coverage, Evidence: evidence, Regression: regressionIntelligence, Assessment: assessmentControl, Governance: governanceControl, Analytics: analyticsControl})
+	snapshot, err := reportmodel.NewSnapshot(reportmodel.SnapshotInput{ProjectID: campaign.ProjectID, CampaignID: campaign.CampaignID, CampaignStatus: campaign.Status, Profile: campaign.Profile, Target: campaign.Target, ScopeVersion: campaign.ScopeVersion, SchemaVersion: reportmodel.SchemaVersion, Findings: modelFindings, Limitations: []string{"Read-only local report; findings and risk remain authoritative R11.5 records.", coverageLimitation, evidenceLimitation, regressionLimitation, assessmentLimitation, governanceLimitation, analyticsLimitation, decisionLimitation}, Coverage: coverage, Evidence: evidence, Regression: regressionIntelligence, Assessment: assessmentControl, Governance: governanceControl, Analytics: analyticsControl, Decision: decisionControl})
 	if err != nil {
 		return err
 	}
@@ -299,6 +304,83 @@ func reportAnalyticsControl(ctx context.Context, database *storage.DB, campaign 
 		return reportmodel.AnalyticsControl{}, "", err
 	}
 	return reportmodel.AnalyticsControl{OverallTrend: string(snapshot.OverallTrend), HealthIndex: snapshot.Health.Index, Health: string(snapshot.Health.Classification), RegressionCount: snapshot.Summary.RegressionCount, GovernanceBacklog: snapshot.Summary.UnresolvedGovernanceCount, StaleEvidence: snapshot.Summary.Evidence.Stale + snapshot.Summary.Evidence.Contradictory, DataQuality: string(snapshot.DataQuality.Status), SnapshotFingerprint: snapshot.Fingerprint, Limitations: append([]string{}, snapshot.Limitations...)}, "project_scoped_historical_analytics", nil
+}
+
+// reportDecisionIntelligenceControl is a read-only R22 projection. It uses one
+// campaign-owned persisted R19 evaluation as the bounded source time and asks
+// storage to rebuild every upstream source before a decision is represented.
+func reportDecisionIntelligenceControl(ctx context.Context, database *storage.DB, campaign storage.CampaignRecord) (reportmodel.DecisionIntelligenceControl, string, error) {
+	evaluations, err := database.ListAssessmentEvaluations(ctx, campaign.ProjectID)
+	if err != nil {
+		return reportmodel.DecisionIntelligenceControl{}, "", err
+	}
+	var selected storage.AssessmentEvaluationRecord
+	found := false
+	for _, record := range evaluations {
+		current, err := database.LoadRegressionSnapshot(ctx, campaign.ProjectID, record.CurrentSnapshotID)
+		if err != nil {
+			return reportmodel.DecisionIntelligenceControl{}, "", err
+		}
+		if current.CampaignID != campaign.CampaignID {
+			continue
+		}
+		var evaluation continuousassessment.ControlEvaluation
+		if err := json.Unmarshal([]byte(record.EvaluationJSON), &evaluation); err != nil || !continuousassessment.ValidateControlEvaluation(evaluation) || evaluation.ProjectID != campaign.ProjectID || evaluation.Fingerprint != record.Fingerprint || evaluation.Fingerprint != record.EvaluationID {
+			return reportmodel.DecisionIntelligenceControl{}, "", errors.New("invalid persisted assessment evaluation for decision projection")
+		}
+		if !found || record.CreatedAt.After(selected.CreatedAt) || (record.CreatedAt.Equal(selected.CreatedAt) && record.Fingerprint > selected.Fingerprint) {
+			selected, found = record, true
+		}
+	}
+	if !found {
+		return reportmodel.DecisionIntelligenceControl{Status: "unknown", DataQuality: "insufficient", Confidence: "unknown", GovernanceBlockers: []string{}, Limitations: []string{"no_verified_assessment_history"}, Recommendations: []reportmodel.DecisionRecommendation{}}, "decision_intelligence_unavailable", nil
+	}
+	asOf := selected.CreatedAt.UTC()
+	snapshot, err := database.BuildDecisionSnapshot(ctx, campaign.ProjectID, storage.DecisionRequest{Analytics: storage.AnalyticsRequest{Window: analytics.Window{From: asOf, To: asOf}, AsOf: asOf, Last: 1}})
+	if err != nil {
+		return reportmodel.DecisionIntelligenceControl{Status: "unknown", DataQuality: "insufficient", Confidence: "unknown", GovernanceBlockers: []string{}, Limitations: []string{"decision_source_validation_failed"}, Recommendations: []reportmodel.DecisionRecommendation{}}, "decision_intelligence_unavailable_due_to_unverified_sources", nil
+	}
+	control := reportmodel.DecisionIntelligenceControl{Status: "allowed", SnapshotFingerprint: snapshot.Fingerprint, DataQuality: string(snapshot.DataQuality), Confidence: string(decisionintelligence.ConfidenceHigh), GovernanceBlockers: []string{}, Limitations: append([]string{}, snapshot.Limitations...), Recommendations: make([]reportmodel.DecisionRecommendation, 0, len(snapshot.Candidates))}
+	for _, candidate := range snapshot.Candidates {
+		switch candidate.Priority {
+		case decisionintelligence.PriorityP0:
+			control.PriorityP0++
+		case decisionintelligence.PriorityP1:
+			control.PriorityP1++
+		case decisionintelligence.PriorityP2:
+			control.PriorityP2++
+		case decisionintelligence.PriorityP3:
+			control.PriorityP3++
+		case decisionintelligence.PriorityP4:
+			control.PriorityP4++
+		}
+		if candidate.State == decisionintelligence.CandidateBlocked || candidate.State == decisionintelligence.CandidateUnknown {
+			control.Status = "blocked"
+		} else if control.Status == "allowed" && candidate.State == decisionintelligence.CandidateDegraded {
+			control.Status = "degraded"
+		}
+		if candidate.Confidence == decisionintelligence.ConfidenceUnknown || candidate.Confidence == decisionintelligence.ConfidenceLow {
+			control.Confidence = string(candidate.Confidence)
+		}
+		reasons := make([]string, 0, len(candidate.Reasons))
+		for _, reason := range candidate.Reasons {
+			reasons = append(reasons, reason.Code)
+		}
+		factors := make([]reportmodel.DecisionFactor, 0, len(candidate.Factors))
+		for _, factor := range candidate.Factors {
+			factors = append(factors, reportmodel.DecisionFactor{Type: string(factor.Type), Weight: factor.Weight, SourceFingerprint: factor.SourceFingerprint})
+		}
+		constraints := make([]reportmodel.DecisionConstraint, 0, len(candidate.Constraints))
+		for _, constraint := range candidate.Constraints {
+			constraints = append(constraints, reportmodel.DecisionConstraint{Type: string(constraint.Type), Reason: constraint.Reason})
+			if constraint.Type == decisionintelligence.ConstraintGovernanceBlocked {
+				control.GovernanceBlockers = append(control.GovernanceBlockers, constraint.Reason)
+			}
+		}
+		lineage := []string{candidate.Lineage.AnalyticsFingerprint, candidate.Lineage.ComparisonFingerprint, candidate.Lineage.EvaluationFingerprint, candidate.Lineage.PolicyFingerprint, candidate.Lineage.GovernanceFingerprint}
+		control.Recommendations = append(control.Recommendations, reportmodel.DecisionRecommendation{ID: candidate.ID, Fingerprint: candidate.Fingerprint, Priority: string(candidate.Priority), State: string(candidate.State), Action: string(candidate.Action), Confidence: string(candidate.Confidence), Quality: string(candidate.Quality), NonExecuting: candidate.Recommendation.NonExecuting, Reasons: reasons, Factors: factors, Constraints: constraints, Lineage: lineage})
+	}
+	return control, "project_scoped_non_executing_decision_intelligence", nil
 }
 
 func reportGovernanceControl(ctx context.Context, database *storage.DB, campaign storage.CampaignRecord) (reportmodel.GovernanceControl, string, error) {

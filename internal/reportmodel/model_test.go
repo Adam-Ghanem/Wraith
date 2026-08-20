@@ -149,3 +149,27 @@ func TestSnapshotNormalizesGovernanceAndIncludesItInFingerprint(t *testing.T) {
 		t.Fatalf("governance state was not normalized: first=%+v second=%+v", first, second)
 	}
 }
+
+func TestSnapshotNormalizesDecisionIntelligenceAndIncludesItInFingerprint(t *testing.T) {
+	decision := DecisionIntelligenceControl{Status: "blocked", SnapshotFingerprint: "decision-snapshot-1", DataQuality: "contradictory", Confidence: "unknown", PriorityP0: 1, GovernanceBlockers: []string{"governance_unknown"}, Limitations: []string{"decision_source_quality_contradictory"}, Recommendations: []DecisionRecommendation{{ID: "candidate-b", Fingerprint: "candidate-b", Priority: "P1", State: "blocked", Action: "investigate_regression", Confidence: "unknown", Quality: "contradictory", NonExecuting: true, Reasons: []string{"validated_r18_regression_requires_review"}, Factors: []DecisionFactor{{Type: "active_regression", Weight: 45, SourceFingerprint: "comparison-1"}}, Constraints: []DecisionConstraint{{Type: "data_quality_failure", Reason: "validated_r21_data_quality_is_contradictory"}}, Lineage: []string{"comparison-1", "evaluation-1"}}, {ID: "candidate-a", Fingerprint: "candidate-a", Priority: "P0", State: "blocked", Action: "verify_evidence", Confidence: "unknown", Quality: "contradictory", NonExecuting: true, Reasons: []string{"validated_r18_evidence_freshness_requires_verification"}, Factors: []DecisionFactor{{Type: "evidence_stale", Weight: 35, SourceFingerprint: "comparison-2"}}, Constraints: []DecisionConstraint{{Type: "data_quality_failure", Reason: "validated_r21_data_quality_is_contradictory"}}, Lineage: []string{"comparison-2", "evaluation-2"}}}}
+	first, err := NewSnapshot(SnapshotInput{ProjectID: "alpha", ScopeVersion: "scope-v1", SchemaVersion: SchemaVersion, Coverage: CoverageMetric{Definition: "tasks"}, Decision: decision})
+	if err != nil {
+		t.Fatal(err)
+	}
+	decision.Recommendations[0], decision.Recommendations[1] = decision.Recommendations[1], decision.Recommendations[0]
+	second, err := NewSnapshot(SnapshotInput{ProjectID: "alpha", ScopeVersion: "scope-v1", SchemaVersion: SchemaVersion, Coverage: CoverageMetric{Definition: "tasks"}, Decision: decision})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Fingerprint != second.Fingerprint || first.Decision.Recommendations[0].ID != "candidate-a" {
+		t.Fatalf("decision projection was not normalized: first=%+v second=%+v", first, second)
+	}
+	decision.PriorityP0 = 0
+	changed, err := NewSnapshot(SnapshotInput{ProjectID: "alpha", ScopeVersion: "scope-v1", SchemaVersion: SchemaVersion, Coverage: CoverageMetric{Definition: "tasks"}, Decision: decision})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changed.Fingerprint == first.Fingerprint {
+		t.Fatal("report fingerprint omitted a semantic R22 priority change")
+	}
+}
