@@ -16,6 +16,7 @@ import (
 	"github.com/Adam-Ghanem/Wraith/internal/httpengine"
 	"github.com/Adam-Ghanem/Wraith/internal/pentest"
 	"github.com/Adam-Ghanem/Wraith/internal/policy"
+	"github.com/Adam-Ghanem/Wraith/internal/scope"
 	"github.com/Adam-Ghanem/Wraith/internal/storage"
 )
 
@@ -188,6 +189,38 @@ func assessmentAuthorizer(ctx context.Context, database *storage.DB, projectID, 
 	target, err := policy.ParseTarget(rawTarget)
 	if err != nil {
 		return time.Time{}, nil, err
+	}
+	if authorityVersion, authorityErr := database.LoadScopeVersion(ctx, projectID, scopeVersion); authorityErr == nil {
+		now := time.Now().UTC()
+		authorizationRecord, err := database.LoadActiveAuthorizationForScope(ctx, projectID, scopeVersion, now)
+		if err != nil {
+			return time.Time{}, nil, errors.New("active T1 authorization is required for T2 scope")
+		}
+		if _, err := scope.Evaluate(authorityVersion, authorizationRecord, scope.Request{ProjectID: projectID, Target: rawTarget, Now: now}); err != nil {
+			return time.Time{}, nil, errors.New("assessment target is outside T2 scope")
+		}
+		authorize := func(checkContext context.Context, snapshot assessment.ScopeSnapshot) error {
+			if snapshot.ProjectID != projectID || snapshot.ScopeVersion != scopeVersion || snapshot.Target != rawTarget {
+				return errors.New("assessment scope mismatch")
+			}
+			currentVersion, err := database.LoadScopeVersion(checkContext, projectID, scopeVersion)
+			if err != nil {
+				return errors.New("assessment T2 scope version is unavailable")
+			}
+			currentAuthorization, err := database.LoadActiveAuthorizationForScope(checkContext, projectID, scopeVersion, time.Now().UTC())
+			if err != nil {
+				return errors.New("assessment T1 authorization is unavailable")
+			}
+			if _, err := scope.Evaluate(currentVersion, currentAuthorization, scope.Request{ProjectID: projectID, Target: rawTarget, Now: time.Now().UTC()}); err != nil {
+				return errors.New("assessment target is no longer authorized by T2")
+			}
+			return nil
+		}
+		expiresAt := now.Add(maxDuration)
+		if authorizationRecord.ExpiresAt.Before(expiresAt) {
+			expiresAt = authorizationRecord.ExpiresAt.UTC()
+		}
+		return expiresAt, authorize, nil
 	}
 	scope, err := database.LoadProjectScope(ctx, projectID)
 	if err != nil || scope.VersionID != scopeVersion {
