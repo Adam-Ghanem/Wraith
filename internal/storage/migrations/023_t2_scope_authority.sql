@@ -1,0 +1,1 @@
+CREATE TABLE IF NOT EXISTS scope_authority_versions (project_id TEXT NOT NULL, scope_version TEXT NOT NULL, created_at TEXT NOT NULL, rules_json TEXT NOT NULL, fingerprint TEXT NOT NULL, PRIMARY KEY(project_id, scope_version));

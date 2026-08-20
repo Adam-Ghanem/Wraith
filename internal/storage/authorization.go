@@ -102,3 +102,28 @@ func (db *DB) RevokeAuthorizationRecord(ctx context.Context, projectID string, r
 	}
 	return nil
 }
+
+// LoadActiveAuthorizationForScope returns the newest currently valid T1 record
+// for one project and exact scope reference. It is a read-only compatibility
+// seam for T2 adoption; callers must still validate target membership in T2.
+func (db *DB) LoadActiveAuthorizationForScope(ctx context.Context, projectID, scopeReference string, now time.Time) (authorization.Record, error) {
+	rows, err := db.sql.QueryContext(ctx, `SELECT authorization_id FROM authorization_records WHERE project_id = ? AND scope_reference = ? ORDER BY issued_at DESC, authorization_id`, projectID, scopeReference)
+	if err != nil {
+		return authorization.Record{}, fmt.Errorf("find scope authorization: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return authorization.Record{}, err
+		}
+		record, err := db.LoadAuthorizationRecord(ctx, projectID, id)
+		if err != nil {
+			return authorization.Record{}, err
+		}
+		if err := authorization.Validate(record, authorization.ValidationRequest{ProjectID: projectID, ScopeReference: scopeReference, Now: now}); err == nil {
+			return record, nil
+		}
+	}
+	return authorization.Record{}, authorization.ErrInvalidRecord
+}
