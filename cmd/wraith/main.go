@@ -9,7 +9,11 @@ import (
 )
 
 func main() {
-	if err := cli.Run(context.Background(), os.Args[1:], os.Stdout, os.Stderr); err != nil {
+	args := os.Args[1:]
+	if cli.PrintOfflineHelp(args, os.Stdout) {
+		return
+	}
+	if err := cli.Run(context.Background(), args, os.Stdout, os.Stderr); err != nil {
 		_, _ = fmt.Fprintln(os.Stderr, err)
 		os.Exit(cli.ExitCode(err))
 	}
