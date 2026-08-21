@@ -9,12 +9,13 @@ import (
 
 	"github.com/Adam-Ghanem/Wraith/internal/httpengine"
 	"github.com/Adam-Ghanem/Wraith/internal/outbound"
+	"github.com/Adam-Ghanem/Wraith/internal/policy"
 )
 
 var (
-	ErrDispatchDenied     = errors.New("central egress dispatch denied")
+	ErrDispatchDenied       = errors.New("central egress dispatch denied")
 	ErrTransportUnavailable = errors.New("central egress transport unavailable")
-	ErrCapabilityMismatch = errors.New("central egress capability mismatch")
+	ErrCapabilityMismatch   = errors.New("central egress capability mismatch")
 )
 
 // TCPDispatcher is the T6 choke point between an already-authorized T5
@@ -40,8 +41,20 @@ func (dispatcher TCPDispatcher) DispatchTCP(ctx context.Context, decision outbou
 	if dispatcher.Transport == nil {
 		return httpengine.TCPResponse{}, errors.Join(ErrDispatchDenied, ErrTransportUnavailable)
 	}
-	if operation.ProjectID != request.ProjectID || decision.Capability.ID != operation.CapabilityID || decision.Target.Port != request.Target.Port {
+	if operation.ProjectID != request.ProjectID || decision.Capability.ID != operation.CapabilityID {
+		return httpengine.TCPResponse{}, errors.Join(ErrDispatchDenied, ErrCapabilityMismatch)
+	}
+	if !sameTarget(decision.Target, request.Target) {
 		return httpengine.TCPResponse{}, errors.Join(ErrDispatchDenied, ErrCapabilityMismatch)
 	}
 	return dispatcher.Transport.ProbeTCP(ctx, request)
+}
+
+func sameTarget(left, right policy.Target) bool {
+	leftNormalized, leftErr := policy.NormalizeTarget(left)
+	rightNormalized, rightErr := policy.NormalizeTarget(right)
+	if leftErr != nil || rightErr != nil {
+		return false
+	}
+	return leftNormalized == rightNormalized
 }
