@@ -11,8 +11,8 @@ import (
 
 func TestStandaloneTargetAcceptsIPHostnameAndTCP(t *testing.T) {
 	cases := map[string]string{
-		"192.0.2.10":        "tcp://192.0.2.10/",
-		"example.com":       "tcp://example.com/",
+		"192.0.2.10":       "tcp://192.0.2.10/",
+		"example.com":      "tcp://example.com/",
 		"tcp://example.com/": "tcp://example.com/",
 	}
 	for input, want := range cases {
