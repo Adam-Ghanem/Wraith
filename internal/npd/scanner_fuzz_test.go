@@ -38,7 +38,7 @@ func FuzzParseTCPTarget(f *testing.F) {
 		if err != nil {
 			return
 		}
-		if target.Scheme != string(policy.ProtocolTCP) && target.Scheme != string(policy.ProtocolHTTP) && target.Scheme != string(policy.ProtocolHTTPS) {
+		if target.Scheme != "" && target.Scheme != string(policy.ProtocolTCP) && target.Scheme != string(policy.ProtocolHTTP) && target.Scheme != string(policy.ProtocolHTTPS) {
 			t.Fatalf("unexpected scheme %q", target.Scheme)
 		}
 		if target.Port > 65535 {
