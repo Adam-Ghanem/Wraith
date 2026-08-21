@@ -169,8 +169,12 @@ func (scanner Scanner) Plan(target string, ports []uint16) (Scan, error) {
 		return Scan{}, errors.New("invalid NPD scan plan")
 	}
 	parsed, err := policy.ParseTarget(target)
-	if err != nil || parsed.Port != 0 {
-		return Scan{}, errors.New("invalid NPD target")
+	if err != nil || parsed.Scheme != string(policy.ProtocolTCP) || parsed.Port != 0 || parsed.Path != "/" {
+		return Scan{}, errors.New("invalid NPD TCP target")
+	}
+	canonicalTarget, err := policy.NormalizeTarget(parsed)
+	if err != nil || canonicalTarget.Scheme != string(policy.ProtocolTCP) || canonicalTarget.Port != 0 {
+		return Scan{}, errors.New("invalid NPD TCP target")
 	}
 	canonical := append([]uint16(nil), ports...)
 	sort.Slice(canonical, func(i, j int) bool { return canonical[i] < canonical[j] })
@@ -179,7 +183,7 @@ func (scanner Scanner) Plan(target string, ports []uint16) (Scan, error) {
 			return Scan{}, ErrInvalidSpec
 		}
 	}
-	return Scan{Target: target, Ports: canonical, Profile: ProfileCustom}, nil
+	return Scan{Target: canonicalTargetString(canonicalTarget), Ports: canonical, Profile: ProfileCustom}, nil
 }
 
 func (scanner Scanner) Scan(ctx context.Context, scan Scan) (Result, error) {
@@ -187,8 +191,8 @@ func (scanner Scanner) Scan(ctx context.Context, scan Scan) (Result, error) {
 		return Result{}, errors.New("invalid NPD scan")
 	}
 	parsed, err := policy.ParseTarget(scan.Target)
-	if err != nil || parsed.Port != 0 {
-		return Result{}, errors.New("invalid NPD target")
+	if err != nil || parsed.Scheme != string(policy.ProtocolTCP) || parsed.Port != 0 || parsed.Path != "/" {
+		return Result{}, errors.New("invalid NPD TCP target")
 	}
 	now := time.Now
 	if scanner.Now != nil {
@@ -201,7 +205,7 @@ func (scanner Scanner) Scan(ctx context.Context, scan Scan) (Result, error) {
 			result.CompletedAt = now().UTC()
 			return result, err
 		}
-		target := policy.Target{IP: parsed.IP, Hostname: parsed.Hostname, Port: port}
+		target := policy.Target{Scheme: string(policy.ProtocolTCP), IP: parsed.IP, Hostname: parsed.Hostname, Port: port}
 		observed := now().UTC()
 		probe, err := scanner.TCP.ProbeTCP(ctx, httpengine.TCPRequest{ProjectID: scan.ProjectID, Target: target, Timeout: scan.Timeout})
 		entry := PortResult{Target: scan.Target, Port: port, Protocol: "tcp", ObservedAt: observed, Duration: probe.Duration}
@@ -217,6 +221,17 @@ func (scanner Scanner) Scan(ctx context.Context, scan Scan) (Result, error) {
 	}
 	result.CompletedAt = now().UTC()
 	return result, nil
+}
+
+func canonicalTargetString(target policy.Target) string {
+	host := target.Hostname
+	if target.IP.IsValid() {
+		host = target.IP.String()
+	}
+	if strings.Contains(host, ":") && !strings.HasPrefix(host, "[") {
+		host = "[" + host + "]"
+	}
+	return "tcp://" + host + "/"
 }
 
 func classify(err error) State {
