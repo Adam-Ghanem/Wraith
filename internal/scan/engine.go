@@ -16,6 +16,12 @@ import (
 
 const MaxConcurrency = npd.MaxConcurrency
 
+const (
+	DefaultTimeout = 5 * time.Second
+	MinTimeout     = 10 * time.Millisecond
+	MaxTimeout     = 2 * time.Minute
+)
+
 type Options struct {
 	Profile     npd.Profile
 	Ports       []uint16
@@ -28,6 +34,7 @@ type Options struct {
 type Result struct {
 	Target      string
 	Profile     npd.Profile
+	State       State
 	Ports       []npd.PortResult
 	StartedAt   time.Time
 	CompletedAt time.Time
@@ -43,7 +50,7 @@ func (e Engine) Scan(ctx context.Context, target string, opts Options) (Result, 
 		return Result{}, errors.New("scan engine requires context and TCP transport")
 	}
 	if strings.TrimSpace(target) == "" {
-		return Result{}, errors.New("scan target is required")
+		return Result{}, ErrInvalidTarget
 	}
 	if opts.ProjectID == "" {
 		opts.ProjectID = "standalone"
@@ -58,7 +65,13 @@ func (e Engine) Scan(ctx context.Context, target string, opts Options) (Result, 
 		opts.Concurrency = defaultConcurrency(opts.Profile)
 	}
 	if opts.Concurrency > MaxConcurrency {
-		return Result{}, errors.New("scan concurrency exceeds limit")
+		return Result{}, ErrInvalidConcurrency
+	}
+	if opts.Timeout == 0 {
+		opts.Timeout = DefaultTimeout
+	}
+	if opts.Timeout < MinTimeout || opts.Timeout > MaxTimeout {
+		return Result{}, ErrInvalidTimeout
 	}
 	ports := append([]uint16(nil), opts.Ports...)
 	if len(ports) == 0 {
@@ -74,10 +87,25 @@ func (e Engine) Scan(ctx context.Context, target string, opts Options) (Result, 
 		}
 	}
 
+	now := e.Now
+	if now == nil {
+		now = time.Now
+	}
+	started := now()
+	base := Result{Target: target, Profile: opts.Profile, State: StateRunning, StartedAt: started}
+
+	if err := ctx.Err(); err != nil {
+		base.State = stateFromContext(err)
+		base.CompletedAt = now()
+		return base, err
+	}
+
 	scanner := npd.Scanner{TCP: e.TCP, Now: e.Now}
 	plan, err := scanner.Plan(target, ports)
 	if err != nil {
-		return Result{}, err
+		base.State = StateFailed
+		base.CompletedAt = now()
+		return base, err
 	}
 	plan.ProjectID = opts.ProjectID
 	plan.ScopeVersion = opts.ScopeID
@@ -85,7 +113,30 @@ func (e Engine) Scan(ctx context.Context, target string, opts Options) (Result, 
 	plan.Timeout = opts.Timeout
 	plan.Concurrency = opts.Concurrency
 	result, err := scanner.Scan(ctx, plan)
-	return Result{Target: result.Target, Profile: result.Profile, Ports: result.Ports, StartedAt: result.StartedAt, CompletedAt: result.CompletedAt}, err
+	base.Target = result.Target
+	base.Ports = result.Ports
+	base.StartedAt = result.StartedAt
+	base.CompletedAt = result.CompletedAt
+	if err != nil {
+		base.State = stateFromContext(err)
+		if base.State == StateRunning {
+			base.State = StateFailed
+		}
+		return base, err
+	}
+	base.State = StateCompleted
+	return base, nil
+}
+
+func stateFromContext(err error) State {
+	switch {
+	case errors.Is(err, context.Canceled):
+		return StateCancelled
+	case errors.Is(err, context.DeadlineExceeded):
+		return StateTimedOut
+	default:
+		return StateRunning
+	}
 }
 
 func defaultConcurrency(profile npd.Profile) int {
