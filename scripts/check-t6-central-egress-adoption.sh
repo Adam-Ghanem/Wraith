@@ -9,6 +9,8 @@ required=(
   'internal/cli/t6_egress_test.go'
   'internal/cli/t6_egress_fuzz_test.go'
   'internal/cli/t6_egress_benchmark_test.go'
+  'internal/egress/tcp.go'
+  'internal/egress/tcp_test.go'
   'docs/t6/t6-outbound-inventory.md'
   'docs/t6/t6-egress-audit.md'
   'docs/t6/t6-architecture.md'
@@ -26,6 +28,7 @@ grep -q 'ErrSubprocessOutboundBlocked' internal/cli/t6_egress.go || { echo 'T6 s
 grep -q 't6OutboundBlock(args)' internal/cli/phase2_run.go || { echo 'root CLI does not invoke the T6 egress gate' >&2; exit 1; }
 grep -q 'assessmentOutboundGateway' internal/cli/assessment.go || { echo 'T5 assessment gateway construction was removed' >&2; exit 1; }
 grep -q 'outbound.Client' internal/assessmentbuiltin/adapters.go || { echo 'R15 adapters are not T5-mediated' >&2; exit 1; }
+grep -q 'egress.TCPDispatcher' internal/assessmentbuiltin/npd.go || { echo 'NPD is not routed through the central T6 TCP dispatcher' >&2; exit 1; }
 
 expected_engine_files=$'internal/cli/assessment.go\ninternal/cli/auth_test_command.go\ninternal/cli/compare.go\ninternal/cli/content.go\ninternal/cli/crawl.go\ninternal/cli/fuzz.go\ninternal/cli/http.go\ninternal/cli/phase2_run.go\ninternal/cli/smart_discover.go\ninternal/cli/validate.go\ninternal/cli/vhost.go'
 actual_engine_files="$(grep -RIl --include='*.go' 'httpengine.NewEngine' internal/cli | grep -v '_test.go' | sort || true)"
