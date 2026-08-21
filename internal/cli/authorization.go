@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/Adam-Ghanem/Wraith/internal/authorization"
+	"github.com/Adam-Ghanem/Wraith/internal/securitytrust"
+	"github.com/Adam-Ghanem/Wraith/internal/storage"
 )
 
 var (
@@ -18,12 +20,12 @@ var (
 )
 
 func runAuthorization(ctx context.Context, args []string, stdout io.Writer) error {
-	const usage = "usage: wraith authorization create|list|show|revoke|validate --project PROJECT --authorized [--scope REFERENCE --id ID --db PATH --json --output FILE]"
+	const usage = "usage: wraith authorization create|list|show|revoke|validate|audit --project PROJECT --authorized [--scope REFERENCE --id ID --db PATH --json --output FILE]"
 	if len(args) < 2 || args[0] != "authorization" {
 		return fmt.Errorf("%w: %s", ErrAuthorizationInvalidInput, usage)
 	}
 	switch args[1] {
-	case "create", "list", "show", "revoke", "validate":
+	case "create", "list", "show", "revoke", "validate", "audit":
 		return runAuthorizationCommand(ctx, args[1], args[2:], stdout)
 	default:
 		return fmt.Errorf("%w: %s", ErrAuthorizationInvalidInput, usage)
@@ -31,7 +33,7 @@ func runAuthorization(ctx context.Context, args []string, stdout io.Writer) erro
 }
 
 func runAuthorizationCommand(ctx context.Context, command string, args []string, stdout io.Writer) error {
-	const usage = "usage: wraith authorization create|list|show|revoke|validate --project PROJECT --authorized [--scope REFERENCE --id ID --subject SUBJECT --type assessment --evidence REF --created-by REF --expires RFC3339 --db PATH --json --output FILE]"
+	const usage = "usage: wraith authorization create|list|show|revoke|validate|audit --project PROJECT --authorized [--scope REFERENCE --id ID --subject SUBJECT --type assessment --evidence REF --created-by REF --expires RFC3339 --db PATH --json --output FILE]"
 	fs := flag.NewFlagSet("authorization "+command, flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	projectID := fs.String("project", "", "")
@@ -52,7 +54,7 @@ func runAuthorizationCommand(ctx context.Context, command string, args []string,
 	if command == "create" && (strings.TrimSpace(*scope) == "" || strings.TrimSpace(*subject) == "" || strings.TrimSpace(*evidence) == "" || strings.TrimSpace(*createdBy) == "" || strings.TrimSpace(*expires) == "" || *authorizationType != string(authorization.TypeAssessment)) {
 		return fmt.Errorf("%w: %s", ErrAuthorizationInvalidInput, usage)
 	}
-	if (command == "show" || command == "revoke" || command == "validate") && (strings.TrimSpace(*id) == "" || (command == "validate" && strings.TrimSpace(*scope) == "")) {
+	if (command == "show" || command == "revoke" || command == "validate" || command == "audit") && (strings.TrimSpace(*id) == "" || (command == "validate" && strings.TrimSpace(*scope) == "")) {
 		return fmt.Errorf("%w: %s", ErrAuthorizationInvalidInput, usage)
 	}
 	database, err := openAssessmentDB(ctx, *databasePath)
@@ -74,6 +76,9 @@ func runAuthorizationCommand(ctx context.Context, command string, args []string,
 			return err
 		}
 		if err := database.SaveAuthorizationRecord(ctx, record); err != nil {
+			return err
+		}
+		if _, err := appendAuthorizationAudit(ctx, database, record, securitytrust.EventCreated, "recorded", now); err != nil {
 			return err
 		}
 		result = record
@@ -101,6 +106,9 @@ func runAuthorizationCommand(ctx context.Context, command string, args []string,
 		if err := database.RevokeAuthorizationRecord(ctx, project, revoked); err != nil {
 			return err
 		}
+		if _, err := appendAuthorizationAudit(ctx, database, revoked, securitytrust.EventRevoked, "revoked", time.Now().UTC()); err != nil {
+			return err
+		}
 		result = revoked
 	case "validate":
 		record, err := database.LoadAuthorizationRecord(ctx, project, strings.TrimSpace(*id))
@@ -110,7 +118,16 @@ func runAuthorizationCommand(ctx context.Context, command string, args []string,
 		if err := authorization.Validate(record, authorization.ValidationRequest{ProjectID: project, ScopeReference: strings.TrimSpace(*scope), Now: time.Now().UTC()}); err != nil {
 			return fmt.Errorf("%w: %v", ErrAuthorizationFailed, err)
 		}
+		if _, err := appendAuthorizationAudit(ctx, database, record, securitytrust.EventValidated, "validated", time.Now().UTC()); err != nil {
+			return err
+		}
 		result = record
+	case "audit":
+		events, err := database.ListAuthorizationAuditEvents(ctx, project, strings.TrimSpace(*id))
+		if err != nil {
+			return err
+		}
+		result = events
 	}
 	if strings.TrimSpace(*output) != "" {
 		return writeAssessment(stdout, *output, authorizationFormat(*asJSON), result)
@@ -123,4 +140,8 @@ func authorizationFormat(asJSON bool) string {
 		return "json"
 	}
 	return "terminal"
+}
+
+func appendAuthorizationAudit(ctx context.Context, database *storage.DB, record authorization.Record, eventType securitytrust.EventType, reason string, now time.Time) (securitytrust.AuditEvent, error) {
+	return database.AppendAuthorizationLifecycleEvent(ctx, securitytrust.AuditEventInput{ProjectID: record.ProjectID, AuthorizationID: record.AuthorizationID, ScopeReference: record.ScopeReference, EventType: eventType, ReasonCode: reason, OccurredAt: now})
 }

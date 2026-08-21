@@ -24,6 +24,9 @@ import (
 )
 
 func Run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
+	if err := t6OutboundBlock(args); err != nil {
+		return err
+	}
 	if len(args) > 0 {
 		switch args[0] {
 		case "scan":
@@ -84,6 +87,8 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 			return runCampaign(ctx, args, stdout, stderr)
 		case "history":
 			return runHistory(ctx, args, stdout, stderr)
+		case "outbound":
+			return runOutbound(ctx, args, stdout)
 		case "export-fixtures":
 			return runExportFixtures(ctx, args, stdout, stderr)
 		case "version":
