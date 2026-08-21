@@ -17,6 +17,7 @@ import (
 	"github.com/Adam-Ghanem/Wraith/internal/endpointintelligence"
 	"github.com/Adam-Ghanem/Wraith/internal/evidence"
 	"github.com/Adam-Ghanem/Wraith/internal/httpengine"
+	"github.com/Adam-Ghanem/Wraith/internal/outbound"
 	"github.com/Adam-Ghanem/Wraith/internal/pentest"
 	"github.com/Adam-Ghanem/Wraith/internal/policy"
 	"github.com/Adam-Ghanem/Wraith/internal/scope"
@@ -53,7 +54,11 @@ func TestR15CampaignCycleDelegatesAuthorizedLocalhostWorkToBuiltInOwners(t *test
 	transport := httpengine.NewEngine(httpengine.Config{Gateway: r15AllowGateway{}, DestinationPolicy: httpengine.DestinationPolicy{AllowPrivate: true}, RequestTimeout: time.Second, MaxConcurrentRequests: 1, MaxResponseBytes: 1 << 20})
 	defer func() { _ = transport.CloseIdleConnections() }()
 	source := r15InventorySource{endpoints: []evidence.Endpoint{{Identity: "endpoint-1", ProjectID: "alpha", Method: "GET", URL: server.URL}}}
-	registry, err := assessmentbuiltin.NewRegistry(assessmentbuiltin.Dependencies{Client: transport, EndpointSource: source})
+	outboundRegistry, err := outbound.DefaultRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry, err := assessmentbuiltin.NewRegistry(assessmentbuiltin.Dependencies{Client: transport, Outbound: &outbound.Gateway{Registry: outboundRegistry, Targets: r15AllowGateway{}, Audit: &r15AuditStore{}, Now: time.Now}, EndpointSource: source})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,6 +114,14 @@ type r15AllowGateway struct{}
 
 func (r15AllowGateway) Authorize(_ context.Context, projectID string, target policy.Target, action policy.Action) (policy.Decision, error) {
 	return policy.Decision{Allowed: true, ProjectID: projectID, Target: target, Action: action}, nil
+}
+
+type r15AuditStore struct{ sequence int64 }
+
+func (store *r15AuditStore) AppendAuthorizationLifecycleEvent(_ context.Context, input securitytrust.AuditEventInput) (securitytrust.AuditEvent, error) {
+	store.sequence++
+	input.Sequence = store.sequence
+	return securitytrust.NewAuditEvent(input)
 }
 
 type r15InventorySource struct{ endpoints []evidence.Endpoint }

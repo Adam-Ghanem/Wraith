@@ -14,6 +14,7 @@ import (
 	"github.com/Adam-Ghanem/Wraith/internal/assessmentbuiltin"
 	"github.com/Adam-Ghanem/Wraith/internal/assessmentexec"
 	"github.com/Adam-Ghanem/Wraith/internal/httpengine"
+	"github.com/Adam-Ghanem/Wraith/internal/outbound"
 	"github.com/Adam-Ghanem/Wraith/internal/pentest"
 	"github.com/Adam-Ghanem/Wraith/internal/policy"
 	"github.com/Adam-Ghanem/Wraith/internal/scope"
@@ -104,7 +105,11 @@ func runPentestAssessmentRun(ctx context.Context, args []string, stdout io.Write
 	}
 	transport := assessmentTransportFactory(database, plan.Scope.Limits)
 	defer func() { _ = transport.CloseIdleConnections() }()
-	registry, err := assessmentRunRegistry(assessmentbuiltin.Dependencies{Client: transport, Repository: database, EndpointSource: database, DiscoveryEvidence: database})
+	outboundGateway, err := assessmentOutboundGateway(database)
+	if err != nil {
+		return err
+	}
+	registry, err := assessmentRunRegistry(assessmentbuiltin.Dependencies{Client: transport, Outbound: outboundGateway, Repository: database, EndpointSource: database, DiscoveryEvidence: database})
 	if err != nil {
 		return err
 	}
@@ -313,6 +318,17 @@ func assessmentTransport(database *storage.DB, limits assessment.Limits) *httpen
 		timeout = 30 * time.Second
 	}
 	return httpengine.NewEngine(httpengine.Config{Gateway: policy.NewGateway(policy.NewEvaluator(database)), ObservationSink: sqliteObservationSink{repository: database}, MaxConcurrentRequests: limits.MaxConcurrency, MaxResponseBytes: 1 << 20, RequestTimeout: timeout, UserAgent: "Wraith/r15-assessment"})
+}
+
+// assessmentOutboundGateway is T5's policy-only pre-dispatch boundary for the
+// existing R15-to-R3 delegation paths. It reuses T2 policy and T3 audit stores;
+// it does not construct a transport, resolver, or new network capability.
+func assessmentOutboundGateway(database *storage.DB) (*outbound.Gateway, error) {
+	registry, err := outbound.DefaultRegistry()
+	if err != nil {
+		return nil, err
+	}
+	return &outbound.Gateway{Registry: registry, Targets: policy.NewGateway(policy.NewEvaluator(database)), Audit: database, Now: time.Now}, nil
 }
 
 func writeAssessmentRunOutput(stdout io.Writer, jsonOutput bool, summary assessmentexec.ExecutionSummary, dryRun bool) error {

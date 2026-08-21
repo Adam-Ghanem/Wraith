@@ -10,7 +10,9 @@ import (
 	"github.com/Adam-Ghanem/Wraith/internal/authorization"
 	"github.com/Adam-Ghanem/Wraith/internal/evidence"
 	"github.com/Adam-Ghanem/Wraith/internal/httpengine"
+	"github.com/Adam-Ghanem/Wraith/internal/outbound"
 	"github.com/Adam-Ghanem/Wraith/internal/pentest"
+	"github.com/Adam-Ghanem/Wraith/internal/policy"
 	"github.com/Adam-Ghanem/Wraith/internal/scope"
 	"github.com/Adam-Ghanem/Wraith/internal/securitytrust"
 	"github.com/Adam-Ghanem/Wraith/internal/trustcontext"
@@ -18,11 +20,12 @@ import (
 
 func TestRegistryDelegatesCrawlOnlyThroughInjectedR3Client(t *testing.T) {
 	client := &recordingClient{response: httpengine.Response{StatusCode: 200, ContentType: "text/html", ContentLength: 23, Body: []byte("<html><body>ok</body></html>")}}
-	registry, err := NewRegistry(Dependencies{Client: client})
+	taskContext := testTaskContext(t, assessment.TaskCrawl)
+	registry, err := NewRegistry(Dependencies{Client: client, Outbound: testOutboundGateway(t, taskContext)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := registry.Dispatch(context.Background(), testTaskContext(t, assessment.TaskCrawl))
+	result, err := registry.Dispatch(context.Background(), taskContext)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,13 +37,28 @@ func TestRegistryDelegatesCrawlOnlyThroughInjectedR3Client(t *testing.T) {
 	}
 }
 
-func TestCrawlAdapterChargesEveryR3RequestToSharedBudgetAndFailsPartialWork(t *testing.T) {
-	client := &recordingClient{response: httpengine.Response{StatusCode: 200, ContentType: "text/html", ContentLength: 23, Body: []byte("<html><body>ok</body></html>")}}
+func TestCrawlAdapterRejectsMissingT5GatewayBeforeR3Delegation(t *testing.T) {
+	client := &recordingClient{response: httpengine.Response{StatusCode: 200, ContentType: "text/html", Body: []byte("<html>ok</html>")}}
 	registry, err := NewRegistry(Dependencies{Client: client})
 	if err != nil {
 		t.Fatal(err)
 	}
+	_, err = registry.Dispatch(context.Background(), testTaskContext(t, assessment.TaskCrawl))
+	if err == nil {
+		t.Fatal("crawl dispatch succeeded without required T5 outbound gateway")
+	}
+	if len(client.requests) != 0 {
+		t.Fatalf("R3 requests = %#v, want zero without T5 gateway", client.requests)
+	}
+}
+
+func TestCrawlAdapterChargesEveryR3RequestToSharedBudgetAndFailsPartialWork(t *testing.T) {
+	client := &recordingClient{response: httpengine.Response{StatusCode: 200, ContentType: "text/html", ContentLength: 23, Body: []byte("<html><body>ok</body></html>")}}
 	taskContext := testTaskContext(t, assessment.TaskCrawl)
+	registry, err := NewRegistry(Dependencies{Client: client, Outbound: testOutboundGateway(t, taskContext)})
+	if err != nil {
+		t.Fatal(err)
+	}
 	limits := pentest.DefaultLimits()
 	limits.MaxRequests = 1
 	budget, err := pentest.NewBudgetManager(limits)
@@ -74,11 +92,12 @@ func TestRegistryBuildsEndpointInventoryFromProjectScopedSource(t *testing.T) {
 func TestRegistryDelegatesDiscoveryCandidateThroughExistingR11Verifier(t *testing.T) {
 	client := &recordingClient{response: httpengine.Response{StatusCode: 200, ContentType: "text/html", ContentLength: 2, Body: []byte("ok")}}
 	source := inventorySource{endpoints: []evidence.Endpoint{{Identity: "endpoint-1", ProjectID: "alpha", Method: "GET", URL: "https://app.example.test/"}}}
-	registry, err := NewRegistry(Dependencies{Client: client, EndpointSource: source})
+	taskContext := testTaskContext(t, assessment.TaskDiscovery)
+	registry, err := NewRegistry(Dependencies{Client: client, Outbound: testOutboundGateway(t, taskContext), EndpointSource: source})
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := registry.Dispatch(context.Background(), testTaskContext(t, assessment.TaskDiscovery))
+	result, err := registry.Dispatch(context.Background(), taskContext)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -143,6 +162,29 @@ func (inventorySource) ListParameters(context.Context, string) ([]evidence.Param
 }
 func (inventorySource) ListWebAssets(context.Context, string) ([]evidence.WebAsset, error) {
 	return nil, nil
+}
+
+type testTargetGateway struct{}
+
+func (testTargetGateway) Authorize(_ context.Context, projectID string, target policy.Target, _ policy.Action) (policy.Decision, error) {
+	return policy.Decision{Allowed: projectID == "alpha" && target.Hostname == "app.example.test", ProjectID: projectID, Target: target}, nil
+}
+
+type testAuditStore struct{ sequence int64 }
+
+func (store *testAuditStore) AppendAuthorizationLifecycleEvent(_ context.Context, input securitytrust.AuditEventInput) (securitytrust.AuditEvent, error) {
+	store.sequence++
+	input.Sequence = store.sequence
+	return securitytrust.NewAuditEvent(input)
+}
+
+func testOutboundGateway(t testing.TB, task assessment.TaskContext) *outbound.Gateway {
+	t.Helper()
+	registry, err := outbound.DefaultRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &outbound.Gateway{Registry: registry, Targets: testTargetGateway{}, Audit: &testAuditStore{}, Now: task.Now}
 }
 
 func testTaskContext(t testing.TB, taskType assessment.TaskType) assessment.TaskContext {

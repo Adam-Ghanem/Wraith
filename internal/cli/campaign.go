@@ -218,7 +218,11 @@ func runPentestCampaignRun(ctx context.Context, args []string, stdout io.Writer)
 	}
 	transport := assessmentTransport(database, plan.Scope.Limits)
 	defer func() { _ = transport.CloseIdleConnections() }()
-	registry, err := assessmentRunRegistry(assessmentbuiltin.Dependencies{Client: transport, Repository: database, EndpointSource: database, DiscoveryEvidence: database})
+	outboundGateway, err := assessmentOutboundGateway(database)
+	if err != nil {
+		return err
+	}
+	registry, err := assessmentRunRegistry(assessmentbuiltin.Dependencies{Client: transport, Outbound: outboundGateway, Repository: database, EndpointSource: database, DiscoveryEvidence: database})
 	if err != nil {
 		return err
 	}
