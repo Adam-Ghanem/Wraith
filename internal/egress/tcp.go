@@ -44,17 +44,23 @@ func (dispatcher TCPDispatcher) DispatchTCP(ctx context.Context, decision outbou
 	if operation.ProjectID != request.ProjectID || decision.Capability.ID != operation.CapabilityID {
 		return httpengine.TCPResponse{}, errors.Join(ErrDispatchDenied, ErrCapabilityMismatch)
 	}
-	if !sameTarget(decision.Target, request.Target) {
+	if !sameTCPDestination(decision.Target, request.Target) {
 		return httpengine.TCPResponse{}, errors.Join(ErrDispatchDenied, ErrCapabilityMismatch)
 	}
 	return dispatcher.Transport.ProbeTCP(ctx, request)
 }
 
-func sameTarget(left, right policy.Target) bool {
+func sameTCPDestination(left, right policy.Target) bool {
 	leftNormalized, leftErr := policy.NormalizeTarget(left)
 	rightNormalized, rightErr := policy.NormalizeTarget(right)
-	if leftErr != nil || rightErr != nil {
+	if leftErr != nil || rightErr != nil || leftNormalized.Port == 0 || rightNormalized.Port == 0 {
 		return false
 	}
-	return leftNormalized == rightNormalized
+	if leftNormalized.Port != rightNormalized.Port || leftNormalized.Path != rightNormalized.Path {
+		return false
+	}
+	if leftNormalized.IP.IsValid() || rightNormalized.IP.IsValid() {
+		return leftNormalized.IP.IsValid() && rightNormalized.IP.IsValid() && leftNormalized.IP == rightNormalized.IP
+	}
+	return leftNormalized.Hostname != "" && leftNormalized.Hostname == rightNormalized.Hostname
 }
