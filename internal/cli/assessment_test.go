@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -14,8 +16,10 @@ import (
 
 	"github.com/Adam-Ghanem/Wraith/internal/assessment"
 	"github.com/Adam-Ghanem/Wraith/internal/assessmentbuiltin"
+	"github.com/Adam-Ghanem/Wraith/internal/authorization"
 	"github.com/Adam-Ghanem/Wraith/internal/httpengine"
 	"github.com/Adam-Ghanem/Wraith/internal/policy"
+	scopeauthority "github.com/Adam-Ghanem/Wraith/internal/scope"
 	"github.com/Adam-Ghanem/Wraith/internal/storage"
 )
 
@@ -90,6 +94,40 @@ func TestPentestAssessmentRunDryRunUsesPersistedR1ScopeWithoutExecutionWrites(t 
 	runs, err := verified.ListPentestRuns(ctx, "alpha")
 	if err != nil || len(runs) != 0 {
 		t.Fatalf("runs=%#v err=%v, want dry-run without execution lifecycle writes", runs, err)
+	}
+}
+
+func TestPentestAssessmentRunRejectsR1OnlyActiveExecutionBeforeLifecycle(t *testing.T) {
+	ctx := context.Background()
+	databasePath := filepath.Join(t.TempDir(), "assessment-r1-only.db")
+	database, err := storage.Open(databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	expires := time.Now().UTC().Add(time.Hour)
+	legacyScope := policy.ProjectScope{VersionID: "scope-v1", ProjectID: "alpha", Authorization: policy.AuthorizationRecord{ID: "authorization-v1", ProjectID: "alpha", ScopeVersionID: "scope-v1", OwnerID: "owner-a", ApprovedActions: []policy.Action{policy.ActionHTTP}, ExpiresAt: &expires, CreatedAt: time.Now().UTC()}, Rules: []policy.ScopeRule{{ID: "allow-app", ProjectID: "alpha", Effect: policy.EffectAllow, TargetType: policy.TargetTypeURL, Value: "https://app.test", CreatedAt: time.Now().UTC()}}}
+	if err := database.SaveProjectScope(ctx, legacyScope); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	args := []string{"pentest", "assessment", "run", "https://app.test", "--project", "alpha", "--authorized", "--scope-version", "scope-v1", "--profile", "safe", "--db", databasePath}
+	if err := Run(ctx, args, &bytes.Buffer{}, &bytes.Buffer{}); err == nil || !strings.Contains(err.Error(), "T4 trust provenance") {
+		t.Fatalf("Run() error = %v, want explicit T4 provenance rejection", err)
+	}
+	verified, err := storage.Open(databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer verified.Close()
+	runs, err := verified.ListPentestRuns(ctx, "alpha")
+	if err != nil || len(runs) != 0 {
+		t.Fatalf("runs=%#v err=%v, want no active lifecycle write", runs, err)
 	}
 }
 
@@ -195,6 +233,33 @@ func seedAssessmentScopeForTarget(t *testing.T, ctx context.Context, databasePat
 		Rules:         rules,
 	}
 	if err := database.SaveProjectScope(ctx, scope); err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := url.Parse(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	authorityRules := []scopeauthority.Rule{{Kind: scopeauthority.RuleScheme, Effect: scopeauthority.EffectAllow, Value: parsed.Scheme}}
+	if ip := net.ParseIP(parsed.Hostname()); ip != nil {
+		authorityRules = append(authorityRules, scopeauthority.Rule{Kind: scopeauthority.RuleIPExact, Effect: scopeauthority.EffectAllow, Value: ip.String()})
+	} else {
+		authorityRules = append(authorityRules, scopeauthority.Rule{Kind: scopeauthority.RuleHostExact, Effect: scopeauthority.EffectAllow, Value: parsed.Hostname()})
+	}
+	if port := parsed.Port(); port != "" {
+		authorityRules = append(authorityRules, scopeauthority.Rule{Kind: scopeauthority.RulePort, Effect: scopeauthority.EffectAllow, Value: port})
+	}
+	authorityVersion, err := scopeauthority.NewVersion(scopeauthority.VersionInput{ProjectID: "alpha", Version: "scope-v1", CreatedAt: time.Now().UTC(), Rules: authorityRules})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.SaveScopeVersion(ctx, authorityVersion); err != nil {
+		t.Fatal(err)
+	}
+	record, err := authorization.Create(authorization.CreateInput{ProjectID: "alpha", Subject: "owner-a", ScopeReference: "scope-v1", EvidenceReference: "ticket-1", CreatedBy: "operator", Type: authorization.TypeAssessment, CreatedAt: time.Now().UTC(), ExpiresAt: expires})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.SaveAuthorizationRecord(ctx, record); err != nil {
 		t.Fatal(err)
 	}
 }

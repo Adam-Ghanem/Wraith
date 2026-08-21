@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Adam-Ghanem/Wraith/internal/pentest"
+	"github.com/Adam-Ghanem/Wraith/internal/trustcontext"
 )
 
 // TaskContext carries references and shared controls to an owner adapter. It
@@ -15,8 +16,10 @@ import (
 // and raw evidence values.
 type TaskContext struct {
 	AssessmentID string
+	CampaignID   string
 	Scope        ScopeSnapshot
 	Task         Task
+	Trust        trustcontext.Context
 	RunContext   pentest.RunContext
 	Now          func() time.Time
 }
@@ -89,10 +92,7 @@ func (registry AdapterRegistry) Execute(ctx context.Context, plan AssessmentPlan
 	if len(registry.adapters) == 0 {
 		return ExecutionResult{}, errors.New("assessment adapter registry is empty")
 	}
-	return Execute(ctx, plan, ExecutionDependencies{RunContext: runContext, Now: now, RunTask: func(taskContext context.Context, task Task, shared pentest.RunContext) error {
-		_, err := registry.Dispatch(taskContext, TaskContext{AssessmentID: plan.AssessmentID, Scope: plan.Scope, Task: task, RunContext: shared, Now: now})
-		return err
-	}})
+	return ExecutionResult{}, trustcontext.ErrTrustContextMissing
 }
 
 // Owner returns the registered owner for a known task type. It allows an
@@ -126,6 +126,9 @@ func (registry AdapterRegistry) Dispatch(ctx context.Context, taskContext TaskCo
 	}
 	if len(registry.adapters) == 0 || ctx == nil || taskContext.RunContext.Budget == nil || taskContext.RunContext.Concurrency == nil || taskContext.RunContext.Rate == nil || taskContext.AssessmentID == "" || taskContext.AssessmentID != taskContext.Task.AssessmentID || taskContext.Scope.ProjectID == "" || taskContext.Scope.ProjectID != taskContext.Task.ProjectID || taskContext.Scope.Target != taskContext.Task.Target || invalidTaskTarget(taskContext.Scope.Target) || !taskContext.Scope.Authorized || taskContext.Scope.ExpiresAt.IsZero() || !taskContext.Scope.ExpiresAt.After(now().UTC()) || !validLimits(taskContext.Scope.Limits) || !knownTaskType(taskContext.Task.Type) {
 		return AdapterResult{}, errors.New("invalid assessment task context")
+	}
+	if err := trustcontext.Validate(taskContext.Trust, trustcontext.ValidationRequest{ProjectID: taskContext.Scope.ProjectID, ScopeVersion: taskContext.Scope.ScopeVersion, TaskID: taskContext.Task.ID, AssessmentID: taskContext.AssessmentID, CampaignID: taskContext.CampaignID, Now: now().UTC()}); err != nil {
+		return AdapterResult{}, err
 	}
 	adapter, exists := registry.adapters[taskContext.Task.Type]
 	if !exists {

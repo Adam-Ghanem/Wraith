@@ -7,7 +7,11 @@ import (
 	"time"
 
 	"github.com/Adam-Ghanem/Wraith/internal/assessment"
+	"github.com/Adam-Ghanem/Wraith/internal/authorization"
 	"github.com/Adam-Ghanem/Wraith/internal/pentest"
+	"github.com/Adam-Ghanem/Wraith/internal/scope"
+	"github.com/Adam-Ghanem/Wraith/internal/securitytrust"
+	"github.com/Adam-Ghanem/Wraith/internal/trustcontext"
 )
 
 func TestEngineCompletesTasksInDependencyOrderAndEmitsSecretFreeEvents(t *testing.T) {
@@ -195,6 +199,59 @@ func TestEngineRechecksAuthorizationImmediatelyBeforeAdapterDispatch(t *testing.
 	}
 	if calls != 0 || summary.Tasks[0].Status != StatusCancelled || summary.Tasks[0].Reason != "authorization_expired" {
 		t.Fatalf("summary = %#v calls=%d, want no adapter dispatch after authorization revocation", summary, calls)
+	}
+}
+
+func TestEngineRequiresCentralTaskGateBeforeAdapterDispatch(t *testing.T) {
+	plan := testPlan(t)
+	plan.Tasks = plan.Tasks[:1]
+	calls := 0
+	registry := testRegistry(t, func(assessment.Task) error { calls++; return nil })
+	deps := testDependencies(t)
+	deps.ValidateTask = func(context.Context, assessment.ScopeSnapshot, assessment.Task) error {
+		return errors.New("execution gate denied")
+	}
+	engine := NewEngine(registry, deps)
+
+	summary, err := engine.Execute(context.Background(), ExecutionRequest{Plan: plan, ProjectID: plan.Scope.ProjectID})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if calls != 0 || summary.Tasks[0].Status != StatusCancelled || summary.Tasks[0].Reason != "execution_gate_denied" {
+		t.Fatalf("summary=%#v calls=%d, want central-gate denial before adapter dispatch", summary, calls)
+	}
+}
+
+func TestEngineRejectsMissingTrustContextBeforeAdapterDispatch(t *testing.T) {
+	plan := testPlan(t)
+	plan.Tasks = plan.Tasks[:1]
+	calls := 0
+	deps := testDependencies(t)
+	deps.TrustContext = nil
+	engine := NewEngine(testRegistry(t, func(assessment.Task) error { calls++; return nil }), deps)
+
+	if _, err := engine.Execute(context.Background(), ExecutionRequest{Plan: plan, ProjectID: plan.Scope.ProjectID}); err == nil {
+		t.Fatal("Execute() error = nil, want missing trust context rejection")
+	}
+	if calls != 0 {
+		t.Fatalf("adapter calls = %d, want zero without trust context", calls)
+	}
+}
+
+func TestEngineBlocksAdapterWhenTrustAuditFails(t *testing.T) {
+	plan := testPlan(t)
+	plan.Tasks = plan.Tasks[:1]
+	calls := 0
+	deps := testDependencies(t)
+	deps.AuditTrust = func(context.Context, trustcontext.Context) error { return errors.New("audit unavailable") }
+	engine := NewEngine(testRegistry(t, func(assessment.Task) error { calls++; return nil }), deps)
+
+	summary, err := engine.Execute(context.Background(), ExecutionRequest{Plan: plan, ProjectID: plan.Scope.ProjectID})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if calls != 0 || summary.Tasks[0].Status != StatusCancelled || summary.Tasks[0].Reason != "trust_audit_denied" {
+		t.Fatalf("summary=%#v calls=%d, want failed audit to block dispatch", summary, calls)
 	}
 }
 
@@ -396,6 +453,35 @@ func testDependencies(t *testing.T) Dependencies {
 		RunContext: testRunContext(t),
 		Now:        fixedNow,
 		Authorize:  func(context.Context, assessment.ScopeSnapshot) error { return nil },
+		ValidateTask: func(context.Context, assessment.ScopeSnapshot, assessment.Task) error {
+			return nil
+		},
+		TrustContext: testTrustContextFactory(t),
+		AuditTrust:   func(context.Context, trustcontext.Context) error { return nil },
+	}
+}
+
+func testTrustContextFactory(t *testing.T) func(context.Context, assessment.ScopeSnapshot, assessment.Task, string) (trustcontext.Context, error) {
+	t.Helper()
+	now := fixedNow()
+	record, err := authorization.Create(authorization.CreateInput{ProjectID: "project-a", Subject: "owner", ScopeReference: "scope-v1", EvidenceReference: "ticket-1", CreatedBy: "operator", Type: authorization.TypeAssessment, CreatedAt: now.Add(-time.Minute), ExpiresAt: now.Add(time.Hour)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	version, err := scope.NewVersion(scope.VersionInput{ProjectID: "project-a", Version: "scope-v1", CreatedAt: now.Add(-time.Minute), Rules: []scope.Rule{{Kind: scope.RuleHostExact, Effect: scope.EffectAllow, Value: "example.test"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return func(_ context.Context, snapshot assessment.ScopeSnapshot, task assessment.Task, campaignID string) (trustcontext.Context, error) {
+		decision, err := securitytrust.Classify(securitytrust.ChainInput{Acknowledged: true, Record: record, Scope: version, ProjectID: snapshot.ProjectID, Target: snapshot.Target, TaskID: task.ID, AssessmentID: task.AssessmentID, BudgetAvailable: true, Now: now})
+		if err != nil {
+			return trustcontext.Context{}, err
+		}
+		expiresAt := snapshot.ExpiresAt
+		if record.ExpiresAt.Before(expiresAt) {
+			expiresAt = record.ExpiresAt
+		}
+		return trustcontext.New(trustcontext.Input{Decision: decision, Record: record, Scope: version, TaskID: task.ID, AssessmentID: task.AssessmentID, CampaignID: campaignID, BudgetReference: "test-budget", CreatedAt: now, ExpiresAt: expiresAt})
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -15,8 +16,10 @@ import (
 	"github.com/Adam-Ghanem/Wraith/internal/endpointintelligence"
 	"github.com/Adam-Ghanem/Wraith/internal/evidence"
 	"github.com/Adam-Ghanem/Wraith/internal/httpengine"
+	"github.com/Adam-Ghanem/Wraith/internal/outbound"
 	"github.com/Adam-Ghanem/Wraith/internal/pentest"
 	"github.com/Adam-Ghanem/Wraith/internal/smartdiscovery"
+	"github.com/Adam-Ghanem/Wraith/internal/trustcontext"
 )
 
 const (
@@ -27,7 +30,10 @@ const (
 
 type Dependencies struct {
 	// Client is an already configured R3 transport. It is never constructed here.
-	Client            httpengine.Client
+	Client httpengine.Client
+	// Outbound is the required T5 decision gateway for active R15 R3 reads.
+	// It authorizes and audits each delegated request; it owns no transport.
+	Outbound          *outbound.Gateway
 	Repository        evidence.Repository
 	EndpointSource    endpointintelligence.Source
 	DiscoveryEvidence smartdiscovery.DiscoveryEvidenceSink
@@ -65,7 +71,7 @@ func NewRegistry(dependencies Dependencies) (assessment.AdapterRegistry, error) 
 
 func crawlAdapter(dependencies Dependencies) func(context.Context, assessment.TaskContext) (assessment.AdapterResult, error) {
 	return func(ctx context.Context, taskContext assessment.TaskContext) (assessment.AdapterResult, error) {
-		if dependencies.Client == nil || !validTask(taskContext, assessment.TaskCrawl) {
+		if dependencies.Client == nil || dependencies.Outbound == nil || !validTask(taskContext, assessment.TaskCrawl) {
 			return assessment.AdapterResult{}, assessment.NewAdapterUnavailableError(OwnerCrawler)
 		}
 		config := crawler.DefaultConfig(taskContext.Scope.ProjectID, taskContext.Scope.Target)
@@ -79,7 +85,7 @@ func crawlAdapter(dependencies Dependencies) func(context.Context, assessment.Ta
 		config.MaxDuration = boundedDuration(taskContext.Scope.Limits.MaxDuration)
 		config.MaxRedirects = 0
 		config.RespectRobots = false
-		client := &controlledClient{client: dependencies.Client, runContext: taskContext.RunContext}
+		client := &controlledClient{client: dependencies.Client, outbound: dependencies.Outbound, capabilityID: "assessment-crawl-read", trust: taskContext.Trust, runContext: taskContext.RunContext, manageControls: true, now: taskContext.Now}
 		result, err := (crawler.Crawler{Client: client, Repository: dependencies.Repository}).Crawl(ctx, config)
 		if err != nil {
 			return assessment.AdapterResult{}, err
@@ -117,7 +123,7 @@ func endpointAdapter(dependencies Dependencies) func(context.Context, assessment
 
 func discoveryAdapter(dependencies Dependencies) func(context.Context, assessment.TaskContext) (assessment.AdapterResult, error) {
 	return func(ctx context.Context, taskContext assessment.TaskContext) (assessment.AdapterResult, error) {
-		if dependencies.Client == nil || dependencies.EndpointSource == nil || !validTask(taskContext, assessment.TaskDiscovery) {
+		if dependencies.Client == nil || dependencies.Outbound == nil || dependencies.EndpointSource == nil || !validTask(taskContext, assessment.TaskDiscovery) {
 			return assessment.AdapterResult{}, assessment.NewAdapterUnavailableError(OwnerDiscovery)
 		}
 		inventory, err := endpointintelligence.Build(ctx, dependencies.EndpointSource, taskContext.Scope.ProjectID, endpointintelligence.DefaultLimits())
@@ -132,7 +138,8 @@ func discoveryAdapter(dependencies Dependencies) func(context.Context, assessmen
 		if err != nil {
 			return assessment.AdapterResult{}, err
 		}
-		run, err := smartdiscovery.Verify(ctx, verifiableCandidates(plan.Candidates), smartdiscovery.VerificationDependencies{Client: dependencies.Client, Budget: taskContext.RunContext.Budget, Rate: taskContext.RunContext.Rate, Concurrency: taskContext.RunContext.Concurrency, Evidence: dependencies.DiscoveryEvidence}, smartdiscovery.VerificationOptions{Authorized: true, Verify: true, MaxDuration: boundedDuration(taskContext.Scope.Limits.MaxDuration), MaxResponseBytes: 1 << 20})
+		client := &controlledClient{client: dependencies.Client, outbound: dependencies.Outbound, capabilityID: "assessment-discovery-read", trust: taskContext.Trust, runContext: taskContext.RunContext, now: taskContext.Now}
+		run, err := smartdiscovery.Verify(ctx, verifiableCandidates(plan.Candidates), smartdiscovery.VerificationDependencies{Client: client, Budget: taskContext.RunContext.Budget, Rate: taskContext.RunContext.Rate, Concurrency: taskContext.RunContext.Concurrency, Evidence: dependencies.DiscoveryEvidence}, smartdiscovery.VerificationOptions{Authorized: true, Verify: true, MaxDuration: boundedDuration(taskContext.Scope.Limits.MaxDuration), MaxResponseBytes: 1 << 20})
 		if err != nil {
 			return assessment.AdapterResult{}, err
 		}
@@ -170,28 +177,45 @@ func boundedDuration(limit time.Duration) time.Duration {
 }
 
 type controlledClient struct {
-	client     httpengine.Client
-	runContext pentest.RunContext
-	mu         sync.Mutex
-	err        error
+	client         httpengine.Client
+	outbound       *outbound.Gateway
+	capabilityID   string
+	trust          trustcontext.Context
+	runContext     pentest.RunContext
+	manageControls bool
+	now            func() time.Time
+	mu             sync.Mutex
+	err            error
+	sequence       int
 }
 
 func (client *controlledClient) Do(ctx context.Context, request httpengine.Request) (httpengine.Response, error) {
-	if client.client == nil || client.runContext.Budget == nil || client.runContext.Rate == nil || client.runContext.Concurrency == nil {
+	if client.client == nil || client.outbound == nil || client.manageControls && (client.runContext.Budget == nil || client.runContext.Rate == nil || client.runContext.Concurrency == nil) {
 		return httpengine.Response{}, client.record(errors.New("shared request controls are unavailable"))
 	}
-	if err := client.runContext.Budget.Consume(pentest.BudgetUse{Requests: 1}); err != nil {
-		return httpengine.Response{}, client.record(err)
+	if client.manageControls {
+		if err := client.runContext.Budget.Consume(pentest.BudgetUse{Requests: 1}); err != nil {
+			return httpengine.Response{}, client.record(err)
+		}
+		if err := client.runContext.Rate.Wait(ctx); err != nil {
+			return httpengine.Response{}, client.record(err)
+		}
+		release, err := client.runContext.Concurrency.Acquire(ctx)
+		if err != nil {
+			return httpengine.Response{}, client.record(err)
+		}
+		defer release()
 	}
-	if err := client.runContext.Rate.Wait(ctx); err != nil {
-		return httpengine.Response{}, client.record(err)
+	now := time.Now
+	if client.now != nil {
+		now = client.now
 	}
-	release, err := client.runContext.Concurrency.Acquire(ctx)
-	if err != nil {
-		return httpengine.Response{}, client.record(err)
-	}
-	defer release()
-	response, err := client.client.Do(ctx, request)
+	client.mu.Lock()
+	client.sequence++
+	sequence := client.sequence
+	client.mu.Unlock()
+	operation := outbound.Operation{ID: "t5-" + client.trust.TaskFingerprint + "-" + strconv.Itoa(sequence), ProjectID: request.ProjectID, CapabilityID: client.capabilityID, TaskID: client.trust.TaskID, AssessmentID: client.trust.AssessmentID, CampaignID: client.trust.CampaignID, BudgetReference: client.trust.BudgetReference, Destination: request.URL, Trust: client.trust, CreatedAt: now().UTC(), ExpiresAt: client.trust.ExpiresAt.UTC()}
+	response, err := (outbound.Client{Gateway: *client.outbound, Transport: client.client}).Do(ctx, operation, request)
 	if err != nil {
 		return httpengine.Response{}, client.record(err)
 	}

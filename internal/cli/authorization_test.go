@@ -32,6 +32,30 @@ func TestAuthorizationCLIRequiresAttestationAndValidatesProjectScopedRecord(t *t
 	}
 }
 
+func TestAuthorizationCLIPersistsAndListsProjectScopedAuditEvents(t *testing.T) {
+	ctx := context.Background()
+	databasePath := t.TempDir() + "/authorization-audit.db"
+	expires := time.Now().UTC().Add(time.Hour).Format(time.RFC3339)
+	var created bytes.Buffer
+	if err := Run(ctx, []string{"authorization", "create", "--authorized", "--project", "project-a", "--scope", "scope-v1", "--subject", "example.com", "--type", "assessment", "--evidence", "ticket-123", "--created-by", "operator-a", "--expires", expires, "--db", databasePath, "--json"}, &created, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	id := extractAuthorizationID(t, created.String())
+	if err := Run(ctx, []string{"authorization", "validate", "--authorized", "--project", "project-a", "--scope", "scope-v1", "--id", id, "--db", databasePath}, &bytes.Buffer{}, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	var audit bytes.Buffer
+	if err := Run(ctx, []string{"authorization", "audit", "--authorized", "--project", "project-a", "--id", id, "--db", databasePath, "--json"}, &audit, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(audit.String(), `"authorization.created"`) || !strings.Contains(audit.String(), `"authorization.validated"`) || strings.Contains(strings.ToLower(audit.String()), "ticket-123") {
+		t.Fatalf("audit=%s", audit.String())
+	}
+	if err := Run(ctx, []string{"authorization", "audit", "--authorized", "--project", "project-b", "--id", id, "--db", databasePath}, &bytes.Buffer{}, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func extractAuthorizationID(t *testing.T, output string) string {
 	t.Helper()
 	marker := `"authorization_id":"`
