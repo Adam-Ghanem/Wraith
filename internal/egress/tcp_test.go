@@ -2,6 +2,7 @@ package egress
 
 import (
 	"context"
+	"net/netip"
 	"testing"
 	"time"
 
@@ -72,7 +73,7 @@ func TestTCPDispatcherRejectsCapabilityTargetMismatch(t *testing.T) {
 	}
 }
 
-func mustAddr(t *testing.T, raw string) (addr netip.Addr) {
+func mustAddr(t *testing.T, raw string) netip.Addr {
 	t.Helper()
 	parsed, err := netip.ParseAddr(raw)
 	if err != nil {
