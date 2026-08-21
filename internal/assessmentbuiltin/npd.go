@@ -3,7 +3,9 @@ package assessmentbuiltin
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -75,19 +77,11 @@ func (client *t5TCPClient) ProbeTCP(ctx context.Context, request httpengine.TCPR
 	if target.IP.IsValid() {
 		host = target.IP.String()
 	}
-	operation := outbound.Operation{ID: "npd-t5-" + request.ProjectID + "-" + client.trust.TaskID + "-" + formatSequence(client.sequence.Add(1)), ProjectID: request.ProjectID, CapabilityID: "assessment-network-port-discovery", TaskID: client.trust.TaskID, AssessmentID: client.trust.AssessmentID, CampaignID: client.trust.CampaignID, BudgetReference: client.trust.BudgetReference, Destination: net.JoinHostPort(host, portString(target.Port)), Trust: client.trust, CreatedAt: current().UTC(), ExpiresAt: client.trust.ExpiresAt.UTC()}
+	operation := outbound.Operation{ID: "npd-t5-" + request.ProjectID + "-" + client.trust.TaskID + "-" + fmt.Sprintf("%d", client.sequence.Add(1)), ProjectID: request.ProjectID, CapabilityID: "assessment-network-port-discovery", TaskID: client.trust.TaskID, AssessmentID: client.trust.AssessmentID, CampaignID: client.trust.CampaignID, BudgetReference: client.trust.BudgetReference, Destination: net.JoinHostPort(host, strconv.Itoa(int(target.Port))), Trust: client.trust, CreatedAt: current().UTC(), ExpiresAt: client.trust.ExpiresAt.UTC()}
 	if _, err := client.gateway.Authorize(ctx, operation); err != nil {
 		return httpengine.TCPResponse{}, err
 	}
 	return client.tcp.ProbeTCP(ctx, request)
-}
-
-func formatSequence(value uint64) string {
-	return fmt.Sprintf("%d", value)
-}
-
-func portString(port uint16) string {
-	return strconv.Itoa(int(port))
 }
 
 func boundedNPDTimeout(limit time.Duration) time.Duration {
