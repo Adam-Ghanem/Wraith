@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Adam-Ghanem/Wraith/internal/dataclassification"
 	"github.com/Adam-Ghanem/Wraith/internal/evidence"
 )
 
@@ -112,6 +113,47 @@ func TestEvidenceObservationsAreAppendOnlyAndLegacyScanLedgerSurvivesMigration(t
 	}
 	if history, err := database.LatestScans(ctx, "example.com", 1); err != nil || len(history) != 1 || history[0].ID != legacyScanID {
 		t.Fatalf("legacy scan history = %#v, %v", history, err)
+	}
+}
+
+func TestT7ObservationClassificationRoundTripsAndForgedMetadataIsRejected(t *testing.T) {
+	ctx := context.Background()
+	database, err := Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	if err := database.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	asset, _ := evidence.NewWebAsset("project-a", evidence.AssetKindURL, "https://example.test/", evidenceTestNow())
+	endpoint, _ := evidence.NewEndpoint("project-a", "GET", asset.CanonicalURL, evidenceTestNow())
+	observation, err := evidence.NewHTTPObservation("project-a", endpoint, evidence.HTTPObservationInput{Source: "fixture", ObservedAt: evidenceTestNow(), StatusCode: 200, ResponseHeaders: map[string]string{"Authorization": "Bearer never-persist"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.UpsertWebAsset(ctx, asset); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.UpsertEndpoint(ctx, endpoint); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.AppendObservation(ctx, observation.Record()); err != nil {
+		t.Fatal(err)
+	}
+	events, err := database.ListDataGovernanceEvents(ctx, "project-a")
+	if err != nil || len(events) != 1 || events[0].EventType != dataclassification.EventRedactionApplied || events[0].SubjectReference != observation.Record().ID {
+		t.Fatalf("governance events=%+v err=%v", events, err)
+	}
+	loaded, err := database.ListObservations(ctx, "project-a", endpoint.Identity)
+	if err != nil || len(loaded) != 1 || loaded[0].Classification != "secret" || loaded[0].PolicyVersion == "" {
+		t.Fatalf("governed observations=%#v err=%v", loaded, err)
+	}
+	forged := observation.Record()
+	forged.ID = "forged-observation"
+	forged.Classification = "public"
+	if err := database.AppendObservation(ctx, forged); !errors.Is(err, evidence.ErrInvalidEvidence) {
+		t.Fatalf("forged classification error=%v, want invalid evidence", err)
 	}
 }
 

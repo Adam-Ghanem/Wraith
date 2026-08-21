@@ -7,6 +7,8 @@ import (
 	"errors"
 	"sort"
 	"strings"
+
+	"github.com/Adam-Ghanem/Wraith/internal/dataclassification"
 )
 
 const SchemaVersion = "r16.v1"
@@ -403,12 +405,17 @@ func NewSnapshot(input SnapshotInput) (Snapshot, error) {
 	return snapshot, nil
 }
 
-func secretLike(value string) bool {
-	lower := strings.ToLower(value)
-	for _, marker := range []string{"password", "cookie", "authorization", "api_key", "apikey", "token", "secret", "bearer", "session="} {
-		if strings.Contains(lower, marker) {
-			return true
-		}
+// RevalidateSnapshot reconstructs the canonical report representation before a
+// renderer uses it. It validates governed data first and only then compares the
+// immutable fingerprint, so a forged fingerprint cannot approve unsafe fields.
+func RevalidateSnapshot(snapshot Snapshot) (Snapshot, error) {
+	canonical, err := NewSnapshot(SnapshotInput{ProjectID: snapshot.ProjectID, CampaignID: snapshot.CampaignID, CampaignStatus: snapshot.CampaignStatus, Profile: snapshot.Profile, Target: snapshot.Target, ScopeVersion: snapshot.ScopeVersion, SchemaVersion: snapshot.SchemaVersion, Findings: snapshot.Findings, Limitations: snapshot.Limitations, Coverage: snapshot.Coverage, Evidence: snapshot.Evidence, Regression: snapshot.Regression, Assessment: snapshot.Assessment, Governance: snapshot.Governance, Analytics: snapshot.Analytics, Decision: snapshot.Decision})
+	if err != nil || snapshot.Fingerprint != canonical.Fingerprint {
+		return Snapshot{}, errors.New("invalid report snapshot")
 	}
-	return false
+	return canonical, nil
+}
+
+func secretLike(value string) bool {
+	return dataclassification.IsSecretLike(value)
 }
