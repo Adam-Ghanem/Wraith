@@ -12,6 +12,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/Adam-Ghanem/Wraith/internal/dataclassification"
 )
 
 var (
@@ -93,6 +95,8 @@ type Observation struct {
 	ObservedAt      time.Time       `json:"observed_at"`
 	Payload         json.RawMessage `json:"payload"`
 	Redacted        bool            `json:"redacted"`
+	Classification  string          `json:"classification"`
+	PolicyVersion   string          `json:"policy_version"`
 }
 
 type HTTPObservationInput struct {
@@ -439,12 +443,38 @@ func newObservation(projectID string, kind ObservationKind, subjectIdentity, sou
 	if err != nil {
 		return Observation{}, fmt.Errorf("encode evidence payload: %w", err)
 	}
-	if len(encoded) > 32<<10 {
+	governed, decision, err := dataclassification.SanitizeJSON(encoded, dataclassification.DefaultLimits())
+	if err != nil {
+		return Observation{}, ErrInvalidEvidence
+	}
+	if len(governed) > 32<<10 {
 		return Observation{}, ErrInvalidEvidence
 	}
 	observedAt = observedAt.UTC()
-	hash := sha256.Sum256([]byte(projectID + "\x00" + string(kind) + "\x00" + subjectIdentity + "\x00" + source + "\x00" + observedAt.Format(time.RFC3339Nano) + "\x00" + string(encoded)))
-	return Observation{ID: hex.EncodeToString(hash[:]), ProjectID: projectID, Kind: kind, SubjectIdentity: subjectIdentity, Source: source, ObservedAt: observedAt, Payload: encoded, Redacted: redacted}, nil
+	hash := sha256.Sum256([]byte(projectID + "\x00" + string(kind) + "\x00" + subjectIdentity + "\x00" + source + "\x00" + observedAt.Format(time.RFC3339Nano) + "\x00" + string(decision.Level) + "\x00" + dataclassification.PolicyVersion + "\x00" + string(governed)))
+	return Observation{ID: hex.EncodeToString(hash[:]), ProjectID: projectID, Kind: kind, SubjectIdentity: subjectIdentity, Source: source, ObservedAt: observedAt, Payload: governed, Redacted: redacted || decision.Redacted, Classification: string(decision.Level), PolicyVersion: dataclassification.PolicyVersion}, nil
+}
+
+// ValidateObservation validates governed data before its immutable identifier.
+// The payload is re-sanitized first, so a forged fingerprint cannot validate an
+// unsafe representation.
+func ValidateObservation(observation Observation) error {
+	if strings.TrimSpace(observation.ID) == "" || strings.TrimSpace(observation.ProjectID) == "" || strings.TrimSpace(observation.SubjectIdentity) == "" || strings.TrimSpace(observation.Source) == "" || observation.ObservedAt.IsZero() || !json.Valid(observation.Payload) || len(observation.Payload) > 32<<10 || !dataclassification.ValidLevel(observation.Classification) || observation.PolicyVersion != dataclassification.PolicyVersion {
+		return ErrInvalidEvidence
+	}
+	governed, decision, err := dataclassification.SanitizeJSON(observation.Payload, dataclassification.DefaultLimits())
+	if err != nil || string(governed) != string(observation.Payload) {
+		return ErrInvalidEvidence
+	}
+	classification := decision.Level
+	if !decision.Redacted && observation.Redacted && observation.Classification == string(dataclassification.LevelSecret) {
+		classification = dataclassification.LevelSecret
+	}
+	hash := sha256.Sum256([]byte(observation.ProjectID + "\x00" + string(observation.Kind) + "\x00" + observation.SubjectIdentity + "\x00" + observation.Source + "\x00" + observation.ObservedAt.UTC().Format(time.RFC3339Nano) + "\x00" + string(classification) + "\x00" + observation.PolicyVersion + "\x00" + string(governed)))
+	if observation.ID != hex.EncodeToString(hash[:]) || observation.Classification != string(classification) {
+		return ErrInvalidEvidence
+	}
+	return nil
 }
 
 func validateSubject(projectID, subjectProjectID, subjectIdentity, source string, observedAt time.Time) error {
@@ -458,41 +488,11 @@ func validateSubject(projectID, subjectProjectID, subjectIdentity, source string
 }
 
 func normalizeHeaders(headers map[string]string) (map[string]string, bool, error) {
-	if len(headers) > 100 {
+	governed, decision, err := dataclassification.SanitizeHeaders(headers)
+	if err != nil {
 		return nil, false, ErrInvalidEvidence
 	}
-	if len(headers) == 0 {
-		return nil, false, nil
-	}
-	normalized := make(map[string]string, len(headers))
-	keys := make([]string, 0, len(headers))
-	for name := range headers {
-		keys = append(keys, name)
-	}
-	sort.Strings(keys)
-	redacted := false
-	for _, name := range keys {
-		canonicalName := strings.ToLower(strings.TrimSpace(name))
-		value := strings.TrimSpace(headers[name])
-		if canonicalName == "" || len(canonicalName) > 256 || len(value) > 4096 || strings.ContainsAny(canonicalName, "\r\n\x00") || strings.ContainsAny(value, "\r\n\x00") {
-			return nil, false, ErrInvalidEvidence
-		}
-		if isSensitiveHeader(canonicalName) {
-			value = "REDACTED"
-			redacted = true
-		}
-		normalized[canonicalName] = value
-	}
-	return normalized, redacted, nil
-}
-
-func isSensitiveHeader(name string) bool {
-	switch name {
-	case "authorization", "cookie", "set-cookie", "proxy-authorization", "api-key", "x-api-key", "api_key", "x-api_key", "x-auth-token", "x-access-token", "access-token":
-		return true
-	default:
-		return false
-	}
+	return governed, decision.Redacted, nil
 }
 
 func isHTTPMethod(method string) bool {
@@ -546,13 +546,7 @@ func validDiscoveryVerificationStatus(value string) bool {
 }
 
 func containsSensitive(value string) bool {
-	lower := strings.ToLower(value)
-	for _, marker := range []string{"bearer ", "token", "password", "cookie", "authorization", "api_key", "apikey", "private key", "-----begin"} {
-		if strings.Contains(lower, marker) {
-			return true
-		}
-	}
-	return false
+	return dataclassification.IsSecretLike(value)
 }
 
 func validConfidence(value string) bool {

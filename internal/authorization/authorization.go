@@ -9,6 +9,8 @@ import (
 	"errors"
 	"strings"
 	"time"
+
+	"github.com/Adam-Ghanem/Wraith/internal/dataclassification"
 )
 
 const SchemaVersion = "t1.authorization.v1"
@@ -144,8 +146,7 @@ func validText(value string) bool {
 }
 
 func secretLike(value string) bool {
-	lower := strings.ToLower(value)
-	return strings.Contains(lower, "bearer ") || strings.Contains(lower, "authorization:") || strings.Contains(lower, "cookie=") || strings.Contains(lower, "password") || strings.Contains(lower, "api_key") || strings.Contains(lower, "private key") || strings.Contains(lower, "://") && strings.Contains(strings.SplitN(lower, "://", 2)[1], "@")
+	return dataclassification.IsSecretLike(value)
 }
 
 func fingerprint(record Record) string {

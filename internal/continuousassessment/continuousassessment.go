@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Adam-Ghanem/Wraith/internal/dataclassification"
 	"github.com/Adam-Ghanem/Wraith/internal/regression"
 )
 
@@ -600,13 +601,7 @@ func validFingerprint(value string) bool {
 }
 
 func secretLike(value string) bool {
-	lower := strings.ToLower(value)
-	for _, marker := range []string{"password", "cookie", "authorization", "api_key", "apikey", "token", "secret", "bearer", "session=", "@"} {
-		if strings.Contains(lower, marker) {
-			return true
-		}
-	}
-	return false
+	return dataclassification.IsSecretLike(value) || strings.Contains(value, "@")
 }
 
 func fingerprint(value any) string {

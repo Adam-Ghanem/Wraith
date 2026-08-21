@@ -51,6 +51,13 @@ func TestT6BlocksProviderAndSubprocessScanModesBeforeOptionParsing(t *testing.T)
 	}
 }
 
+func TestT6BlocksLegacyFixtureExportBeforeHandlerDispatch(t *testing.T) {
+	err := Run(context.Background(), []string{"export-fixtures", "--authorized"}, &bytes.Buffer{}, &bytes.Buffer{})
+	if !errors.Is(err, ErrProviderOutboundBlocked) {
+		t.Fatalf("fixture export error=%v, want provider outbound block", err)
+	}
+}
+
 func TestT6RecognizesBooleanFlagEqualsSyntax(t *testing.T) {
 	if err := t6OutboundBlock([]string{"fuzz", "--dry-run=true"}); err != nil {
 		t.Fatalf("dry-run=true was blocked: %v", err)
