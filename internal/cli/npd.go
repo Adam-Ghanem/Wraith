@@ -78,11 +78,11 @@ func runPentestNPD(ctx context.Context, args []string, stdout io.Writer) error {
 
 type npdRunOptions struct {
 	ProjectID, ScopeVersion, DatabasePath, Target, PortSpec, CampaignID string
-	Authorized, DryRun, JSON                                      bool
-	NPDProfile                                                   npd.Profile
-	AssessmentProfile                                            assessment.Profile
-	Timeout                                                      time.Duration
-	MaxPorts, MaxRequests, MaxConcurrency, Rate                   int
+	Authorized, DryRun, JSON                                            bool
+	NPDProfile                                                          npd.Profile
+	AssessmentProfile                                                   assessment.Profile
+	Timeout                                                             time.Duration
+	MaxPorts, MaxRequests, MaxConcurrency, Rate                         int
 }
 
 func executeNPD(ctx context.Context, stdout io.Writer, options npdRunOptions) error {
