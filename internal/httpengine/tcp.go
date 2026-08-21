@@ -17,6 +17,8 @@ var (
 	ErrTCPPolicyDenied   = errors.New("TCP connection denied by policy")
 	ErrTCPDNSResolution  = errors.New("TCP DNS resolution failed")
 	ErrTCPDestination    = errors.New("TCP destination denied")
+	ErrTCPRefused        = errors.New("TCP connection refused")
+	ErrTCPTimeout        = errors.New("TCP connection timed out")
 )
 
 type TCPRequest struct {
@@ -74,6 +76,12 @@ func (engine *Engine) ProbeTCP(ctx context.Context, request TCPRequest) (TCPResp
 	started := time.Now()
 	conn, err := (&net.Dialer{}).DialContext(probeCtx, "tcp", address)
 	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(probeCtx.Err(), context.DeadlineExceeded) {
+			return TCPResponse{Duration: time.Since(started)}, ErrTCPTimeout
+		}
+		if strings.Contains(strings.ToLower(err.Error()), "connection refused") {
+			return TCPResponse{Duration: time.Since(started)}, ErrTCPRefused
+		}
 		return TCPResponse{Duration: time.Since(started)}, err
 	}
 	remote := conn.RemoteAddr().String()
