@@ -27,7 +27,7 @@ func (standaloneGateway) Authorize(_ context.Context, projectID string, target p
 	return policy.Decision{Allowed: true, ProjectID: projectID, Target: target, Action: action, Reason: "standalone scan mode"}, nil
 }
 
-// RunStandaloneScan provides the Nmap-like top-level scan command. It keeps
+// RunStandaloneScan provides the top-level standalone scan command. It keeps
 // socket ownership inside the R3 HTTP/TCP engine while intentionally omitting
 // project T1/T2 authorization for this explicit standalone mode.
 func RunStandaloneScan(ctx context.Context, args []string, stdout, _ io.Writer) error {
