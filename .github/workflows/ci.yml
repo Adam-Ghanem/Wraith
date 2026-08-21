@@ -58,6 +58,8 @@ jobs:
         run: bash scripts/check-t4-trust-enforcement.sh
       - name: Check T5 central outbound gateway boundary
         run: bash scripts/check-t5-outbound-gateway.sh
+      - name: Check T6 central egress adoption boundary
+        run: bash scripts/check-t6-central-egress-adoption.sh
 
   web-quality:
     name: Web quality

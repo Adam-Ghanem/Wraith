@@ -27,10 +27,10 @@ func TestParseContentOptionsRequiresExplicitAuthorizationAndBounds(t *testing.T)
 	}
 }
 
-func TestRunDispatchesContentCommand(t *testing.T) {
+func TestRunBlocksLegacyContentCommandBeforeOptionParsing(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	err := Run(context.Background(), []string{"content"}, &stdout, &stderr)
-	if err == nil || !strings.Contains(err.Error(), "wraith content") {
+	if err == nil || !strings.Contains(err.Error(), "legacy outbound path is blocked") {
 		t.Fatalf("err=%v stdout=%q stderr=%q", err, stdout.String(), stderr.String())
 	}
 }
