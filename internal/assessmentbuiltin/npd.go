@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Adam-Ghanem/Wraith/internal/assessment"
+	"github.com/Adam-Ghanem/Wraith/internal/evidence"
 	"github.com/Adam-Ghanem/Wraith/internal/httpengine"
 	"github.com/Adam-Ghanem/Wraith/internal/npd"
 	"github.com/Adam-Ghanem/Wraith/internal/outbound"
@@ -23,7 +24,7 @@ const OwnerNetworkPortDiscovery = "r15.network_port_discovery"
 func npdAdapter(dependencies Dependencies) func(context.Context, assessment.TaskContext) (assessment.AdapterResult, error) {
 	return func(ctx context.Context, taskContext assessment.TaskContext) (assessment.AdapterResult, error) {
 		tcp, ok := dependencies.Client.(httpengine.TCPClient)
-		if !ok || tcp == nil || dependencies.Outbound == nil || !validTask(taskContext, assessment.TaskNetworkPortDiscovery) {
+		if !ok || tcp == nil || dependencies.Outbound == nil || dependencies.Repository == nil || !validTask(taskContext, assessment.TaskNetworkPortDiscovery) {
 			return assessment.AdapterResult{}, assessment.NewAdapterUnavailableError(OwnerNetworkPortDiscovery)
 		}
 		ports := npd.DefaultPorts(npd.Profile(taskContext.Scope.Profile))
@@ -46,7 +47,27 @@ func npdAdapter(dependencies Dependencies) func(context.Context, assessment.Task
 		if result.ProjectID != taskContext.Scope.ProjectID || result.ScopeVersion != taskContext.Scope.ScopeVersion || strings.TrimSpace(result.Target) != strings.TrimSpace(taskContext.Scope.Target) {
 			return assessment.AdapterResult{}, errors.New("NPD result does not match assessment scope")
 		}
-		return assessment.AdapterResult{Owner: OwnerNetworkPortDiscovery, TaskID: taskContext.Task.ID, SignalCount: len(result.Ports)}, nil
+		references := make([]string, 0, len(result.Ports))
+		for _, portResult := range result.Ports {
+			target, parseErr := policy.ParseTarget(result.Target)
+			if parseErr != nil {
+				return assessment.AdapterResult{}, errors.New("NPD result target is invalid")
+			}
+			host := target.Hostname
+			if target.IP.IsValid() {
+				host = target.IP.String()
+			}
+			subject := net.JoinHostPort(host, strconv.Itoa(int(portResult.Port)))
+			observation, observationErr := evidence.NewNetworkPortObservation(taskContext.Scope.ProjectID, subject, evidence.NetworkPortObservationInput{Port: portResult.Port, Protocol: portResult.Protocol, State: string(portResult.State), ScopeVersion: taskContext.Scope.ScopeVersion, TaskID: taskContext.Task.ID, Authorization: taskContext.Trust.AuthorizationID, ObservedAt: portResult.ObservedAt, DurationMS: portResult.Duration.Milliseconds()})
+			if observationErr != nil {
+				return assessment.AdapterResult{}, observationErr
+			}
+			if observationErr := dependencies.Repository.AppendObservation(ctx, observation.Record()); observationErr != nil {
+				return assessment.AdapterResult{}, observationErr
+			}
+			references = append(references, observation.ID)
+		}
+		return assessment.AdapterResult{Owner: OwnerNetworkPortDiscovery, TaskID: taskContext.Task.ID, EvidenceRefs: references, SignalCount: len(result.Ports)}, nil
 	}
 }
 
