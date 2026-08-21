@@ -35,6 +35,19 @@ func TestParsePortsCanonicalAndBounded(t *testing.T) {
 	}
 }
 
+func TestParsePortsOverlappingRangesDeduplicateBeforeLimit(t *testing.T) {
+	ports, err := ParsePorts("1-3,3-5,1-5", 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []uint16{1, 2, 3, 4, 5}
+	for i := range want {
+		if ports[i] != want[i] {
+			t.Fatalf("got %v want %v", ports, want)
+		}
+	}
+}
+
 func TestParsePortsRejectsUnsafeInput(t *testing.T) {
 	for _, spec := range []string{"0", "65536", "10-1", "-1", "1--2"} {
 		if _, err := ParsePorts(spec, 4096); err == nil {
