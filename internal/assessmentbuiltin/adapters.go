@@ -18,6 +18,7 @@ import (
 	"github.com/Adam-Ghanem/Wraith/internal/httpengine"
 	"github.com/Adam-Ghanem/Wraith/internal/outbound"
 	"github.com/Adam-Ghanem/Wraith/internal/pentest"
+	"github.com/Adam-Ghanem/Wraith/internal/scope"
 	"github.com/Adam-Ghanem/Wraith/internal/smartdiscovery"
 	"github.com/Adam-Ghanem/Wraith/internal/trustcontext"
 )
@@ -37,7 +38,14 @@ type Dependencies struct {
 	Repository        evidence.Repository
 	EndpointSource    endpointintelligence.Source
 	DiscoveryEvidence smartdiscovery.DiscoveryEvidenceSink
-	Now               func() time.Time
+	// ScopeStore is the authoritative T2 scope/authorization seam used by NPD
+	// for per-destination revalidation. It is intentionally separate from the
+	// evidence repository so NPD cannot infer authorization from evidence state.
+	ScopeStore interface {
+		LoadScopeVersion(context.Context, string, string) (scope.Version, error)
+		LoadActiveAuthorizationForScope(context.Context, string, string, time.Time) (authorization.Record, error)
+	}
+	Now func() time.Time
 }
 
 type adapter struct {
@@ -55,8 +63,6 @@ func (adapter adapter) Execute(ctx context.Context, task assessment.TaskContext)
 	return adapter.execute(ctx, task)
 }
 
-// NewRegistry binds complete existing-owner contracts and retains explicit,
-// non-dispatching owners where the selected project lacks the required inputs.
 func NewRegistry(dependencies Dependencies) (assessment.AdapterRegistry, error) {
 	values := []assessment.TypedAdapter{
 		{TaskType: assessment.TaskCrawl, Adapter: adapter{owner: OwnerCrawler, requestControls: true, execute: crawlAdapter(dependencies)}},
