@@ -3,12 +3,17 @@ package assessmentbuiltin
 import (
 	"context"
 	"errors"
+	"net"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/Adam-Ghanem/Wraith/internal/assessment"
 	"github.com/Adam-Ghanem/Wraith/internal/httpengine"
 	"github.com/Adam-Ghanem/Wraith/internal/npd"
+	"github.com/Adam-Ghanem/Wraith/internal/outbound"
+	"github.com/Adam-Ghanem/Wraith/internal/policy"
+	"github.com/Adam-Ghanem/Wraith/internal/trustcontext"
 )
 
 const OwnerNetworkPortDiscovery = "r15.network_port_discovery"
@@ -16,14 +21,15 @@ const OwnerNetworkPortDiscovery = "r15.network_port_discovery"
 func npdAdapter(dependencies Dependencies) func(context.Context, assessment.TaskContext) (assessment.AdapterResult, error) {
 	return func(ctx context.Context, taskContext assessment.TaskContext) (assessment.AdapterResult, error) {
 		tcp, ok := dependencies.Client.(httpengine.TCPClient)
-		if !ok || tcp == nil || !validTask(taskContext, assessment.TaskNetworkPortDiscovery) {
+		if !ok || tcp == nil || dependencies.Outbound == nil || !validTask(taskContext, assessment.TaskNetworkPortDiscovery) {
 			return assessment.AdapterResult{}, assessment.NewAdapterUnavailableError(OwnerNetworkPortDiscovery)
 		}
 		ports := npd.DefaultPorts(npd.Profile(taskContext.Scope.Profile))
 		if len(ports) == 0 {
 			return assessment.AdapterResult{}, errors.New("NPD profile has no bounded TCP ports")
 		}
-		scanner := npd.Scanner{TCP: tcp, Now: dependencies.Now}
+		wrapper := &t5TCPClient{gateway: dependencies.Outbound, tcp: tcp, trust: taskContext.Trust, now: dependencies.Now, sequence: new(atomic.Uint64)}
+		scanner := npd.Scanner{TCP: wrapper, Now: dependencies.Now}
 		plan, err := scanner.Plan(taskContext.Scope.Target, ports)
 		if err != nil {
 			return assessment.AdapterResult{}, err
@@ -40,6 +46,48 @@ func npdAdapter(dependencies Dependencies) func(context.Context, assessment.Task
 		}
 		return assessment.AdapterResult{Owner: OwnerNetworkPortDiscovery, TaskID: taskContext.Task.ID, SignalCount: len(result.Ports)}, nil
 	}
+}
+
+type t5TCPClient struct {
+	gateway  *outbound.Gateway
+	tcp      httpengine.TCPClient
+	trust    trustcontext.Context
+	now      func() time.Time
+	sequence *atomic.Uint64
+}
+
+func (client *t5TCPClient) ProbeTCP(ctx context.Context, request httpengine.TCPRequest) (httpengine.TCPResponse, error) {
+	if client == nil || client.gateway == nil || client.tcp == nil || client.sequence == nil {
+		return httpengine.TCPResponse{}, outbound.ErrOutboundDenied
+	}
+	if ctx == nil {
+		return httpengine.TCPResponse{}, outbound.ErrOutboundDenied
+	}
+	current := time.Now
+	if client.now != nil {
+		current = client.now
+	}
+	target, err := policy.NormalizeTarget(request.Target)
+	if err != nil || target.Port == 0 {
+		return httpengine.TCPResponse{}, outbound.ErrDestinationInvalid
+	}
+	host := target.Hostname
+	if target.IP.IsValid() {
+		host = target.IP.String()
+	}
+	operation := outbound.Operation{ID: "npd-t5-" + request.ProjectID + "-" + client.trust.TaskID + "-" + formatSequence(client.sequence.Add(1)), ProjectID: request.ProjectID, CapabilityID: "assessment-network-port-discovery", TaskID: client.trust.TaskID, AssessmentID: client.trust.AssessmentID, CampaignID: client.trust.CampaignID, BudgetReference: client.trust.BudgetReference, Destination: net.JoinHostPort(host, portString(target.Port)), Trust: client.trust, CreatedAt: current().UTC(), ExpiresAt: client.trust.ExpiresAt.UTC()}
+	if _, err := client.gateway.Authorize(ctx, operation); err != nil {
+		return httpengine.TCPResponse{}, err
+	}
+	return client.tcp.ProbeTCP(ctx, request)
+}
+
+func formatSequence(value uint64) string {
+	return fmt.Sprintf("%d", value)
+}
+
+func portString(port uint16) string {
+	return strconv.Itoa(int(port))
 }
 
 func boundedNPDTimeout(limit time.Duration) time.Duration {
