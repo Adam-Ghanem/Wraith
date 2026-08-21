@@ -11,12 +11,14 @@ import (
 	"time"
 
 	"github.com/Adam-Ghanem/Wraith/internal/assessment"
+	"github.com/Adam-Ghanem/Wraith/internal/authorization"
 	"github.com/Adam-Ghanem/Wraith/internal/evidence"
 	"github.com/Adam-Ghanem/Wraith/internal/httpengine"
 	"github.com/Adam-Ghanem/Wraith/internal/npd"
 	"github.com/Adam-Ghanem/Wraith/internal/outbound"
 	"github.com/Adam-Ghanem/Wraith/internal/pentest"
 	"github.com/Adam-Ghanem/Wraith/internal/policy"
+	"github.com/Adam-Ghanem/Wraith/internal/scope"
 	"github.com/Adam-Ghanem/Wraith/internal/trustcontext"
 )
 
@@ -40,12 +42,15 @@ func npdAdapter(dependencies Dependencies) func(context.Context, assessment.Task
 			}
 			ports = parsed
 		}
-		if len(ports) == 0 {
+		if len(ports) == 0 || len(ports) > npd.MaxPorts {
 			return assessment.AdapterResult{}, errors.New("NPD task has no bounded TCP ports")
 		}
 		wrapper := &t5TCPClient{
 			gateway: dependencies.Outbound, tcp: tcp, trust: taskContext.Trust,
 			runContext: taskContext.RunContext, now: dependencies.Now, sequence: new(atomic.Uint64),
+			scopeAuthorize: func(checkContext context.Context, request httpengine.TCPRequest) error {
+				return authorizeNPDPort(checkContext, dependencies.Repository, request.ProjectID, taskContext.Scope.ScopeVersion, taskContext.Trust.AuthorizationID, request.Target, taskContext.Trust.ExpiresAt)
+			},
 		}
 		scanner := npd.Scanner{TCP: wrapper, Now: dependencies.Now}
 		plan, err := scanner.Plan(taskContext.Scope.Target, ports)
@@ -90,18 +95,67 @@ func npdAdapter(dependencies Dependencies) func(context.Context, assessment.Task
 	}
 }
 
+func authorizeNPDPort(ctx context.Context, repository interface {
+	LoadScopeVersion(context.Context, string, string) (scope.Version, error)
+	LoadActiveAuthorizationForScope(context.Context, string, string, time.Time) (authorization.Record, error)
+}, projectID, scopeVersion, authorizationID string, target policy.Target, trustExpiry time.Time) error {
+	if ctx == nil || repository == nil || strings.TrimSpace(projectID) == "" || strings.TrimSpace(scopeVersion) == "" || strings.TrimSpace(authorizationID) == "" || target.Port == 0 || trustExpiry.IsZero() {
+		return httpengine.ErrTCPPolicyDenied
+	}
+	host := target.Hostname
+	if target.IP.IsValid() {
+		host = target.IP.String()
+	}
+	if host == "" {
+		return httpengine.ErrTCPPolicyDenied
+	}
+	destination := "tcp://" + hostForTCPURL(host) + ":" + strconv.Itoa(int(target.Port))
+	version, err := repository.LoadScopeVersion(ctx, projectID, scopeVersion)
+	if err != nil {
+		return httpengine.ErrTCPPolicyDenied
+	}
+	authorizationRecord, err := repository.LoadActiveAuthorizationForScope(ctx, projectID, scopeVersion, time.Now().UTC())
+	if err != nil {
+		if errors.Is(err, authorization.ErrExpired) || errors.Is(err, authorization.ErrRevoked) || errors.Is(err, authorization.ErrFingerprintMismatch) || errors.Is(err, authorization.ErrProjectMismatch) || errors.Is(err, authorization.ErrScopeMismatch) {
+			return errors.Join(errors.New("authorization denied"), err)
+		}
+		return errors.Join(errors.New("authorization unavailable"), err)
+	}
+	if authorizationRecord.AuthorizationID != authorizationID || !time.Now().UTC().Before(trustExpiry) {
+		return errors.New("authorization denied")
+	}
+	if _, err := scope.Evaluate(version, authorizationRecord, scope.Request{ProjectID: projectID, Target: destination, Now: time.Now().UTC()}); err != nil {
+		if errors.Is(err, authorization.ErrExpired) || errors.Is(err, authorization.ErrRevoked) || errors.Is(err, authorization.ErrFingerprintMismatch) || errors.Is(err, authorization.ErrProjectMismatch) || errors.Is(err, authorization.ErrScopeMismatch) {
+			return errors.Join(errors.New("authorization denied"), err)
+		}
+		return errors.Join(httpengine.ErrTCPPolicyDenied, err)
+	}
+	return nil
+}
+
+func hostForTCPURL(host string) string {
+	if strings.Contains(host, ":") && !strings.HasPrefix(host, "[") {
+		return "[" + host + "]"
+	}
+	return host
+}
+
 type t5TCPClient struct {
-	gateway    *outbound.Gateway
-	tcp        httpengine.TCPClient
-	trust      trustcontext.Context
-	runContext pentest.RunContext
-	now        func() time.Time
-	sequence   *atomic.Uint64
+	gateway        *outbound.Gateway
+	tcp            httpengine.TCPClient
+	trust          trustcontext.Context
+	runContext     pentest.RunContext
+	now            func() time.Time
+	sequence       *atomic.Uint64
+	scopeAuthorize func(context.Context, httpengine.TCPRequest) error
 }
 
 func (client *t5TCPClient) ProbeTCP(ctx context.Context, request httpengine.TCPRequest) (httpengine.TCPResponse, error) {
-	if client == nil || client.gateway == nil || client.tcp == nil || client.sequence == nil || client.runContext.Budget == nil || client.runContext.Concurrency == nil || client.runContext.Rate == nil || ctx == nil {
+	if client == nil || client.gateway == nil || client.tcp == nil || client.sequence == nil || client.runContext.Budget == nil || client.runContext.Concurrency == nil || client.runContext.Rate == nil || client.scopeAuthorize == nil || ctx == nil {
 		return httpengine.TCPResponse{}, outbound.ErrOutboundDenied
+	}
+	if err := client.scopeAuthorize(ctx, request); err != nil {
+		return httpengine.TCPResponse{}, err
 	}
 	if err := client.runContext.Budget.Consume(pentest.BudgetUse{Requests: 1}); err != nil {
 		return httpengine.TCPResponse{}, err
