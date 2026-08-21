@@ -62,6 +62,7 @@ func NewRegistry(dependencies Dependencies) (assessment.AdapterRegistry, error) 
 		{TaskType: assessment.TaskCrawl, Adapter: adapter{owner: OwnerCrawler, requestControls: true, execute: crawlAdapter(dependencies)}},
 		{TaskType: assessment.TaskEndpoints, Adapter: adapter{owner: OwnerEndpoints, execute: endpointAdapter(dependencies)}},
 		{TaskType: assessment.TaskDiscovery, Adapter: adapter{owner: OwnerDiscovery, requestControls: true, execute: discoveryAdapter(dependencies)}},
+		{TaskType: assessment.TaskNetworkPortDiscovery, Adapter: adapter{owner: OwnerNetworkPortDiscovery, execute: npdAdapter(dependencies)}},
 	}
 	for _, taskType := range []assessment.TaskType{assessment.TaskJS, assessment.TaskBaseline, assessment.TaskMutation, assessment.TaskFuzz, assessment.TaskInjection, assessment.TaskValidation, assessment.TaskCorrelation, assessment.TaskFinding, assessment.TaskRisk, assessment.TaskSurface, assessment.TaskReport} {
 		values = append(values, assessment.TypedAdapter{TaskType: taskType, Adapter: adapter{owner: "unavailable." + string(taskType)}})
