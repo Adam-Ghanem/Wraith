@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/Adam-Ghanem/Wraith/internal/dataclassification"
 )
 
 type SecurityFindingRecord struct {
@@ -167,7 +169,7 @@ func scanSecurityFinding(row securityFindingRow) (SecurityFindingRecord, error) 
 }
 
 func validSecurityFinding(finding SecurityFindingRecord) bool {
-	return strings.TrimSpace(finding.ProjectID) != "" && strings.TrimSpace(finding.FindingID) != "" && strings.TrimSpace(finding.ValidationID) != "" && strings.TrimSpace(finding.CorrelationID) != "" && strings.TrimSpace(finding.EndpointID) != "" && strings.TrimSpace(finding.ParameterID) != "" && strings.TrimSpace(finding.Fingerprint) != "" && finding.RiskScore >= 0 && finding.RiskScore <= 100 && strings.TrimSpace(finding.RiskModelVersion) != "" && !finding.RiskCalculatedAt.IsZero() && !finding.FirstSeenAt.IsZero() && !finding.LastSeenAt.IsZero() && !finding.ValidatedAt.IsZero() && safeEvidenceReferences(finding.EvidenceReferences)
+	return strings.TrimSpace(finding.ProjectID) != "" && strings.TrimSpace(finding.FindingID) != "" && strings.TrimSpace(finding.ValidationID) != "" && strings.TrimSpace(finding.CorrelationID) != "" && strings.TrimSpace(finding.EndpointID) != "" && strings.TrimSpace(finding.ParameterID) != "" && strings.TrimSpace(finding.Fingerprint) != "" && finding.RiskScore >= 0 && finding.RiskScore <= 100 && strings.TrimSpace(finding.RiskModelVersion) != "" && !finding.RiskCalculatedAt.IsZero() && !finding.FirstSeenAt.IsZero() && !finding.LastSeenAt.IsZero() && !finding.ValidatedAt.IsZero() && safeEvidenceReferences(finding.EvidenceReferences) && safeFindingFields(finding) && safeFindingFactors(finding.RiskFactorsJSON)
 }
 
 func safeEvidenceReferences(values []string) bool {
@@ -175,20 +177,31 @@ func safeEvidenceReferences(values []string) bool {
 		return false
 	}
 	for _, value := range values {
-		if value = strings.TrimSpace(value); value == "" || secretLike(value) {
+		if value = strings.TrimSpace(value); value == "" || dataclassification.ValidateSafeReference(value) != nil {
 			return false
 		}
 	}
 	return true
 }
 func secretLike(value string) bool {
-	lower := strings.ToLower(value)
-	for _, marker := range []string{"password", "cookie", "authorization", "api_key", "apikey", "token", "secret", "bearer", "session="} {
-		if strings.Contains(lower, marker) {
-			return true
+	return dataclassification.IsSecretLike(value)
+}
+
+func safeFindingFields(finding SecurityFindingRecord) bool {
+	for _, value := range []string{finding.ProjectID, finding.FindingID, finding.RunID, finding.ValidationID, finding.CorrelationID, finding.EndpointID, finding.ParameterID, finding.AssetID, finding.Class, finding.Subtype, finding.Title, finding.Description, finding.RemediationHint, finding.Confidence, finding.Severity, finding.RiskBand, finding.RiskModelVersion, finding.RiskReason, finding.Status, finding.Fingerprint} {
+		if strings.TrimSpace(value) != "" && dataclassification.ValidateSafeText(value, 4096) != nil {
+			return false
 		}
 	}
-	return false
+	return true
+}
+
+func safeFindingFactors(raw string) bool {
+	if !json.Valid([]byte(raw)) {
+		return false
+	}
+	_, decision, err := dataclassification.SanitizeJSON([]byte(raw), dataclassification.DefaultLimits())
+	return err == nil && !decision.Redacted
 }
 func historyID(history FindingHistoryRecord) string {
 	sum := sha256.Sum256([]byte(strings.Join([]string{history.ProjectID, history.FindingID, history.Event, history.Reason, history.CreatedBy, formatStorageTime(history.At)}, "\x00")))

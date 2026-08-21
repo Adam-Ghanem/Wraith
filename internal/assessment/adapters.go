@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Adam-Ghanem/Wraith/internal/dataclassification"
 	"github.com/Adam-Ghanem/Wraith/internal/pentest"
 	"github.com/Adam-Ghanem/Wraith/internal/trustcontext"
 )
@@ -158,26 +159,14 @@ func invalidTaskTarget(value string) bool {
 }
 
 func secretLikeTargetKey(value string) bool {
-	lower := strings.ToLower(strings.TrimSpace(value))
-	for _, marker := range []string{"password", "token", "secret", "authorization", "cookie", "bearer", "api_key", "apikey", "access_key", "signature"} {
-		if strings.Contains(lower, marker) {
-			return true
-		}
-	}
-	return false
+	return dataclassification.IsSecretName(value)
 }
 
 func invalidEvidenceRefs(references []string) bool {
 	for _, reference := range references {
 		value := strings.TrimSpace(reference)
-		if value == "" || len(value) > 512 {
+		if value == "" || dataclassification.ValidateSafeReference(value) != nil {
 			return true
-		}
-		lower := strings.ToLower(value)
-		for _, marker := range []string{"password", "token=", "token:", "secret", "authorization", "cookie", "bearer", "api_key", "apikey"} {
-			if strings.Contains(lower, marker) {
-				return true
-			}
 		}
 	}
 	return false

@@ -10,6 +10,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/Adam-Ghanem/Wraith/internal/dataclassification"
 )
 
 const (
@@ -329,13 +331,7 @@ func validFingerprint(value string) bool {
 }
 
 func secretLike(value string) bool {
-	lower := strings.ToLower(strings.TrimSpace(value))
-	for _, marker := range []string{"authorization", "proxy-authorization", "cookie", "set-cookie", "api-key", "x-api-key", "access-token", "refresh-token", "bearer ", "token=", "apikey=", "api_key=", "password=", "secret="} {
-		if strings.Contains(lower, marker) {
-			return true
-		}
-	}
-	return strings.Contains(lower, "://") && strings.Contains(strings.SplitN(lower, "://", 2)[1], "@")
+	return dataclassification.IsSecretLike(value)
 }
 
 func stateFingerprint(state RecommendationGovernanceState) string {

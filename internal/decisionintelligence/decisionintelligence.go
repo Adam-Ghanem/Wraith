@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Adam-Ghanem/Wraith/internal/analytics"
+	"github.com/Adam-Ghanem/Wraith/internal/dataclassification"
 )
 
 const (
@@ -559,13 +560,7 @@ func validFingerprint(value string) bool {
 }
 
 func secretLike(value string) bool {
-	lower := strings.ToLower(strings.TrimSpace(value))
-	for _, marker := range []string{"password", "cookie", "authorization", "api_key", "apikey", "token", "secret", "bearer", "session="} {
-		if strings.Contains(lower, marker) {
-			return true
-		}
-	}
-	return false
+	return dataclassification.IsSecretLike(value)
 }
 
 func normalizeIdentifiers(values []string) []string {

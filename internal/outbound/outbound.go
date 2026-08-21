@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Adam-Ghanem/Wraith/internal/dataclassification"
 	"github.com/Adam-Ghanem/Wraith/internal/httpengine"
 	"github.com/Adam-Ghanem/Wraith/internal/policy"
 	"github.com/Adam-Ghanem/Wraith/internal/securitytrust"
@@ -233,14 +234,5 @@ func validIdentifier(value string) bool {
 }
 
 func secretLike(value string) bool {
-	lower := strings.ToLower(value)
-	if strings.Contains(lower, "://") && strings.Contains(strings.SplitN(lower, "://", 2)[1], "@") {
-		return true
-	}
-	for _, marker := range []string{"bearer ", "authorization:", "cookie=", "password", "api_key", "apikey", "private key", "token="} {
-		if strings.Contains(lower, marker) {
-			return true
-		}
-	}
-	return false
+	return dataclassification.IsSecretLike(value)
 }

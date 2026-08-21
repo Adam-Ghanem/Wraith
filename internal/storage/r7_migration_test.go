@@ -25,7 +25,8 @@ CREATE TABLE evidence_observations (
     subject_identity TEXT NOT NULL, source TEXT NOT NULL, observed_at TEXT NOT NULL,
     payload_json TEXT NOT NULL, redacted INTEGER NOT NULL CHECK (redacted IN (0, 1))
 );
-INSERT INTO evidence_observations SELECT * FROM evidence_observations_r7;
+INSERT INTO evidence_observations(id, project_id, kind, subject_identity, source, observed_at, payload_json, redacted)
+SELECT id, project_id, kind, subject_identity, source, observed_at, payload_json, redacted FROM evidence_observations_r7;
 DROP TABLE evidence_observations_r7;
 CREATE INDEX idx_evidence_observations_project_subject_time ON evidence_observations(project_id, subject_identity, observed_at, id);
 INSERT INTO evidence_observations(id, project_id, kind, subject_identity, source, observed_at, payload_json, redacted)

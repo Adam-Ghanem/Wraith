@@ -8,6 +8,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/Adam-Ghanem/Wraith/internal/dataclassification"
 )
 
 const SchemaVersion = "r18.v1"
@@ -223,13 +225,7 @@ func validID(value string) bool {
 }
 func validOptionalID(value string) bool { return strings.TrimSpace(value) == "" || validID(value) }
 func secretLike(value string) bool {
-	lower := strings.ToLower(value)
-	for _, marker := range []string{"password", "cookie", "authorization", "api_key", "apikey", "token", "secret", "bearer", "session="} {
-		if strings.Contains(lower, marker) {
-			return true
-		}
-	}
-	return false
+	return dataclassification.IsSecretLike(value)
 }
 
 func normalizedIDs(values []string) []string {

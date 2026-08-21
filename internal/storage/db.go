@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Adam-Ghanem/Wraith/internal/dataclassification"
 	"github.com/Adam-Ghanem/Wraith/internal/evidence"
 	"github.com/Adam-Ghanem/Wraith/internal/policy"
 	_ "modernc.org/sqlite"
@@ -21,7 +22,7 @@ import (
 //go:embed migrations/*.sql
 var migrationFS embed.FS
 
-const CurrentSchemaVersion = 24
+const CurrentSchemaVersion = 26
 
 var (
 	ErrInvalidMigration          = errors.New("invalid storage migration")
@@ -710,10 +711,15 @@ func (db *DB) AppendObservation(ctx context.Context, observation evidence.Observ
 	if strings.TrimSpace(observation.ID) == "" || strings.TrimSpace(observation.ProjectID) == "" || strings.TrimSpace(observation.SubjectIdentity) == "" || strings.TrimSpace(observation.Source) == "" || observation.ObservedAt.IsZero() || !json.Valid(observation.Payload) {
 		return evidence.ErrInvalidEvidence
 	}
-	if len(observation.Payload) > 32<<10 {
+	if len(observation.Payload) > 32<<10 || observation.PolicyVersion != dataclassification.PolicyVersion || !dataclassification.ValidLevel(observation.Classification) || evidence.ValidateObservation(observation) != nil {
 		return evidence.ErrInvalidEvidence
 	}
-	result, err := db.sql.ExecContext(ctx, `INSERT INTO evidence_observations(id, project_id, kind, subject_identity, source, observed_at, payload_json, redacted) VALUES(?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO NOTHING`, observation.ID, observation.ProjectID, observation.Kind, observation.SubjectIdentity, observation.Source, formatRequiredPolicyTime(observation.ObservedAt), string(observation.Payload), boolToInt(observation.Redacted))
+	tx, err := db.sql.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin governed evidence transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	result, err := tx.ExecContext(ctx, `INSERT INTO evidence_observations(id, project_id, kind, subject_identity, source, observed_at, payload_json, redacted, classification, policy_version) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO NOTHING`, observation.ID, observation.ProjectID, observation.Kind, observation.SubjectIdentity, observation.Source, formatRequiredPolicyTime(observation.ObservedAt), string(observation.Payload), boolToInt(observation.Redacted), observation.Classification, observation.PolicyVersion)
 	if err != nil {
 		return fmt.Errorf("append evidence observation: %w", err)
 	}
@@ -723,6 +729,20 @@ func (db *DB) AppendObservation(ctx context.Context, observation evidence.Observ
 	}
 	if rows == 0 {
 		return ErrEvidenceObservationExists
+	}
+	eventType := dataclassification.EventPersistenceAllowed
+	if observation.Redacted {
+		eventType = dataclassification.EventRedactionApplied
+	}
+	event, err := dataclassification.NewGovernanceEvent(dataclassification.GovernanceEventInput{ProjectID: observation.ProjectID, SubjectReference: observation.ID, EventType: eventType, Classification: dataclassification.Level(observation.Classification), OccurredAt: observation.ObservedAt})
+	if err != nil {
+		return evidence.ErrInvalidEvidence
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO data_governance_audit_events(project_id, subject_reference, event_type, classification, policy_version, occurred_at, fingerprint) VALUES(?, ?, ?, ?, ?, ?, ?)`, event.ProjectID, event.SubjectReference, event.EventType, event.Classification, event.PolicyVersion, event.OccurredAt.UTC().Format(time.RFC3339Nano), event.Fingerprint); err != nil {
+		return fmt.Errorf("append evidence governance audit event: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit governed evidence transaction: %w", err)
 	}
 	return nil
 }
@@ -821,7 +841,7 @@ func (db *DB) ListObservations(ctx context.Context, projectID, subjectIdentity s
 	if strings.TrimSpace(projectID) == "" || strings.TrimSpace(subjectIdentity) == "" {
 		return nil, evidence.ErrInvalidEvidence
 	}
-	rows, err := db.sql.QueryContext(ctx, `SELECT id, project_id, kind, subject_identity, source, observed_at, payload_json, redacted FROM evidence_observations WHERE project_id = ? AND subject_identity = ? ORDER BY observed_at, id`, projectID, subjectIdentity)
+	rows, err := db.sql.QueryContext(ctx, `SELECT id, project_id, kind, subject_identity, source, observed_at, payload_json, redacted, classification, policy_version FROM evidence_observations WHERE project_id = ? AND subject_identity = ? ORDER BY observed_at, id`, projectID, subjectIdentity)
 	if err != nil {
 		return nil, fmt.Errorf("list evidence observations: %w", err)
 	}
@@ -832,7 +852,7 @@ func (db *DB) ListObservations(ctx context.Context, projectID, subjectIdentity s
 		var observedAt string
 		var payload string
 		var redacted int
-		if err := rows.Scan(&observation.ID, &observation.ProjectID, &observation.Kind, &observation.SubjectIdentity, &observation.Source, &observedAt, &payload, &redacted); err != nil {
+		if err := rows.Scan(&observation.ID, &observation.ProjectID, &observation.Kind, &observation.SubjectIdentity, &observation.Source, &observedAt, &payload, &redacted, &observation.Classification, &observation.PolicyVersion); err != nil {
 			return nil, fmt.Errorf("scan evidence observation: %w", err)
 		}
 		parsed, err := parseRequiredPolicyTime(observedAt)
@@ -842,6 +862,11 @@ func (db *DB) ListObservations(ctx context.Context, projectID, subjectIdentity s
 		observation.ObservedAt = parsed
 		observation.Payload = json.RawMessage(payload)
 		observation.Redacted = redacted == 1
+		if observation.PolicyVersion == dataclassification.PolicyVersion {
+			if err := evidence.ValidateObservation(observation); err != nil {
+				return nil, err
+			}
+		}
 		observations = append(observations, observation)
 	}
 	return observations, rows.Err()
