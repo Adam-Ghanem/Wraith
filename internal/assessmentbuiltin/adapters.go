@@ -12,12 +12,14 @@ import (
 	"time"
 
 	"github.com/Adam-Ghanem/Wraith/internal/assessment"
+	"github.com/Adam-Ghanem/Wraith/internal/authorization"
 	"github.com/Adam-Ghanem/Wraith/internal/crawler"
 	"github.com/Adam-Ghanem/Wraith/internal/endpointintelligence"
 	"github.com/Adam-Ghanem/Wraith/internal/evidence"
 	"github.com/Adam-Ghanem/Wraith/internal/httpengine"
 	"github.com/Adam-Ghanem/Wraith/internal/outbound"
 	"github.com/Adam-Ghanem/Wraith/internal/pentest"
+	"github.com/Adam-Ghanem/Wraith/internal/scope"
 	"github.com/Adam-Ghanem/Wraith/internal/smartdiscovery"
 	"github.com/Adam-Ghanem/Wraith/internal/trustcontext"
 )
@@ -29,15 +31,16 @@ const (
 )
 
 type Dependencies struct {
-	// Client is an already configured R3 transport. It is never constructed here.
-	Client httpengine.Client
-	// Outbound is the required T5 decision gateway for active R15 R3 reads.
-	// It authorizes and audits each delegated request; it owns no transport.
+	Client            httpengine.Client
 	Outbound          *outbound.Gateway
 	Repository        evidence.Repository
 	EndpointSource    endpointintelligence.Source
 	DiscoveryEvidence smartdiscovery.DiscoveryEvidenceSink
-	Now               func() time.Time
+	ScopeStore        interface {
+		LoadScopeVersion(context.Context, string, string) (scope.Version, error)
+		LoadActiveAuthorizationForScope(context.Context, string, string, time.Time) (authorization.Record, error)
+	}
+	Now func() time.Time
 }
 
 type adapter struct {
@@ -55,13 +58,12 @@ func (adapter adapter) Execute(ctx context.Context, task assessment.TaskContext)
 	return adapter.execute(ctx, task)
 }
 
-// NewRegistry binds complete existing-owner contracts and retains explicit,
-// non-dispatching owners where the selected project lacks the required inputs.
 func NewRegistry(dependencies Dependencies) (assessment.AdapterRegistry, error) {
 	values := []assessment.TypedAdapter{
 		{TaskType: assessment.TaskCrawl, Adapter: adapter{owner: OwnerCrawler, requestControls: true, execute: crawlAdapter(dependencies)}},
 		{TaskType: assessment.TaskEndpoints, Adapter: adapter{owner: OwnerEndpoints, execute: endpointAdapter(dependencies)}},
 		{TaskType: assessment.TaskDiscovery, Adapter: adapter{owner: OwnerDiscovery, requestControls: true, execute: discoveryAdapter(dependencies)}},
+		{TaskType: assessment.TaskNetworkPortDiscovery, Adapter: adapter{owner: OwnerNetworkPortDiscovery, execute: npdAdapter(dependencies)}},
 	}
 	for _, taskType := range []assessment.TaskType{assessment.TaskJS, assessment.TaskBaseline, assessment.TaskMutation, assessment.TaskFuzz, assessment.TaskInjection, assessment.TaskValidation, assessment.TaskCorrelation, assessment.TaskFinding, assessment.TaskRisk, assessment.TaskSurface, assessment.TaskReport} {
 		values = append(values, assessment.TypedAdapter{TaskType: taskType, Adapter: adapter{owner: "unavailable." + string(taskType)}})

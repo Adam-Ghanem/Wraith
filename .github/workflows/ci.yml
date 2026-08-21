@@ -39,6 +39,14 @@ jobs:
         run: go vet ./...
       - name: Run unit tests
         run: go test ./...
+      - name: Run bounded NPD parser fuzz smoke
+        run: go test ./internal/npd -run=^$ -fuzz=FuzzParsePortsBounded -fuzztime=10s
+      - name: Run bounded NPD target fuzz smoke
+        run: go test ./internal/npd -run=^$ -fuzz=FuzzParseTCPTarget -fuzztime=10s
+      - name: Run bounded NPD planning fuzz smoke
+        run: go test ./internal/npd -run=^$ -fuzz=FuzzNPDPlanBounded -fuzztime=10s
+      - name: Run NPD offline benchmarks
+        run: go test ./internal/npd -run=^$ -bench='Benchmark(ParsePortsBounded|CanonicalPortOrdering|CanonicalTCPTarget|NPDPlanning)$' -benchmem -benchtime=1s
       - name: Run R12 CLI smoke and migration checks
         run: go test ./internal/cli -run TestR12LocalCommandSmokeAndAuthorizationMatrix -count=1 && go test ./internal/storage -run 'Migration|Restart|SchemaVersion' -count=1
       - name: Run race-detector tests

@@ -37,14 +37,13 @@ const (
 	OperationHTTP          OperationType = "http"
 	OperationCrawlerRead   OperationType = "crawler_http_read"
 	OperationDiscoveryRead OperationType = "discovery_http_read"
+	OperationTCP           OperationType = "tcp"
 )
 
-// Capability declares the one owner allowed to use an explicit operation type.
-// It grants no authority by itself; trust, scope, budget, and audit still must
-// all pass before the policy gateway permits a caller to delegate to R3.
 type Capability struct {
 	ID, Owner         string
 	Operation         OperationType
+	Action            policy.Action
 	RequiredAssurance securitytrust.Assurance
 	NetworkAllowed    bool
 	RedirectsAllowed  bool
@@ -52,8 +51,6 @@ type Capability struct {
 	BudgetRequired    bool
 }
 
-// Operation is immutable caller input for one prospective R3 request. It has
-// no headers, credentials, request body, response body, or raw evidence.
 type Operation struct {
 	ID, ProjectID, CapabilityID, TaskID, AssessmentID, CampaignID string
 	BudgetReference, Destination                                  string
@@ -69,6 +66,9 @@ type Registry struct {
 func NewRegistry(capabilities ...Capability) (Registry, error) {
 	registry := Registry{byID: make(map[string]Capability, len(capabilities)), ownerByOp: make(map[OperationType]string, len(capabilities))}
 	for _, capability := range capabilities {
+		if capability.Action == "" && capability.Operation != OperationTCP {
+			capability.Action = policy.ActionHTTP
+		}
 		if !validCapability(capability) {
 			return Registry{}, ErrCapabilityInvalid
 		}
@@ -84,13 +84,11 @@ func NewRegistry(capabilities ...Capability) (Registry, error) {
 	return registry, nil
 }
 
-// DefaultRegistry names the only currently supported active R15 HTTP-read
-// capabilities. Adding a new outbound capability requires an explicit owner,
-// operation type, review, and corresponding regression coverage.
 func DefaultRegistry() (Registry, error) {
 	return NewRegistry(
-		Capability{ID: "assessment-crawl-read", Owner: "r4.crawler", Operation: OperationCrawlerRead, RequiredAssurance: securitytrust.AssuranceExecutionEligible, NetworkAllowed: true, ScopeRequired: true, BudgetRequired: true},
-		Capability{ID: "assessment-discovery-read", Owner: "r11.2.smart_discovery", Operation: OperationDiscoveryRead, RequiredAssurance: securitytrust.AssuranceExecutionEligible, NetworkAllowed: true, ScopeRequired: true, BudgetRequired: true},
+		Capability{ID: "assessment-crawl-read", Owner: "r4.crawler", Operation: OperationCrawlerRead, Action: policy.ActionHTTP, RequiredAssurance: securitytrust.AssuranceExecutionEligible, NetworkAllowed: true, ScopeRequired: true, BudgetRequired: true},
+		Capability{ID: "assessment-discovery-read", Owner: "r11.2.smart_discovery", Operation: OperationDiscoveryRead, Action: policy.ActionHTTP, RequiredAssurance: securitytrust.AssuranceExecutionEligible, NetworkAllowed: true, ScopeRequired: true, BudgetRequired: true},
+		Capability{ID: "assessment-network-port-discovery", Owner: "r15.network_port_discovery", Operation: OperationTCP, Action: policy.ActionScan, RequiredAssurance: securitytrust.AssuranceExecutionEligible, NetworkAllowed: true, ScopeRequired: true, BudgetRequired: true},
 	)
 }
 
@@ -102,8 +100,6 @@ func (registry Registry) Capability(id string) (Capability, error) {
 	return capability, nil
 }
 
-// AuditStore reuses the T3 append-only audit infrastructure. Database-backed
-// implementations assign the next project-local sequence atomically.
 type AuditStore interface {
 	AppendAuthorizationLifecycleEvent(context.Context, securitytrust.AuditEventInput) (securitytrust.AuditEvent, error)
 }
@@ -122,9 +118,6 @@ type Decision struct {
 	AuditFingerprint string
 }
 
-// Client wraps an injected R3 transport. It performs no network I/O itself and
-// never constructs an HTTP client; it only delegates a request after the T5
-// gateway has issued its fail-closed, audited decision.
 type Client struct {
 	Gateway   Gateway
 	Transport httpengine.Client
@@ -143,9 +136,6 @@ func (client Client) Do(ctx context.Context, operation Operation, request httpen
 	return client.Transport.Do(ctx, request)
 }
 
-// Authorize provides the T5 pre-dispatch decision. It validates only existing
-// authorities and returns no transport capability; callers may delegate to R3
-// only after this method returns an allowed decision.
 func (gateway Gateway) Authorize(ctx context.Context, operation Operation) (Decision, error) {
 	if ctx == nil {
 		return Decision{}, errors.Join(ErrOutboundDenied, ErrDestinationInvalid)
@@ -194,7 +184,7 @@ func (gateway Gateway) Authorize(ctx context.Context, operation Operation) (Deci
 		if gateway.Targets == nil {
 			return Decision{}, errors.Join(ErrOutboundDenied, ErrScopeDenied)
 		}
-		if _, err := gateway.Targets.Authorize(ctx, operation.ProjectID, target, policy.ActionHTTP); err != nil {
+		if _, err := gateway.Targets.Authorize(ctx, operation.ProjectID, target, capability.Action); err != nil {
 			return Decision{}, errors.Join(ErrOutboundDenied, ErrScopeDenied, err)
 		}
 	}
@@ -212,11 +202,20 @@ func (gateway Gateway) Authorize(ctx context.Context, operation Operation) (Deci
 }
 
 func validCapability(capability Capability) bool {
-	return validIdentifier(capability.ID) && validIdentifier(capability.Owner) && supportedOperation(capability.Operation) && capability.RequiredAssurance == securitytrust.AssuranceExecutionEligible && capability.NetworkAllowed && capability.ScopeRequired && capability.BudgetRequired
+	return validIdentifier(capability.ID) && validIdentifier(capability.Owner) && supportedOperation(capability.Operation) && supportedAction(capability.Action) && capability.RequiredAssurance == securitytrust.AssuranceExecutionEligible && capability.NetworkAllowed && capability.ScopeRequired && capability.BudgetRequired
 }
 
 func supportedOperation(operation OperationType) bool {
-	return operation == OperationHTTP || operation == OperationCrawlerRead || operation == OperationDiscoveryRead
+	return operation == OperationHTTP || operation == OperationCrawlerRead || operation == OperationDiscoveryRead || operation == OperationTCP
+}
+
+func supportedAction(action policy.Action) bool {
+	switch action {
+	case policy.ActionHTTP, policy.ActionScan:
+		return true
+	default:
+		return false
+	}
 }
 
 func safeHTTPMethod(method string) bool {

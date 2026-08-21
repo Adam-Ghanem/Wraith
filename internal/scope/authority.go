@@ -140,7 +140,7 @@ func Evaluate(v Version, a authorization.Record, r Request) (Decision, error) {
 }
 
 func isDefaultPort(target Target) bool {
-	return (target.Scheme == "http" && target.Port == 80) || (target.Scheme == "https" && target.Port == 443)
+	return (target.Scheme == "http" && target.Port == 80) || (target.Scheme == "https" && target.Port == 443) || (target.Scheme == "tcp" && target.Port == 0)
 }
 
 func ParseTarget(raw string) (Target, error) {
@@ -152,7 +152,7 @@ func ParseTarget(raw string) (Target, error) {
 		return Target{}, ErrCredentialTarget
 	}
 	s := strings.ToLower(u.Scheme)
-	if s != "http" && s != "https" {
+	if s != "http" && s != "https" && s != "tcp" {
 		return Target{}, ErrInvalidTarget
 	}
 	host := strings.TrimSuffix(strings.ToLower(u.Hostname()), ".")
@@ -164,12 +164,14 @@ func ParseTarget(raw string) (Target, error) {
 	if port == "" {
 		if s == "https" {
 			p = 443
-		} else {
+		} else if s == "http" {
 			p = 80
+		} else {
+			p = 0
 		}
 	} else {
 		p, err = strconv.ParseUint(port, 10, 16)
-		if err != nil || p == 0 {
+		if err != nil || (p == 0 && s != "tcp") {
 			return Target{}, ErrInvalidTarget
 		}
 	}
@@ -210,7 +212,7 @@ func validateVersion(v Version) error {
 				return ErrInvalidScope
 			}
 		case RuleScheme:
-			if r.Value != "http" && r.Value != "https" {
+			if r.Value != "http" && r.Value != "https" && r.Value != "tcp" {
 				return ErrInvalidScope
 			}
 		case RulePath:

@@ -9,9 +9,9 @@ import (
 	"strings"
 )
 
-// ParseTarget accepts an explicit host/IP, host/IP with port, or HTTP(S) URL and
-// returns one canonical Target. It rejects ambiguous encodings rather than
-// guessing an alternate network destination.
+// ParseTarget accepts an explicit host/IP, host/IP with port, HTTP(S) URL, or
+// an explicit TCP URL and returns one canonical Target. It rejects ambiguous
+// encodings rather than guessing an alternate network destination.
 func ParseTarget(raw string) (Target, error) {
 	if raw == "" || strings.TrimSpace(raw) != raw || strings.ContainsAny(raw, "\t\r\n") {
 		return Target{}, ErrInvalidTarget
@@ -69,24 +69,25 @@ func parseURLTarget(raw string) (Target, error) {
 		return Target{}, fmt.Errorf("%w: %w", ErrInvalidTarget, ErrInvalidTargetAuthority)
 	}
 	scheme := strings.ToLower(parsed.Scheme)
-	if scheme != string(ProtocolHTTP) && scheme != string(ProtocolHTTPS) {
+	if scheme != string(ProtocolHTTP) && scheme != string(ProtocolHTTPS) && scheme != string(ProtocolTCP) {
 		return Target{}, fmt.Errorf("%w: %w", ErrInvalidTarget, ErrInvalidTargetProtocol)
+	}
+	if scheme == string(ProtocolTCP) && (parsed.Path != "" && parsed.Path != "/" || parsed.RawQuery != "" || parsed.Fragment != "") {
+		return Target{}, fmt.Errorf("%w: %w", ErrInvalidTarget, ErrInvalidTargetPath)
 	}
 	port, err := parsedPort(parsed.Port())
 	if err != nil {
 		return Target{}, fmt.Errorf("%w: %w", ErrInvalidTarget, err)
 	}
 	if port == 0 {
-		if scheme == string(ProtocolHTTP) {
+		switch scheme {
+		case string(ProtocolHTTP):
 			port = 80
-		} else {
+		case string(ProtocolHTTPS):
 			port = 443
 		}
 	}
 	target := Target{Scheme: scheme, Port: port, Path: normalizePath(parsed.Path)}
-	if target.Path == "" {
-		target.Path = "/"
-	}
 	if strings.ContainsRune(parsed.Hostname(), '%') {
 		return Target{}, ErrInvalidTarget
 	}
