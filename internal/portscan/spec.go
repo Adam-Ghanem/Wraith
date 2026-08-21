@@ -8,10 +8,10 @@ import (
 )
 
 const (
-	MinPort             uint16 = 1
-	MaxPort             uint16 = 65535
-	MaxPortsPerTask            = 4096
-	MaxPortsPerTarget          = 4096
+	MinPort           uint16 = 1
+	MaxPort           uint16 = 65535
+	MaxPortsPerTask          = 4096
+	MaxPortsPerTarget        = 4096
 )
 
 var DefaultPorts = []uint16{
@@ -110,10 +110,14 @@ func PortsForProfile(profile string, custom []uint16) ([]uint16, error) {
 }
 
 func dedupe(values []uint16) []uint16 {
-	if len(values) < 2 { return values }
+	if len(values) < 2 {
+		return values
+	}
 	out := values[:1]
 	for _, value := range values[1:] {
-		if value != out[len(out)-1] { out = append(out, value) }
+		if value != out[len(out)-1] {
+			out = append(out, value)
+		}
 	}
 	return out
 }
