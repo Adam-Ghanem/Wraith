@@ -157,7 +157,7 @@ type Scanner struct {
 }
 
 func (scanner Scanner) Plan(target string, ports []uint16) (Scan, error) {
-	if scanner.TCP == nil || strings.TrimSpace(target) == "" || len(ports) == 0 || len(ports) > MaxPorts {
+	if strings.TrimSpace(target) == "" || len(ports) == 0 || len(ports) > MaxPorts {
 		return Scan{}, errors.New("invalid NPD scan plan")
 	}
 	parsed, err := policy.ParseTarget(target)
