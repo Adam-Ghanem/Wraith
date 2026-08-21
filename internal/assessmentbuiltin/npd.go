@@ -173,7 +173,7 @@ func (client *t5TCPClient) ProbeTCP(ctx context.Context, request httpengine.TCPR
 		current = client.now
 	}
 	target := request.Target
-	if target.Port == 0 || target.Scheme != "" || target.Path != "" {
+	if target.Port == 0 || (target.Scheme != "" && target.Scheme != string(policy.ProtocolTCP)) || target.Path != "" {
 		return httpengine.TCPResponse{}, outbound.ErrDestinationInvalid
 	}
 	host := target.Hostname
