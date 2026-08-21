@@ -42,4 +42,9 @@ func TestRiskFindingPersistenceIsProjectScopedAndAppendOnly(t *testing.T) {
 	if err := database.UpsertSecurityFinding(ctx, leaky); err == nil {
 		t.Fatal("expected secret-like evidence reference rejection")
 	}
+	leaky = finding
+	leaky.FindingID, leaky.Fingerprint, leaky.Description = "finding-3", "fingerprint-3", "authorization: Bearer do-not-persist"
+	if err := database.UpsertSecurityFinding(ctx, leaky); err == nil {
+		t.Fatal("expected secret-like finding description rejection")
+	}
 }

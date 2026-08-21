@@ -22,6 +22,18 @@ func TestRenderProducesMachineJSONAndEscapedOfflineHTML(t *testing.T) {
 	}
 }
 
+func TestT7RenderRejectsForgedUnsafeSnapshotBeforeOutput(t *testing.T) {
+	for _, format := range []string{"terminal", "json", "markdown", "html"} {
+		format := format
+		t.Run(format, func(t *testing.T) {
+			report, err := Render(format, reportmodel.Snapshot{ProjectID: "alpha", ScopeVersion: "scope-v1", SchemaVersion: reportmodel.SchemaVersion, Fingerprint: "forged", Limitations: []string{"authorization: Bearer do-not-render"}, Coverage: reportmodel.CoverageMetric{Definition: "tasks"}})
+			if err == nil || strings.Contains(string(report), "do-not-render") {
+				t.Fatalf("report=%q err=%v", report, err)
+			}
+		})
+	}
+}
+
 func TestRenderIncludesExecutiveSummaryWithoutInferringCoverage(t *testing.T) {
 	snapshot, err := reportmodel.NewSnapshot(reportmodel.SnapshotInput{ProjectID: "alpha", ScopeVersion: "scope-v1", SchemaVersion: reportmodel.SchemaVersion, Findings: []reportmodel.Finding{{ID: "finding-1", Severity: "high", RiskScore: 70}}, Coverage: reportmodel.CoverageMetric{Definition: "recorded tasks", Numerator: 1, Denominator: 2}})
 	if err != nil {

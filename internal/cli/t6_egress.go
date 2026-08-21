@@ -32,6 +32,8 @@ func t6OutboundBlock(args []string) error {
 			return ErrSubprocessOutboundBlocked
 		}
 		return ErrProviderOutboundBlocked
+	case "export-fixtures":
+		return ErrProviderOutboundBlocked
 	case "discover":
 		if len(args) > 1 && !strings.HasPrefix(args[1], "-") && !hasT6Flag(args[2:], "--dry-run") {
 			return ErrLegacyOutboundBlocked

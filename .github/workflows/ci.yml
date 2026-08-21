@@ -60,6 +60,8 @@ jobs:
         run: bash scripts/check-t5-outbound-gateway.sh
       - name: Check T6 central egress adoption boundary
         run: bash scripts/check-t6-central-egress-adoption.sh
+      - name: Check T7 data governance boundary
+        run: bash scripts/check-t7-data-governance.sh
 
   web-quality:
     name: Web quality

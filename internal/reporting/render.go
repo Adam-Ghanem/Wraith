@@ -11,6 +11,11 @@ import (
 )
 
 func Render(format string, snapshot reportmodel.Snapshot) ([]byte, error) {
+	var err error
+	snapshot, err = reportmodel.RevalidateSnapshot(snapshot)
+	if err != nil {
+		return nil, errors.New("invalid governed report snapshot")
+	}
 	switch format {
 	case "json":
 		return json.Marshal(snapshot)
@@ -56,6 +61,11 @@ func Render(format string, snapshot reportmodel.Snapshot) ([]byte, error) {
 }
 
 func RenderExecutive(format string, snapshot reportmodel.Snapshot) ([]byte, error) {
+	var err error
+	snapshot, err = reportmodel.RevalidateSnapshot(snapshot)
+	if err != nil {
+		return nil, errors.New("invalid governed report snapshot")
+	}
 	summary := executiveSummary(snapshot)
 	switch format {
 	case "json":
