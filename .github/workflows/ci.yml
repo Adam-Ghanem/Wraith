@@ -52,6 +52,8 @@ jobs:
         run: go build ./...
       - name: Check dependency review coverage
         run: bash scripts/check-dependency-review.sh go
+      - name: Check high-confidence secret markers
+        run: bash scripts/check-secret-markers.sh
 
   web-quality:
     name: Web quality

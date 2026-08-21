@@ -43,7 +43,7 @@ func runEvidence(ctx context.Context, args []string, stdout, _ io.Writer) error 
 	if err != nil {
 		return err
 	}
-	if _, _, err := assessmentAuthorizer(ctx, database, campaign.ProjectID, campaign.ScopeVersion, campaign.Target, time.Minute); err != nil {
+	if _, _, _, err := assessmentAuthorizer(ctx, database, campaign.ProjectID, campaign.ScopeVersion, campaign.Target, time.Minute); err != nil {
 		return errors.New("evidence authorization is not active for the selected campaign scope")
 	}
 	findings, err := database.ListSecurityFindings(ctx, campaign.ProjectID, storage.SecurityFindingFilter{Limit: 500})

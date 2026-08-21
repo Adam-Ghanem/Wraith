@@ -198,6 +198,26 @@ func TestEngineRechecksAuthorizationImmediatelyBeforeAdapterDispatch(t *testing.
 	}
 }
 
+func TestEngineRequiresCentralTaskGateBeforeAdapterDispatch(t *testing.T) {
+	plan := testPlan(t)
+	plan.Tasks = plan.Tasks[:1]
+	calls := 0
+	registry := testRegistry(t, func(assessment.Task) error { calls++; return nil })
+	deps := testDependencies(t)
+	deps.ValidateTask = func(context.Context, assessment.ScopeSnapshot, assessment.Task) error {
+		return errors.New("execution gate denied")
+	}
+	engine := NewEngine(registry, deps)
+
+	summary, err := engine.Execute(context.Background(), ExecutionRequest{Plan: plan, ProjectID: plan.Scope.ProjectID})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if calls != 0 || summary.Tasks[0].Status != StatusCancelled || summary.Tasks[0].Reason != "execution_gate_denied" {
+		t.Fatalf("summary=%#v calls=%d, want central-gate denial before adapter dispatch", summary, calls)
+	}
+}
+
 func TestEngineBlocksWorkWhenSharedTaskBudgetIsExhausted(t *testing.T) {
 	plan := testPlan(t)
 	calls := 0

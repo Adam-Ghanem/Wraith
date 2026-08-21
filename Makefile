@@ -7,7 +7,7 @@ BINARY := bin/wraith
 RELEASE_BINARY := bin/wraith-$(GOOS)-$(GOARCH)
 LDFLAGS := -X github.com/Adam-Ghanem/Wraith/internal/buildinfo.Version=$(VERSION) -X github.com/Adam-Ghanem/Wraith/internal/buildinfo.Commit=$(COMMIT) -X github.com/Adam-Ghanem/Wraith/internal/buildinfo.Date=$(DATE)
 
-.PHONY: fmt test vet lint build release sha256sums check
+.PHONY: fmt test vet lint build release sha256sums verify-release check
 
 fmt:
 	gofmt -w $$(find . -name '*.go' -not -path './.git/*')
@@ -31,5 +31,8 @@ release:
 
 sha256sums:
 	sha256sum bin/wraith-* > SHA256SUMS
+
+verify-release:
+	bash scripts/verify-release-checksums.sh
 
 check: fmt test vet build

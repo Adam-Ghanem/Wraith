@@ -65,7 +65,7 @@ func runPentestCampaignCreate(ctx context.Context, args []string, stdout io.Writ
 	}
 	limits := assessment.Limits{MaxRequests: *maxRequests, MaxDuration: *maxDuration, MaxConcurrency: *maxConcurrency, MaxRate: *rate}
 	target := strings.TrimSpace(args[3])
-	expiresAt, _, err := assessmentAuthorizer(ctx, database, strings.TrimSpace(*project), strings.TrimSpace(*scopeVersion), target, limits.MaxDuration)
+	expiresAt, _, _, err := assessmentAuthorizer(ctx, database, strings.TrimSpace(*project), strings.TrimSpace(*scopeVersion), target, limits.MaxDuration)
 	if err != nil {
 		return errors.New("campaign authorization is not active for the requested scope version")
 	}
@@ -194,7 +194,7 @@ func runPentestCampaignRun(ctx context.Context, args []string, stdout io.Writer)
 	if err := json.Unmarshal([]byte(record.AssessmentPlanJSON), &plan); err != nil {
 		return errors.New("stored campaign plan is invalid")
 	}
-	expiresAt, authorize, err := assessmentAuthorizer(ctx, database, record.ProjectID, record.ScopeVersion, record.Target, plan.Scope.Limits.MaxDuration)
+	expiresAt, authorize, validateTask, err := assessmentAuthorizer(ctx, database, record.ProjectID, record.ScopeVersion, record.Target, plan.Scope.Limits.MaxDuration)
 	if err != nil {
 		return errors.New("campaign authorization is not active for the requested scope version")
 	}
@@ -227,7 +227,7 @@ func runPentestCampaignRun(ctx context.Context, args []string, stdout io.Writer)
 	if err != nil {
 		return err
 	}
-	engine := assessmentexec.NewEngine(&registry, assessmentexec.Dependencies{RunContext: pentest.RunContext{Budget: budget, Concurrency: concurrency, Rate: rate}, Now: time.Now, Authorize: authorize})
+	engine := assessmentexec.NewEngine(&registry, assessmentexec.Dependencies{RunContext: pentest.RunContext{Budget: budget, Concurrency: concurrency, Rate: rate}, Now: time.Now, Authorize: authorize, ValidateTask: validateTask})
 	coordinator := campaign.Coordinator{Authorize: authorize, Execute: engine.Execute, Now: time.Now}
 	if *dryRun {
 		summary, err := coordinator.Run(ctx, campaign.RunRequest{Campaign: &domainCampaign, Cycle: &cycle, Plan: plan, DryRun: true})

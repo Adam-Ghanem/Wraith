@@ -17,6 +17,7 @@ import (
 	"github.com/Adam-Ghanem/Wraith/internal/pentest"
 	"github.com/Adam-Ghanem/Wraith/internal/policy"
 	"github.com/Adam-Ghanem/Wraith/internal/scope"
+	"github.com/Adam-Ghanem/Wraith/internal/securitytrust"
 	"github.com/Adam-Ghanem/Wraith/internal/storage"
 )
 
@@ -80,7 +81,7 @@ func runPentestAssessmentRun(ctx context.Context, args []string, stdout io.Write
 	if err := database.Migrate(ctx); err != nil {
 		return err
 	}
-	expiresAt, authorize, err := assessmentAuthorizer(ctx, database, options.ProjectID, options.ScopeVersion, options.Target, options.Limits.MaxDuration)
+	expiresAt, authorize, validateTask, err := assessmentAuthorizer(ctx, database, options.ProjectID, options.ScopeVersion, options.Target, options.Limits.MaxDuration)
 	if err != nil {
 		return errors.New("assessment authorization is not active for the requested scope version")
 	}
@@ -116,7 +117,7 @@ func runPentestAssessmentRun(ctx context.Context, args []string, stdout io.Write
 	if err != nil {
 		return err
 	}
-	engine := assessmentexec.NewEngine(&registry, assessmentexec.Dependencies{RunContext: pentest.RunContext{Budget: budget, Concurrency: concurrency, Rate: rate}, Now: time.Now, Authorize: authorize})
+	engine := assessmentexec.NewEngine(&registry, assessmentexec.Dependencies{RunContext: pentest.RunContext{Budget: budget, Concurrency: concurrency, Rate: rate}, Now: time.Now, Authorize: authorize, ValidateTask: validateTask})
 	request := assessmentexec.ExecutionRequest{Plan: plan, ProjectID: options.ProjectID, DryRun: options.DryRun, TaskTimeout: options.TaskTimeout}
 	if options.DryRun {
 		summary, err := engine.Execute(ctx, request)
@@ -182,22 +183,22 @@ func parseAssessmentRunOptions(ctx context.Context, args []string) (assessmentRu
 	return assessmentRunOptions{ProjectID: strings.TrimSpace(*project), ScopeVersion: strings.TrimSpace(*scopeVersion), DatabasePath: strings.TrimSpace(*databasePath), Target: strings.TrimSpace(args[3]), Authorized: *authorized, DryRun: *dryRun, JSON: *jsonOutput, Profile: assessment.Profile(strings.TrimSpace(*profile)), Limits: assessment.Limits{MaxRequests: *maxRequests, MaxDuration: *maxDuration, MaxConcurrency: *maxConcurrency, MaxRate: *rate}, MaxTasks: *maxTasks, TaskTimeout: *taskTimeout}, nil
 }
 
-func assessmentAuthorizer(ctx context.Context, database *storage.DB, projectID, scopeVersion, rawTarget string, maxDuration time.Duration) (time.Time, func(context.Context, assessment.ScopeSnapshot) error, error) {
+func assessmentAuthorizer(ctx context.Context, database *storage.DB, projectID, scopeVersion, rawTarget string, maxDuration time.Duration) (time.Time, func(context.Context, assessment.ScopeSnapshot) error, func(context.Context, assessment.ScopeSnapshot, assessment.Task) error, error) {
 	if database == nil || maxDuration <= 0 {
-		return time.Time{}, nil, errors.New("invalid assessment authorization dependencies")
+		return time.Time{}, nil, nil, errors.New("invalid assessment authorization dependencies")
 	}
 	target, err := policy.ParseTarget(rawTarget)
 	if err != nil {
-		return time.Time{}, nil, err
+		return time.Time{}, nil, nil, err
 	}
 	if authorityVersion, authorityErr := database.LoadScopeVersion(ctx, projectID, scopeVersion); authorityErr == nil {
 		now := time.Now().UTC()
 		authorizationRecord, err := database.LoadActiveAuthorizationForScope(ctx, projectID, scopeVersion, now)
 		if err != nil {
-			return time.Time{}, nil, errors.New("active T1 authorization is required for T2 scope")
+			return time.Time{}, nil, nil, errors.New("active T1 authorization is required for T2 scope")
 		}
 		if _, err := scope.Evaluate(authorityVersion, authorizationRecord, scope.Request{ProjectID: projectID, Target: rawTarget, Now: now}); err != nil {
-			return time.Time{}, nil, errors.New("assessment target is outside T2 scope")
+			return time.Time{}, nil, nil, errors.New("assessment target is outside T2 scope")
 		}
 		authorize := func(checkContext context.Context, snapshot assessment.ScopeSnapshot) error {
 			if snapshot.ProjectID != projectID || snapshot.ScopeVersion != scopeVersion || snapshot.Target != rawTarget {
@@ -216,15 +217,33 @@ func assessmentAuthorizer(ctx context.Context, database *storage.DB, projectID, 
 			}
 			return nil
 		}
+		validateTask := func(checkContext context.Context, snapshot assessment.ScopeSnapshot, task assessment.Task) error {
+			if snapshot.ProjectID != projectID || snapshot.ScopeVersion != scopeVersion || snapshot.Target != rawTarget || task.ProjectID != projectID || task.Target != rawTarget {
+				return errors.New("assessment execution gate scope or task mismatch")
+			}
+			currentVersion, err := database.LoadScopeVersion(checkContext, projectID, scopeVersion)
+			if err != nil {
+				return errors.New("assessment execution gate scope version is unavailable")
+			}
+			currentAuthorization, err := database.LoadActiveAuthorizationForScope(checkContext, projectID, scopeVersion, time.Now().UTC())
+			if err != nil {
+				return errors.New("assessment execution gate authorization is unavailable")
+			}
+			_, err = securitytrust.Classify(securitytrust.ChainInput{Acknowledged: true, Record: currentAuthorization, Scope: currentVersion, ProjectID: projectID, Target: rawTarget, TaskID: task.ID, AssessmentID: task.AssessmentID, BudgetAvailable: true, Now: time.Now().UTC()})
+			if err != nil {
+				return errors.New("assessment execution gate denied")
+			}
+			return nil
+		}
 		expiresAt := now.Add(maxDuration)
 		if authorizationRecord.ExpiresAt.Before(expiresAt) {
 			expiresAt = authorizationRecord.ExpiresAt.UTC()
 		}
-		return expiresAt, authorize, nil
+		return expiresAt, authorize, validateTask, nil
 	}
 	scope, err := database.LoadProjectScope(ctx, projectID)
 	if err != nil || scope.VersionID != scopeVersion {
-		return time.Time{}, nil, errors.New("active scope version is not selected")
+		return time.Time{}, nil, nil, errors.New("active scope version is not selected")
 	}
 	evaluator := policy.NewEvaluator(database)
 	authorize := func(checkContext context.Context, snapshot assessment.ScopeSnapshot) error {
@@ -241,16 +260,22 @@ func assessmentAuthorizer(ctx context.Context, database *storage.DB, projectID, 
 		}
 		return nil
 	}
+	validateTask := func(checkContext context.Context, snapshot assessment.ScopeSnapshot, task assessment.Task) error {
+		if task.ProjectID != projectID || task.Target != rawTarget || strings.TrimSpace(task.ID) == "" || strings.TrimSpace(task.AssessmentID) == "" {
+			return errors.New("legacy assessment execution gate task mismatch")
+		}
+		return authorize(checkContext, snapshot)
+	}
 	expiresAt := time.Now().UTC().Add(maxDuration)
 	if scope.Authorization.ExpiresAt != nil {
 		if !scope.Authorization.ExpiresAt.After(time.Now().UTC()) {
-			return time.Time{}, nil, errors.New("assessment authorization expired")
+			return time.Time{}, nil, nil, errors.New("assessment authorization expired")
 		}
 		if scope.Authorization.ExpiresAt.Before(expiresAt) {
 			expiresAt = scope.Authorization.ExpiresAt.UTC()
 		}
 	}
-	return expiresAt, authorize, nil
+	return expiresAt, authorize, validateTask, nil
 }
 
 func assessmentRunRegistry(dependencies assessmentbuiltin.Dependencies) (assessment.AdapterRegistry, error) {

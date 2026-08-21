@@ -77,6 +77,10 @@ type Dependencies struct {
 	RunContext pentest.RunContext
 	Now        func() time.Time
 	Authorize  func(context.Context, assessment.ScopeSnapshot) error
+	// ValidateTask is the optional T3 central execution-gate seam. Production
+	// active paths provide it; test-only or legacy callers retain their existing
+	// explicit Authorize contract until migrated.
+	ValidateTask func(context.Context, assessment.ScopeSnapshot, assessment.Task) error
 }
 
 type Engine struct {
@@ -163,6 +167,17 @@ func (engine Engine) Execute(ctx context.Context, request ExecutionRequest) (Exe
 		index := ready[0]
 		task := request.Plan.Tasks[index]
 		execution := &summary.Tasks[index]
+		if engine.deps.ValidateTask != nil {
+			if err := engine.deps.ValidateTask(executionContext, request.Plan.Scope, task); err != nil {
+				if transitionErr := execution.Transition(StatusCancelled, now()); transitionErr != nil {
+					return ExecutionSummary{}, transitionErr
+				}
+				execution.Reason = "execution_gate_denied"
+				summary.emit(now, "task.execution_gate_denied", task.ID, StatusCancelled, execution.Reason)
+				completed++
+				continue
+			}
+		}
 		ownerControlsRequests := engine.registry.OwnsRequestControls(task.Type)
 		var err error
 		if !ownerControlsRequests {
