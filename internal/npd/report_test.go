@@ -21,8 +21,8 @@ func TestMarkdownAndJSONAreStableForPortOrder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(firstJSON) == string(secondJSON) {
-		t.Log("JSON ordering is canonical")
+	if string(firstJSON) != string(secondJSON) {
+		t.Fatalf("JSON differs by input ordering: %s != %s", firstJSON, secondJSON)
 	}
 	if Markdown(first) != Markdown(second) {
 		t.Fatal("markdown summary changed with port order")
