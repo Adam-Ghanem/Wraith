@@ -148,7 +148,7 @@ func executeNPD(ctx context.Context, stdout io.Writer, options npdRunOptions) er
 	if err != nil {
 		return err
 	}
-	registry, err := assessmentRunRegistry(assessmentbuiltin.Dependencies{Client: transport, Outbound: outboundGateway, Repository: database, EndpointSource: database, DiscoveryEvidence: database})
+	registry, err := assessmentRunRegistry(assessmentbuiltin.Dependencies{Client: transport, Outbound: outboundGateway, Repository: database, EndpointSource: database, DiscoveryEvidence: database, ScopeStore: database})
 	if err != nil {
 		return err
 	}
