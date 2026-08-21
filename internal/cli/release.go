@@ -141,9 +141,14 @@ func releaseJSON(path string, destination any) error {
 	if err := decoder.Decode(destination); err != nil {
 		return err
 	}
-	if decoder.More() {
-		return errors.New("trailing metadata")
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		if err == nil {
+			return errors.New("trailing metadata")
+		}
+		return errors.New("invalid trailing metadata")
 	}
 	return nil
 }
+
 func sha256sum(value []byte) [32]byte { return sha256.Sum256(value) }
