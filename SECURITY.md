@@ -31,6 +31,8 @@ Wraith makes no guaranteed response-time, remediation-time, bounty, or disclosur
 
 The current baseline is defined by the active `main` branch and any checked release artifacts accompanied by a `SHA256SUMS` file. Releases are **checksummed, not signed**. A checksum helps detect accidental or malicious alteration after a trusted checksum has been obtained separately; it does not establish publisher identity.
 
+T9 release trust is under feature-branch development. Its intended boundary is offline, explicit-local-trust-root verification of canonical manifests, provenance, artifact digests, and Ed25519 signatures. It does not publish releases, retrieve remote keys, accept production private signing keys, automate key rotation, or change the active `main` release baseline until separately reviewed and merged.
+
 ## References
 
 This policy defines current project process and intentionally cites no external authority. The behavior and authorization constraints referenced here are documented in [`docs/responsible-use.md`](docs/responsible-use.md).
