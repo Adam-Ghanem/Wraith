@@ -12,6 +12,7 @@ import (
 
 	"github.com/Adam-Ghanem/Wraith/internal/assessment"
 	"github.com/Adam-Ghanem/Wraith/internal/authorization"
+	"github.com/Adam-Ghanem/Wraith/internal/egress"
 	"github.com/Adam-Ghanem/Wraith/internal/evidence"
 	"github.com/Adam-Ghanem/Wraith/internal/httpengine"
 	"github.com/Adam-Ghanem/Wraith/internal/npd"
@@ -46,7 +47,7 @@ func npdAdapter(dependencies Dependencies) func(context.Context, assessment.Task
 			return assessment.AdapterResult{}, errors.New("NPD task has no bounded TCP ports")
 		}
 		wrapper := &t5TCPClient{
-			gateway: dependencies.Outbound, tcp: tcp, trust: taskContext.Trust,
+			gateway: dependencies.Outbound, tcp: tcp, dispatcher: egress.TCPDispatcher{Transport: tcp}, trust: taskContext.Trust,
 			runContext: taskContext.RunContext, now: dependencies.Now, sequence: new(atomic.Uint64),
 			scopeAuthorize: func(checkContext context.Context, request httpengine.TCPRequest) error {
 				return authorizeNPDPort(checkContext, dependencies.ScopeStore, request.ProjectID, taskContext.Scope.ScopeVersion, taskContext.Trust.AuthorizationID, request.Target, taskContext.Trust.ExpiresAt)
@@ -143,6 +144,7 @@ func hostForTCPURL(host string) string {
 type t5TCPClient struct {
 	gateway        *outbound.Gateway
 	tcp            httpengine.TCPClient
+	dispatcher     egress.TCPDispatcher
 	trust          trustcontext.Context
 	runContext     pentest.RunContext
 	now            func() time.Time
@@ -190,10 +192,11 @@ func (client *t5TCPClient) ProbeTCP(ctx context.Context, request httpengine.TCPR
 		Destination: net.JoinHostPort(host, strconv.Itoa(int(target.Port))), Trust: client.trust,
 		CreatedAt: current().UTC(), ExpiresAt: client.trust.ExpiresAt.UTC(),
 	}
-	if _, err := client.gateway.Authorize(ctx, operation); err != nil {
+	decision, err := client.gateway.Authorize(ctx, operation)
+	if err != nil {
 		return httpengine.TCPResponse{}, err
 	}
-	return client.tcp.ProbeTCP(ctx, request)
+	return client.dispatcher.DispatchTCP(ctx, decision, operation, request)
 }
 
 func boundedNPDTimeout(limit time.Duration) time.Duration {
