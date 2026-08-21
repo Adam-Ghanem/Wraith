@@ -66,6 +66,9 @@ type Registry struct {
 func NewRegistry(capabilities ...Capability) (Registry, error) {
 	registry := Registry{byID: make(map[string]Capability, len(capabilities)), ownerByOp: make(map[OperationType]string, len(capabilities))}
 	for _, capability := range capabilities {
+		if capability.Action == "" && capability.Operation != OperationTCP {
+			capability.Action = policy.ActionHTTP
+		}
 		if !validCapability(capability) {
 			return Registry{}, ErrCapabilityInvalid
 		}
