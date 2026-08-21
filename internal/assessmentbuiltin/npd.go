@@ -27,7 +27,7 @@ const OwnerNetworkPortDiscovery = "r15.network_port_discovery"
 func npdAdapter(dependencies Dependencies) func(context.Context, assessment.TaskContext) (assessment.AdapterResult, error) {
 	return func(ctx context.Context, taskContext assessment.TaskContext) (assessment.AdapterResult, error) {
 		tcp, ok := dependencies.Client.(httpengine.TCPClient)
-		if !ok || tcp == nil || dependencies.Outbound == nil || dependencies.Repository == nil || !validTask(taskContext, assessment.TaskNetworkPortDiscovery) {
+		if !ok || tcp == nil || dependencies.Outbound == nil || dependencies.Repository == nil || dependencies.ScopeStore == nil || !validTask(taskContext, assessment.TaskNetworkPortDiscovery) {
 			return assessment.AdapterResult{}, assessment.NewAdapterUnavailableError(OwnerNetworkPortDiscovery)
 		}
 		profile := npd.Profile(taskContext.Task.NPDProfile)
@@ -49,7 +49,7 @@ func npdAdapter(dependencies Dependencies) func(context.Context, assessment.Task
 			gateway: dependencies.Outbound, tcp: tcp, trust: taskContext.Trust,
 			runContext: taskContext.RunContext, now: dependencies.Now, sequence: new(atomic.Uint64),
 			scopeAuthorize: func(checkContext context.Context, request httpengine.TCPRequest) error {
-				return authorizeNPDPort(checkContext, dependencies.Repository, request.ProjectID, taskContext.Scope.ScopeVersion, taskContext.Trust.AuthorizationID, request.Target, taskContext.Trust.ExpiresAt)
+				return authorizeNPDPort(checkContext, dependencies.ScopeStore, request.ProjectID, taskContext.Scope.ScopeVersion, taskContext.Trust.AuthorizationID, request.Target, taskContext.Trust.ExpiresAt)
 			},
 		}
 		scanner := npd.Scanner{TCP: wrapper, Now: dependencies.Now}
