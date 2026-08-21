@@ -75,6 +75,11 @@ type Task struct {
 	Dependencies []string   `json:"dependencies"`
 	Status       TaskStatus `json:"status"`
 	CreatedAt    time.Time  `json:"created_at"`
+	// NPDProfile and PortSpec are populated only for the explicit
+	// network_port_discovery task. They are secret-free and bounded by the NPD
+	// parser before an active adapter can dispatch work.
+	NPDProfile string `json:"npd_profile,omitempty"`
+	PortSpec   string `json:"port_spec,omitempty"`
 }
 type AssessmentPlan struct {
 	AssessmentID      string        `json:"assessment_id"`
@@ -123,7 +128,7 @@ func newScope(input PlanInput, now time.Time) (ScopeSnapshot, error) {
 		return ScopeSnapshot{}, errors.New("invalid or expired authorized assessment scope")
 	}
 	parsed, err := url.Parse(input.Target)
-	if err != nil || parsed.Scheme != "http" && parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil {
+	if err != nil || parsed.Scheme != "http" && parsed.Scheme != "https" && parsed.Scheme != "tcp" || parsed.Host == "" || parsed.User != nil {
 		return ScopeSnapshot{}, errors.New("invalid assessment target")
 	}
 	if input.Profile == "" {
@@ -184,7 +189,7 @@ func stableID(values ...string) string {
 	return hex.EncodeToString(sum[:])
 }
 func priority(kind TaskType) int {
-	order := map[TaskType]int{TaskCrawl: 100, TaskEndpoints: 95, TaskJS: 90, TaskBaseline: 85, TaskDiscovery: 80, TaskMutation: 75, TaskFuzz: 70, TaskInjection: 65, TaskValidation: 60, TaskCorrelation: 55, TaskFinding: 50, TaskRisk: 45, TaskSurface: 40, TaskReport: 35}
+	order := map[TaskType]int{TaskCrawl: 100, TaskEndpoints: 95, TaskJS: 90, TaskBaseline: 85, TaskDiscovery: 80, TaskMutation: 75, TaskFuzz: 70, TaskInjection: 65, TaskValidation: 60, TaskCorrelation: 55, TaskFinding: 50, TaskRisk: 45, TaskSurface: 40, TaskReport: 35, TaskNetworkPortDiscovery: 110}
 	return order[kind]
 }
 func estimated(profile Profile) int {
