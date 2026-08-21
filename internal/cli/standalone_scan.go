@@ -45,13 +45,18 @@ func RunStandaloneScan(ctx context.Context, args []string, stdout, _ io.Writer) 
 	concurrency := fs.Int("max-concurrency", 8, "")
 	rate := fs.Int("rate", 20, "")
 	jsonOutput := fs.Bool("json", false, "")
-	if err := fs.Parse(args[1:]); err != nil || fs.NArg() != 1 {
+
+	flagArgs, targetArg, err := splitStandaloneScanArgs(args[1:])
+	if err != nil {
+		return errors.New(usage)
+	}
+	if err := fs.Parse(flagArgs); err != nil {
 		return errors.New(usage)
 	}
 	if *timeout <= 0 || *timeout > 30*time.Second || *concurrency < 1 || *concurrency > 50 || *rate < 1 || *rate > 1000 {
 		return errors.New("scan limits are outside allowed bounds")
 	}
-	target, err := standaloneTarget(fs.Arg(0))
+	target, err := standaloneTarget(targetArg)
 	if err != nil {
 		return err
 	}
@@ -116,6 +121,23 @@ func RunStandaloneScan(ctx context.Context, args []string, stdout, _ io.Writer) 
 		}
 	}
 	return table.Flush()
+}
+
+func splitStandaloneScanArgs(args []string) ([]string, string, error) {
+	var target string
+	flags := make([]string, 0, len(args))
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if !strings.HasPrefix(arg, "-") && target == "" {
+			target = arg
+			continue
+		}
+		flags = append(flags, arg)
+	}
+	if target == "" {
+		return nil, "", errors.New("missing scan target")
+	}
+	return flags, target, nil
 }
 
 func standaloneTarget(raw string) (string, error) {
