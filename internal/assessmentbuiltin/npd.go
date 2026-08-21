@@ -59,7 +59,7 @@ func npdAdapter(dependencies Dependencies) func(context.Context, assessment.Task
 		plan.ProjectID = taskContext.Scope.ProjectID
 		plan.ScopeVersion = taskContext.Scope.ScopeVersion
 		plan.Profile = profile
-		plan.Timeout = boundedNPDTimeout(taskContext.Task.NPDTimeout)
+		plan.Timeout = boundedNPDTimeout(taskContext.Scope.Limits.MaxDuration)
 		result, err := scanner.Scan(ctx, plan)
 		if err != nil && ctx.Err() != nil {
 			return assessment.AdapterResult{}, err
