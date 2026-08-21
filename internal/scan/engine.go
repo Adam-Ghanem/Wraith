@@ -1,6 +1,6 @@
 // Package scan provides the orchestration layer for Wraith's network scanner.
 // Transport ownership remains in the existing R3 TCP engine; this package only
-// coordinates target normalization, port planning, probing, and results.
+// coordinates target normalization, bounded probe scheduling, and results.
 package scan
 
 import (
@@ -13,6 +13,8 @@ import (
 	"github.com/Adam-Ghanem/Wraith/internal/httpengine"
 	"github.com/Adam-Ghanem/Wraith/internal/npd"
 )
+
+const MaxConcurrency = npd.MaxConcurrency
 
 type Options struct {
 	Profile     npd.Profile
@@ -52,6 +54,12 @@ func (e Engine) Scan(ctx context.Context, target string, opts Options) (Result, 
 	if opts.Profile == "" {
 		opts.Profile = npd.ProfileStandard
 	}
+	if opts.Concurrency <= 0 {
+		opts.Concurrency = defaultConcurrency(opts.Profile)
+	}
+	if opts.Concurrency > MaxConcurrency {
+		return Result{}, errors.New("scan concurrency exceeds limit")
+	}
 	ports := append([]uint16(nil), opts.Ports...)
 	if len(ports) == 0 {
 		ports = npd.DefaultPorts(opts.Profile)
@@ -75,9 +83,18 @@ func (e Engine) Scan(ctx context.Context, target string, opts Options) (Result, 
 	plan.ScopeVersion = opts.ScopeID
 	plan.Profile = opts.Profile
 	plan.Timeout = opts.Timeout
+	plan.Concurrency = opts.Concurrency
 	result, err := scanner.Scan(ctx, plan)
-	if err != nil && ctx.Err() != nil {
-		return Result{Target: result.Target, Profile: result.Profile, Ports: result.Ports, StartedAt: result.StartedAt, CompletedAt: result.CompletedAt}, err
-	}
 	return Result{Target: result.Target, Profile: result.Profile, Ports: result.Ports, StartedAt: result.StartedAt, CompletedAt: result.CompletedAt}, err
+}
+
+func defaultConcurrency(profile npd.Profile) int {
+	switch profile {
+	case npd.ProfileSafe:
+		return 4
+	case npd.ProfileDeep:
+		return 32
+	default:
+		return 16
+	}
 }
