@@ -31,12 +31,12 @@ const (
 )
 
 type Dependencies struct {
-	Client httpengine.Client
+	Client            httpengine.Client
 	Outbound          *outbound.Gateway
 	Repository        evidence.Repository
 	EndpointSource    endpointintelligence.Source
 	DiscoveryEvidence smartdiscovery.DiscoveryEvidenceSink
-	ScopeStore interface {
+	ScopeStore        interface {
 		LoadScopeVersion(context.Context, string, string) (scope.Version, error)
 		LoadActiveAuthorizationForScope(context.Context, string, string, time.Time) (authorization.Record, error)
 	}
