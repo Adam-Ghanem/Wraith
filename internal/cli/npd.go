@@ -242,7 +242,7 @@ func npdPlanAndAuthorizer(ctx context.Context, database *storage.DB, options npd
 	if err != nil {
 		return assessment.AssessmentPlan{}, nil, nil, nil, errors.New("active T1 authorization is required for NPD")
 	}
-	if countAuthorizedNPDPorts(authorityVersion, authorizationRecord, options.ProjectID, options.Target) == 0 {
+	if countAuthorizedNPDPorts(authorityVersion, authorizationRecord, options.ProjectID, options.Target, options.Ports) == 0 {
 		return assessment.AssessmentPlan{}, nil, nil, nil, errors.New("no requested NPD port is authorized by T2")
 	}
 	now := time.Now().UTC()
@@ -269,7 +269,7 @@ func npdPlanAndAuthorizer(ctx context.Context, database *storage.DB, options npd
 		if err != nil {
 			return errors.New("NPD T1 authorization is unavailable")
 		}
-		if countAuthorizedNPDPorts(version, auth, options.ProjectID, options.Target) == 0 {
+		if countAuthorizedNPDPorts(version, auth, options.ProjectID, options.Target, options.Ports) == 0 {
 			return errors.New("NPD requested ports are no longer authorized")
 		}
 		return nil
@@ -286,7 +286,7 @@ func npdPlanAndAuthorizer(ctx context.Context, database *storage.DB, options npd
 		if err != nil {
 			return trustcontext.Context{}, errors.New("NPD T1 authorization is unavailable")
 		}
-		if countAuthorizedNPDPorts(version, auth, options.ProjectID, options.Target) == 0 {
+		if countAuthorizedNPDPorts(version, auth, options.ProjectID, options.Target, options.Ports) == 0 {
 			return trustcontext.Context{}, errors.New("NPD requested ports are no longer authorized")
 		}
 		decision, err := securitytrust.Classify(securitytrust.ChainInput{Acknowledged: true, Record: auth, Scope: version, ProjectID: options.ProjectID, Target: options.Target, TaskID: task.ID, AssessmentID: task.AssessmentID, BudgetAvailable: true, Now: time.Now().UTC()})
@@ -306,17 +306,16 @@ func npdPlanAndAuthorizer(ctx context.Context, database *storage.DB, options npd
 	return plan, authorize, validateTask, trustTask, nil
 }
 
-func countAuthorizedNPDPorts(version scope.Version, authorizationRecord authorization.Record, projectID, target string) int {
+func countAuthorizedNPDPorts(version scope.Version, authorizationRecord authorization.Record, projectID, target string, ports []uint16) int {
 	parsed, err := policy.ParseTarget(target)
 	if err != nil || parsed.Scheme != string(policy.ProtocolTCP) || parsed.Port != 0 {
 		return 0
 	}
-	return countAuthorizedNPDPortsWithScope(version, authorizationRecord, projectID, parsed)
-}
-
-func countAuthorizedNPDPortsWithScope(version scope.Version, authorizationRecord authorization.Record, projectID string, parsed policy.Target) int {
 	count := 0
-	for _, port := range []uint16{1, 22, 80, 443} {
+	for _, port := range ports {
+		if port == 0 {
+			continue
+		}
 		if _, err := scope.Evaluate(version, authorizationRecord, scope.Request{ProjectID: projectID, Target: tcpDestination(parsed, port), Now: time.Now().UTC()}); err == nil {
 			count++
 		}
@@ -338,7 +337,10 @@ func validateStoredNPDPlan(plan assessment.AssessmentPlan, options npdRunOptions
 func loadCompletedCampaignTaskIDs(ctx context.Context, database *storage.DB, projectID, campaignID string) ([]string, error) {
 	record, err := database.LoadLatestCampaignCheckpointForCampaign(ctx, projectID, campaignID)
 	if err != nil {
-		return nil, nil
+		if strings.Contains(err.Error(), "absent from selected project") {
+			return nil, nil
+		}
+		return nil, err
 	}
 	var ids []string
 	if err := json.Unmarshal([]byte(record.CompletedTaskIDsJSON), &ids); err != nil {
