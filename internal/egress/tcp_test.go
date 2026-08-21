@@ -41,9 +41,9 @@ func TestTCPDispatcherDelegatesOnlyAfterMatchingDecision(t *testing.T) {
 	request := httpengine.TCPRequest{ProjectID: "project", Target: policy.Target{IP: mustAddr(t, "192.0.2.10"), Port: 443}, Timeout: time.Second}
 	operation := outbound.Operation{ProjectID: "project", CapabilityID: "assessment-network-port-discovery"}
 	decision := outbound.Decision{
-		Allowed: true,
+		Allowed:    true,
 		Capability: outbound.Capability{ID: operation.CapabilityID, Operation: outbound.OperationTCP},
-		Target: request.Target,
+		Target:     request.Target,
 	}
 
 	if _, err := dispatcher.DispatchTCP(context.Background(), decision, operation, request); err != nil {
@@ -60,9 +60,9 @@ func TestTCPDispatcherRejectsCapabilityTargetMismatch(t *testing.T) {
 	request := httpengine.TCPRequest{ProjectID: "project", Target: policy.Target{IP: mustAddr(t, "192.0.2.10"), Port: 443}, Timeout: time.Second}
 	operation := outbound.Operation{ProjectID: "project", CapabilityID: "assessment-network-port-discovery"}
 	decision := outbound.Decision{
-		Allowed: true,
+		Allowed:    true,
 		Capability: outbound.Capability{ID: operation.CapabilityID, Operation: outbound.OperationTCP},
-		Target: policy.Target{IP: request.Target.IP, Port: 22},
+		Target:     policy.Target{IP: request.Target.IP, Port: 22},
 	}
 
 	if _, err := dispatcher.DispatchTCP(context.Background(), decision, operation, request); err == nil {
