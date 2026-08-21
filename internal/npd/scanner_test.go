@@ -62,7 +62,7 @@ func TestParsePortsRejectsUnsafeInput(t *testing.T) {
 func TestScannerUsesOnlyR3TCPClient(t *testing.T) {
 	fake := &fakeTCP{}
 	scanner := Scanner{TCP: fake, Now: func() time.Time { return time.Unix(1, 0).UTC() }}
-	plan, err := scanner.Plan("192.0.2.10", []uint16{443, 22, 80})
+	plan, err := scanner.Plan("tcp://192.0.2.10", []uint16{443, 22, 80})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,6 +80,9 @@ func TestScannerUsesOnlyR3TCPClient(t *testing.T) {
 			t.Fatalf("result[%d]=%#v", i, result.Ports[i])
 		}
 	}
+	if result.Target != "tcp://192.0.2.10/" {
+		t.Fatalf("target=%q", result.Target)
+	}
 }
 
 func TestScannerDoesNotCallR3AfterCancellation(t *testing.T) {
@@ -87,7 +90,7 @@ func TestScannerDoesNotCallR3AfterCancellation(t *testing.T) {
 	cancel()
 	fake := &fakeTCP{}
 	scanner := Scanner{TCP: fake}
-	_, err := scanner.Scan(ctx, Scan{ProjectID: "project-a", ScopeVersion: "scope-v1", Target: "192.0.2.10", Ports: []uint16{22}})
+	_, err := scanner.Scan(ctx, Scan{ProjectID: "project-a", ScopeVersion: "scope-v1", Target: "tcp://192.0.2.10/", Ports: []uint16{22}})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("error=%v want cancellation", err)
 	}
@@ -99,7 +102,7 @@ func TestScannerDoesNotCallR3AfterCancellation(t *testing.T) {
 func TestScannerNeverTreatsPolicyFailureAsClosed(t *testing.T) {
 	fake := &fakeTCP{err: httpengine.ErrTCPPolicyDenied}
 	scanner := Scanner{TCP: fake}
-	result, err := scanner.Scan(context.Background(), Scan{ProjectID: "project-a", ScopeVersion: "scope-v1", Target: "192.0.2.10", Ports: []uint16{22}})
+	result, err := scanner.Scan(context.Background(), Scan{ProjectID: "project-a", ScopeVersion: "scope-v1", Target: "tcp://192.0.2.10/", Ports: []uint16{22}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,10 +111,12 @@ func TestScannerNeverTreatsPolicyFailureAsClosed(t *testing.T) {
 	}
 }
 
-func TestScannerRejectsURLTarget(t *testing.T) {
+func TestScannerRejectsNonTCPTarget(t *testing.T) {
 	fake := &fakeTCP{}
 	scanner := Scanner{TCP: fake}
-	if _, err := scanner.Plan("https://example.test/", []uint16{443}); err == nil {
-		t.Fatal("URL target unexpectedly accepted")
+	for _, target := range []string{"https://example.test/", "example.test", "tcp://example.test:443"} {
+		if _, err := scanner.Plan(target, []uint16{443}); err == nil {
+			t.Fatalf("target %q unexpectedly accepted", target)
+		}
 	}
 }
