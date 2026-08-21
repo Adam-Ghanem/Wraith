@@ -25,7 +25,7 @@ func TestParseTargetTCP(t *testing.T) {
 			if got.Scheme != "tcp" || got.Port != tt.wantPort || got.IP.IsValid() && got.IP.String() != tt.wantHost || !got.IP.IsValid() && got.Hostname != tt.wantHost {
 				t.Fatalf("unexpected target: %#v", got)
 			}
-		}
+		})
 	}
 }
 
