@@ -5,7 +5,6 @@ package npd
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net"
 	"sort"
 	"strconv"
@@ -104,7 +103,16 @@ func ParsePorts(spec string, max int) ([]uint16, error) {
 			}
 		}
 		span := int(to) - int(from) + 1
-		if span > max || len(seen) > max-span {
+		newPorts := 0
+		for port := from; port <= to; port++ {
+			if _, exists := seen[port]; !exists {
+				newPorts++
+			}
+			if port == 65535 {
+				break
+			}
+		}
+		if span > max || len(seen)+newPorts > max {
 			return nil, ErrPortLimit
 		}
 		for port := from; port <= to; port++ {
