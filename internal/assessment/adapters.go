@@ -146,8 +146,20 @@ func (registry AdapterRegistry) Dispatch(ctx context.Context, taskContext TaskCo
 }
 
 func invalidTaskTarget(value string) bool {
+	if strings.TrimSpace(value) == "" {
+		return true
+	}
 	parsed, err := url.Parse(value)
-	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" || parsed.User != nil {
+	if err != nil || parsed.User != nil {
+		return true
+	}
+	if parsed.Scheme == "" && parsed.Host == "" {
+		return false
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return false
+	}
+	if parsed.Host == "" {
 		return true
 	}
 	for key := range parsed.Query() {
@@ -174,7 +186,7 @@ func invalidEvidenceRefs(references []string) bool {
 
 func knownTaskType(value TaskType) bool {
 	switch value {
-	case TaskCrawl, TaskEndpoints, TaskJS, TaskBaseline, TaskDiscovery, TaskMutation, TaskFuzz, TaskInjection, TaskValidation, TaskCorrelation, TaskFinding, TaskRisk, TaskSurface, TaskReport:
+	case TaskCrawl, TaskEndpoints, TaskJS, TaskBaseline, TaskDiscovery, TaskMutation, TaskFuzz, TaskInjection, TaskValidation, TaskCorrelation, TaskFinding, TaskRisk, TaskSurface, TaskReport, TaskNetworkPortDiscovery:
 		return true
 	}
 	return false
