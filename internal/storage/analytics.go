@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"errors"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/Adam-Ghanem/Wraith/internal/analytics"
@@ -350,12 +349,4 @@ func (db *DB) LoadVerifiedAnalyticsSnapshot(ctx context.Context, projectID strin
 		return analytics.AnalyticsSnapshot{}, false, errors.New("invalid or stale analytics snapshot cache")
 	}
 	return cached, true, nil
-}
-
-func analyticsSafeReason(value string) string {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return "invalid_analytics_source"
-	}
-	return value
 }

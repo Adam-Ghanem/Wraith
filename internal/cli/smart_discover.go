@@ -105,7 +105,7 @@ func runSmartDiscover(ctx context.Context, args []string, stdout, _ io.Writer) e
 			return err
 		}
 		engine := httpengine.NewEngine(httpengine.Config{Gateway: policy.NewGateway(policy.NewEvaluator(database)), ObservationSink: sqliteObservationSink{repository: database}, MaxConcurrentRequests: global.MaxConcurrency, MaxResponseBytes: global.MaxResponseBytes, RequestTimeout: global.MaxDuration})
-		defer engine.CloseIdleConnections()
+		defer func() { _ = engine.CloseIdleConnections() }()
 		run, err := smartdiscovery.Verify(ctx, plan.Candidates, smartdiscovery.VerificationDependencies{Client: engine, Budget: budget, Rate: rate, Concurrency: concurrency, Evidence: database}, smartdiscovery.VerificationOptions{Authorized: options.Authorized, Verify: true, MaxDuration: global.MaxDuration, MaxResponseBytes: global.MaxResponseBytes})
 		if err != nil {
 			return err

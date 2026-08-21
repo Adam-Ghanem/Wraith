@@ -82,7 +82,7 @@ func runValidate(ctx context.Context, args []string, stdout, _ io.Writer) error 
 		return err
 	}
 	engine := httpengine.NewEngine(httpengine.Config{Gateway: policy.NewGateway(policy.NewEvaluator(db)), RateLimiter: httpengine.NewRateLimiter(time.Second / time.Duration(o.Rate)), MaxConcurrentRequests: o.Concurrency, MaxResponseBytes: 1 << 20, RequestTimeout: o.Timeout})
-	defer engine.CloseIdleConnections()
+	defer func() { _ = engine.CloseIdleConnections() }()
 	r, err := engine.Do(ctx, httpengine.Request{ProjectID: o.ProjectID, Method: endpoint.Method, URL: endpoint.URL, Timeout: o.Timeout, MaxResponseBytes: 1 << 20, Source: "validation.r8"})
 	if err != nil {
 		return err

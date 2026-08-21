@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"net/url"
-	"sort"
 	"strings"
 	"time"
 )
@@ -197,7 +196,4 @@ func estimated(profile Profile) int {
 	default:
 		return 64
 	}
-}
-func sortTasks(tasks []Task) {
-	sort.Slice(tasks, func(i, j int) bool { return tasks[i].Priority > tasks[j].Priority })
 }

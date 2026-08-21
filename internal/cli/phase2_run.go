@@ -120,7 +120,7 @@ func runScan(ctx context.Context, args []string, stdout, stderr io.Writer) error
 		MaxRedirects:          options.Web.MaxRedirects,
 		RequestTimeout:        options.Web.Timeout,
 	})
-	defer engine.CloseIdleConnections()
+	defer func() { _ = engine.CloseIdleConnections() }()
 	vtKey := os.Getenv("VT_API_KEY")
 	enumerator := enum.Enumerator{
 		CRT: enum.CRTSource{Timeout: 10 * time.Second},

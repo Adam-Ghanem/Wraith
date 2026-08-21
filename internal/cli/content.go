@@ -87,7 +87,7 @@ func runContent(ctx context.Context, args []string, stdout, _ io.Writer) error {
 		return renderContentOutput(stdout, options.JSON, contentOutput{Plan: plan, DryRun: true})
 	}
 	engine := httpengine.NewEngine(httpengine.Config{Gateway: policy.NewGateway(policy.NewEvaluator(database)), RateLimiter: httpengine.NewRateLimiter(time.Second / time.Duration(options.Rate)), MaxConcurrentRequests: options.Concurrency, MaxResponseBytes: limits.MaxResponseBytes, MaxRedirects: 5, RequestTimeout: options.Timeout, UserAgent: "Wraith/r7.5-content-discovery"})
-	defer engine.CloseIdleConnections()
+	defer func() { _ = engine.CloseIdleConnections() }()
 	run, err := contentdiscovery.RunR75(ctx, engine, plan, contentdiscovery.R75ExecutionOptions{Timeout: options.Timeout, MaxDuration: options.MaxDuration, Concurrency: options.Concurrency, MaxResponseBytes: limits.MaxResponseBytes, MaxRedirects: 5, MaxRecursionDepth: options.MaxRecursionDepth})
 	if err != nil {
 		return err

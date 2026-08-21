@@ -550,16 +550,6 @@ func countFindingsAtSeverity(findings []regression.Finding, severity string) int
 	return total
 }
 
-func countEvidenceVerification(evidence []regression.Evidence, verification string) int {
-	total := 0
-	for _, item := range evidence {
-		if item.Verification == verification {
-			total++
-		}
-	}
-	return total
-}
-
 func evidenceRate(evidence []regression.Evidence, matches func(regression.Evidence) bool) (int, bool, string) {
 	if len(evidence) == 0 {
 		return 0, false, "recorded evidence denominator is unknown"

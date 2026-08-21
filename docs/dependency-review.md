@@ -6,7 +6,7 @@ This review records every third-party Go module in the active module graph and e
 
 | Ecosystem | Reviewed package versions | Review result |
 | --- | ---: | --- |
-| Go modules | 33 | MIT, BSD-3-Clause, and Apache-2.0 only. No GPL-family or other strong-copyleft module was found. |
+| Go modules | 35 | MIT, BSD-3-Clause, and Apache-2.0 only. No GPL-family or other strong-copyleft module was found. |
 | Web pnpm packages | 116 | Predominantly permissive. Three `lightningcss` packages declare MPL-2.0, a file-level weak-copyleft license; see the exception note below. |
 
 Wraith is licensed under the MIT License; see [`../LICENSE`](../LICENSE). This review covers third-party dependency licenses only and does not alter Wraith's own license terms.
@@ -40,6 +40,8 @@ The table below excludes Wraith itself and covers every resolved third-party mod
 | `github.com/mdlayher/socket` | `v0.4.1` | MIT | Transitive. |
 | `github.com/ncruces/go-strftime` | `v1.0.0` | MIT | Transitive. |
 | `github.com/remyoudompheng/bigfft` | `v0.0.0-20230129092748-24d4a6f8daec` | BSD-3-Clause | Transitive. |
+| `github.com/tdewolff/parse/v2` | `v2.8.16` | MIT | Direct R6 static JavaScript parser; no execution capability. |
+| `github.com/tdewolff/test` | `v1.0.12` | MIT | Transitive test-support dependency of the static parser. |
 | `golang.org/x/crypto` | `v0.36.0` | BSD-3-Clause | Transitive. |
 | `golang.org/x/mod` | `v0.16.0` | BSD-3-Clause | Transitive. |
 | `golang.org/x/net` | `v0.38.0` | BSD-3-Clause | Transitive. |

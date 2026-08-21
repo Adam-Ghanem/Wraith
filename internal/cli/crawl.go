@@ -77,7 +77,7 @@ func runCrawl(ctx context.Context, args []string, stdout, _ io.Writer) error {
 		return err
 	}
 	engine := httpengine.NewEngine(httpengine.Config{Gateway: policy.NewGateway(policy.NewEvaluator(database)), ObservationSink: sqliteObservationSink{repository: database}, RateLimiter: httpengine.NewRateLimiter(time.Second / time.Duration(options.Rate)), MaxConcurrentRequests: options.Config.MaxConcurrency, MaxResponseBytes: options.Config.MaxResponseBytes, MaxRedirects: options.Config.MaxRedirects, RequestTimeout: options.Config.Timeout, UserAgent: options.Config.UserAgent})
-	defer engine.CloseIdleConnections()
+	defer func() { _ = engine.CloseIdleConnections() }()
 	result, err := crawler.Crawler{Client: engine, Repository: database}.Crawl(ctx, options.Config)
 	if err != nil {
 		return err

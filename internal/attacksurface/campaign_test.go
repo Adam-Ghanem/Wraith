@@ -16,6 +16,9 @@ func TestBuildCampaignPlanIsDeterministicBoundedAndProjectScoped(t *testing.T) {
 		t.Fatal(err)
 	}
 	second, err := BuildCampaignPlan(CampaignInput{ProjectID: "alpha", Name: "Review", Graph: graph, Snapshot: snapshot, Budget: CampaignBudget{MaxTasks: 1, MaxValidationRequests: 1, MaxDuration: time.Minute, MaxConcurrency: 1}})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if first.CampaignID != second.CampaignID || len(first.Tasks) != 1 || first.Tasks[0].ReferenceID != "finding-high" || first.Status != CampaignPlanned {
 		t.Fatalf("first=%#v second=%#v", first, second)
 	}

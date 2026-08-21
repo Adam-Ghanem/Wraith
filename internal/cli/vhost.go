@@ -86,7 +86,7 @@ func runVHost(ctx context.Context, args []string, stdout, _ io.Writer) error {
 		return renderVHostOutput(stdout, options.JSON, vhostOutput{Plan: plan, DryRun: true})
 	}
 	engine := httpengine.NewEngine(httpengine.Config{Gateway: policy.NewGateway(policy.NewEvaluator(database)), RateLimiter: httpengine.NewRateLimiter(time.Second / time.Duration(options.Rate)), MaxConcurrentRequests: options.Concurrency, MaxResponseBytes: limits.MaxResponseBytes, MaxRedirects: 5, RequestTimeout: options.Timeout, UserAgent: "Wraith/r7.5-vhost-discovery"})
-	defer engine.CloseIdleConnections()
+	defer func() { _ = engine.CloseIdleConnections() }()
 	run, err := contentdiscovery.RunR75VHosts(ctx, engine, plan, contentdiscovery.R75ExecutionOptions{Timeout: options.Timeout, MaxDuration: options.MaxDuration, Concurrency: options.Concurrency, MaxResponseBytes: limits.MaxResponseBytes, MaxRedirects: 5})
 	if err != nil {
 		return err

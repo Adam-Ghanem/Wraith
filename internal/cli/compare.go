@@ -75,7 +75,7 @@ func runCompare(ctx context.Context, args []string, stdout, _ io.Writer) error {
 		return json.NewEncoder(stdout).Encode(map[string]any{"state": "dry_run", "endpoint": options.Endpoint, "requests": 0})
 	}
 	engine := httpengine.NewEngine(httpengine.Config{Gateway: policy.NewGateway(policy.NewEvaluator(database)), RateLimiter: httpengine.NewRateLimiter(time.Second), MaxConcurrentRequests: 1, MaxResponseBytes: 2 << 20, RequestTimeout: options.Timeout})
-	defer engine.CloseIdleConnections()
+	defer func() { _ = engine.CloseIdleConnections() }()
 	first, err := engine.Do(ctx, httpengine.Request{ProjectID: options.ProjectID, Method: endpoint.Method, URL: endpoint.URL, Timeout: options.Timeout, Source: "compare/identity"})
 	if err != nil {
 		return err

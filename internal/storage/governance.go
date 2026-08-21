@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/Adam-Ghanem/Wraith/internal/governance"
 )
@@ -244,5 +243,3 @@ func governanceDecisionExistsTx(ctx context.Context, tx *sql.Tx, decision govern
 func validGovernanceTransitionLink(initial governance.RecommendationGovernanceState, result governance.TransitionResult) bool {
 	return initial.ProjectID == result.State.ProjectID && initial.ProjectID == result.Decision.ProjectID && initial.ProjectID == result.Event.ProjectID && initial.RecommendationID == result.State.RecommendationID && initial.RecommendationID == result.Decision.RecommendationID && initial.RecommendationFingerprint == result.Event.ObjectFingerprint && initial.EvaluationFingerprint == result.State.EvaluationFingerprint && initial.EvaluationFingerprint == result.Decision.EvaluationFingerprint && result.Decision.PreviousStateFingerprint == initial.Fingerprint && result.Decision.ResultingStateFingerprint == result.State.Fingerprint && result.Event.DecisionFingerprint == result.Decision.Fingerprint
 }
-
-func formatGovernanceTime(value time.Time) string { return formatStorageTime(value) }

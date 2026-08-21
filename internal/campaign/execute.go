@@ -3,7 +3,6 @@ package campaign
 import (
 	"context"
 	"errors"
-	"sort"
 	"time"
 
 	"github.com/Adam-Ghanem/Wraith/internal/assessment"
@@ -175,13 +174,4 @@ func (coordinator Coordinator) now() time.Time {
 		return coordinator.Now().UTC()
 	}
 	return time.Now().UTC()
-}
-
-func sortedTaskIDs(tasks []CampaignTask) []string {
-	ids := make([]string, 0, len(tasks))
-	for _, task := range tasks {
-		ids = append(ids, task.AssessmentTaskID)
-	}
-	sort.Strings(ids)
-	return ids
 }

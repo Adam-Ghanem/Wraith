@@ -46,7 +46,7 @@ func TestR15CampaignCycleDelegatesAuthorizedLocalhostWorkToBuiltInOwners(t *test
 		t.Fatal(err)
 	}
 	transport := httpengine.NewEngine(httpengine.Config{Gateway: r15AllowGateway{}, DestinationPolicy: httpengine.DestinationPolicy{AllowPrivate: true}, RequestTimeout: time.Second, MaxConcurrentRequests: 1, MaxResponseBytes: 1 << 20})
-	defer transport.CloseIdleConnections()
+	defer func() { _ = transport.CloseIdleConnections() }()
 	source := r15InventorySource{endpoints: []evidence.Endpoint{{Identity: "endpoint-1", ProjectID: "alpha", Method: "GET", URL: server.URL}}}
 	registry, err := assessmentbuiltin.NewRegistry(assessmentbuiltin.Dependencies{Client: transport, EndpointSource: source})
 	if err != nil {
