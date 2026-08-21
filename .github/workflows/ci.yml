@@ -54,6 +54,8 @@ jobs:
         run: bash scripts/check-dependency-review.sh go
       - name: Check high-confidence secret markers
         run: bash scripts/check-secret-markers.sh
+      - name: Check T4 trust enforcement boundary
+        run: bash scripts/check-t4-trust-enforcement.sh
 
   web-quality:
     name: Web quality

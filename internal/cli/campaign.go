@@ -16,7 +16,9 @@ import (
 	"github.com/Adam-Ghanem/Wraith/internal/attacksurface"
 	"github.com/Adam-Ghanem/Wraith/internal/campaign"
 	"github.com/Adam-Ghanem/Wraith/internal/pentest"
+	"github.com/Adam-Ghanem/Wraith/internal/securitytrust"
 	"github.com/Adam-Ghanem/Wraith/internal/storage"
+	"github.com/Adam-Ghanem/Wraith/internal/trustcontext"
 )
 
 func runPentestCampaign(ctx context.Context, args []string, stdout io.Writer) error {
@@ -65,7 +67,7 @@ func runPentestCampaignCreate(ctx context.Context, args []string, stdout io.Writ
 	}
 	limits := assessment.Limits{MaxRequests: *maxRequests, MaxDuration: *maxDuration, MaxConcurrency: *maxConcurrency, MaxRate: *rate}
 	target := strings.TrimSpace(args[3])
-	expiresAt, _, _, err := assessmentAuthorizer(ctx, database, strings.TrimSpace(*project), strings.TrimSpace(*scopeVersion), target, limits.MaxDuration)
+	expiresAt, _, _, _, err := assessmentAuthorizer(ctx, database, strings.TrimSpace(*project), strings.TrimSpace(*scopeVersion), target, limits.MaxDuration)
 	if err != nil {
 		return errors.New("campaign authorization is not active for the requested scope version")
 	}
@@ -194,9 +196,16 @@ func runPentestCampaignRun(ctx context.Context, args []string, stdout io.Writer)
 	if err := json.Unmarshal([]byte(record.AssessmentPlanJSON), &plan); err != nil {
 		return errors.New("stored campaign plan is invalid")
 	}
-	expiresAt, authorize, validateTask, err := assessmentAuthorizer(ctx, database, record.ProjectID, record.ScopeVersion, record.Target, plan.Scope.Limits.MaxDuration)
+	expiresAt, authorize, validateTask, trustTask, err := assessmentAuthorizer(ctx, database, record.ProjectID, record.ScopeVersion, record.Target, plan.Scope.Limits.MaxDuration)
 	if err != nil {
 		return errors.New("campaign authorization is not active for the requested scope version")
+	}
+	if !*dryRun && trustTask == nil {
+		return errors.New("campaign T4 trust provenance is unavailable for the stored scope version")
+	}
+	auditTrust := func(auditContext context.Context, trusted trustcontext.Context) error {
+		_, err := database.AppendAuthorizationLifecycleEvent(auditContext, securitytrust.AuditEventInput{ProjectID: trusted.ProjectID, AuthorizationID: trusted.AuthorizationID, ScopeReference: trusted.ScopeVersion, EventType: securitytrust.EventValidated, ReasonCode: "t4_trust_" + trusted.TaskFingerprint, OccurredAt: time.Now().UTC()})
+		return err
 	}
 	plan.Scope.ExpiresAt = expiresAt
 	domainCampaign, err := campaign.Create(campaign.CreateInput{ProjectID: record.ProjectID, AssessmentPlan: plan, Surface: campaign.SurfaceReference{SnapshotID: record.SurfaceSnapshotID, ProjectID: record.ProjectID, Fingerprint: record.SurfaceFingerprint, SourceVersion: record.SurfaceSourceVersion}, CreatedAt: record.CreatedAt})
@@ -227,7 +236,7 @@ func runPentestCampaignRun(ctx context.Context, args []string, stdout io.Writer)
 	if err != nil {
 		return err
 	}
-	engine := assessmentexec.NewEngine(&registry, assessmentexec.Dependencies{RunContext: pentest.RunContext{Budget: budget, Concurrency: concurrency, Rate: rate}, Now: time.Now, Authorize: authorize, ValidateTask: validateTask})
+	engine := assessmentexec.NewEngine(&registry, assessmentexec.Dependencies{RunContext: pentest.RunContext{Budget: budget, Concurrency: concurrency, Rate: rate}, Now: time.Now, Authorize: authorize, ValidateTask: validateTask, TrustContext: trustTask, AuditTrust: auditTrust})
 	coordinator := campaign.Coordinator{Authorize: authorize, Execute: engine.Execute, Now: time.Now}
 	if *dryRun {
 		summary, err := coordinator.Run(ctx, campaign.RunRequest{Campaign: &domainCampaign, Cycle: &cycle, Plan: plan, DryRun: true})

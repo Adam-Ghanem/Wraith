@@ -13,6 +13,7 @@ import (
 
 	"github.com/Adam-Ghanem/Wraith/internal/assessment"
 	"github.com/Adam-Ghanem/Wraith/internal/pentest"
+	"github.com/Adam-Ghanem/Wraith/internal/trustcontext"
 )
 
 var errAuthorizationExpired = errors.New("assessment authorization expired")
@@ -68,6 +69,7 @@ type ExecutionSummary struct {
 type ExecutionRequest struct {
 	Plan        assessment.AssessmentPlan
 	ProjectID   string
+	CampaignID  string
 	DryRun      bool
 	MaxTasks    int
 	TaskTimeout time.Duration
@@ -78,9 +80,15 @@ type Dependencies struct {
 	Now        func() time.Time
 	Authorize  func(context.Context, assessment.ScopeSnapshot) error
 	// ValidateTask is the optional T3 central execution-gate seam. Production
-	// active paths provide it; test-only or legacy callers retain their existing
-	// explicit Authorize contract until migrated.
+	// active paths provide it. T4 requires it for non-dry-run execution.
 	ValidateTask func(context.Context, assessment.ScopeSnapshot, assessment.Task) error
+	// TrustContext produces one freshly derived T4 trust carrier for the exact
+	// task and optional campaign. Non-dry-run execution fails closed when absent.
+	TrustContext func(context.Context, assessment.ScopeSnapshot, assessment.Task, string) (trustcontext.Context, error)
+	// AuditTrust persists one accepted, derived trust assertion before dispatch.
+	// An unavailable audit sink blocks non-dry-run execution rather than creating
+	// untraceable active work.
+	AuditTrust func(context.Context, trustcontext.Context) error
 }
 
 type Engine struct {
@@ -167,19 +175,38 @@ func (engine Engine) Execute(ctx context.Context, request ExecutionRequest) (Exe
 		index := ready[0]
 		task := request.Plan.Tasks[index]
 		execution := &summary.Tasks[index]
-		if engine.deps.ValidateTask != nil {
-			if err := engine.deps.ValidateTask(executionContext, request.Plan.Scope, task); err != nil {
-				if transitionErr := execution.Transition(StatusCancelled, now()); transitionErr != nil {
-					return ExecutionSummary{}, transitionErr
-				}
-				execution.Reason = "execution_gate_denied"
-				summary.emit(now, "task.execution_gate_denied", task.ID, StatusCancelled, execution.Reason)
-				completed++
-				continue
+		trusted, err := engine.deps.TrustContext(executionContext, request.Plan.Scope, task, request.CampaignID)
+		if err == nil {
+			err = trustcontext.Validate(trusted, trustcontext.ValidationRequest{ProjectID: request.Plan.Scope.ProjectID, ScopeVersion: request.Plan.Scope.ScopeVersion, TaskID: task.ID, AssessmentID: request.Plan.AssessmentID, CampaignID: request.CampaignID, Now: now().UTC()})
+		}
+		if err != nil {
+			if transitionErr := execution.Transition(StatusCancelled, now()); transitionErr != nil {
+				return ExecutionSummary{}, transitionErr
 			}
+			execution.Reason = "trust_context_denied"
+			summary.emit(now, "task.trust_context_denied", task.ID, StatusCancelled, execution.Reason)
+			completed++
+			continue
+		}
+		if err := engine.deps.AuditTrust(executionContext, trusted); err != nil {
+			if transitionErr := execution.Transition(StatusCancelled, now()); transitionErr != nil {
+				return ExecutionSummary{}, transitionErr
+			}
+			execution.Reason = "trust_audit_denied"
+			summary.emit(now, "task.trust_audit_denied", task.ID, StatusCancelled, execution.Reason)
+			completed++
+			continue
+		}
+		if err := engine.deps.ValidateTask(executionContext, request.Plan.Scope, task); err != nil {
+			if transitionErr := execution.Transition(StatusCancelled, now()); transitionErr != nil {
+				return ExecutionSummary{}, transitionErr
+			}
+			execution.Reason = "execution_gate_denied"
+			summary.emit(now, "task.execution_gate_denied", task.ID, StatusCancelled, execution.Reason)
+			completed++
+			continue
 		}
 		ownerControlsRequests := engine.registry.OwnsRequestControls(task.Type)
-		var err error
 		if !ownerControlsRequests {
 			err = engine.deps.RunContext.Budget.Consume(pentest.BudgetUse{Requests: 1})
 			if err != nil {
@@ -207,7 +234,7 @@ func (engine Engine) Execute(ctx context.Context, request ExecutionRequest) (Exe
 		if err == nil {
 			taskContext, cancelTask := context.WithTimeout(executionContext, taskTimeout(request))
 			var result assessment.AdapterResult
-			result, err = engine.registry.Dispatch(taskContext, assessment.TaskContext{AssessmentID: request.Plan.AssessmentID, Scope: request.Plan.Scope, Task: task, RunContext: engine.deps.RunContext, Now: now})
+			result, err = engine.registry.Dispatch(taskContext, assessment.TaskContext{AssessmentID: request.Plan.AssessmentID, CampaignID: request.CampaignID, Scope: request.Plan.Scope, Task: task, Trust: trusted, RunContext: engine.deps.RunContext, Now: now})
 			cancelTask()
 			execution.Result = result
 		}
@@ -225,6 +252,9 @@ func (engine Engine) Execute(ctx context.Context, request ExecutionRequest) (Exe
 func (engine Engine) validate(request ExecutionRequest) error {
 	if engine.registry == nil || engine.deps.Now == nil || engine.deps.Authorize == nil || engine.deps.RunContext.Budget == nil || engine.deps.RunContext.Concurrency == nil || engine.deps.RunContext.Rate == nil || strings.TrimSpace(request.ProjectID) == "" || request.ProjectID != request.Plan.Scope.ProjectID || request.Plan.AssessmentID == "" || !request.Plan.Scope.Authorized || !validProfile(request.Plan.Scope.Profile) || request.Plan.Scope.ExpiresAt.IsZero() || !request.Plan.Scope.ExpiresAt.After(engine.deps.Now()) || request.MaxTasks < 0 || (request.MaxTasks > 0 && request.MaxTasks < len(request.Plan.Tasks)) || request.TaskTimeout < 0 || (request.TaskTimeout > 0 && request.TaskTimeout > request.Plan.Scope.Limits.MaxDuration) {
 		return errors.New("invalid assessment execution request")
+	}
+	if !request.DryRun && (engine.deps.ValidateTask == nil || engine.deps.TrustContext == nil || engine.deps.AuditTrust == nil) {
+		return trustcontext.ErrTrustContextMissing
 	}
 	if err := assessment.ValidateTasks(request.Plan.Tasks); err != nil {
 		return err

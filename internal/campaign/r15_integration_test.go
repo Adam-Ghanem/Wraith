@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"net/url"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -12,11 +13,15 @@ import (
 	"github.com/Adam-Ghanem/Wraith/internal/assessment"
 	"github.com/Adam-Ghanem/Wraith/internal/assessmentbuiltin"
 	"github.com/Adam-Ghanem/Wraith/internal/assessmentexec"
+	"github.com/Adam-Ghanem/Wraith/internal/authorization"
 	"github.com/Adam-Ghanem/Wraith/internal/endpointintelligence"
 	"github.com/Adam-Ghanem/Wraith/internal/evidence"
 	"github.com/Adam-Ghanem/Wraith/internal/httpengine"
 	"github.com/Adam-Ghanem/Wraith/internal/pentest"
 	"github.com/Adam-Ghanem/Wraith/internal/policy"
+	"github.com/Adam-Ghanem/Wraith/internal/scope"
+	"github.com/Adam-Ghanem/Wraith/internal/securitytrust"
+	"github.com/Adam-Ghanem/Wraith/internal/trustcontext"
 )
 
 func TestR15CampaignCycleDelegatesAuthorizedLocalhostWorkToBuiltInOwners(t *testing.T) {
@@ -66,7 +71,26 @@ func TestR15CampaignCycleDelegatesAuthorizedLocalhostWorkToBuiltInOwners(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	engine := assessmentexec.NewEngine(&registry, assessmentexec.Dependencies{RunContext: pentest.RunContext{Budget: budget, Rate: rate, Concurrency: concurrency}, Now: time.Now, Authorize: func(context.Context, assessment.ScopeSnapshot) error { return nil }})
+	parsedTarget, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	authorityVersion, err := scope.NewVersion(scope.VersionInput{ProjectID: "alpha", Version: "scope-v1", CreatedAt: now, Rules: []scope.Rule{{Kind: scope.RuleScheme, Effect: scope.EffectAllow, Value: parsedTarget.Scheme}, {Kind: scope.RuleIPExact, Effect: scope.EffectAllow, Value: parsedTarget.Hostname()}, {Kind: scope.RulePort, Effect: scope.EffectAllow, Value: parsedTarget.Port()}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	authorizationRecord, err := authorization.Create(authorization.CreateInput{ProjectID: "alpha", Subject: "owner-a", ScopeReference: "scope-v1", EvidenceReference: "ticket-1", CreatedBy: "operator", Type: authorization.TypeAssessment, CreatedAt: now.Add(-time.Minute), ExpiresAt: now.Add(time.Hour)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	trustFactory := func(_ context.Context, snapshot assessment.ScopeSnapshot, task assessment.Task, campaignID string) (trustcontext.Context, error) {
+		decision, err := securitytrust.Classify(securitytrust.ChainInput{Acknowledged: true, Record: authorizationRecord, Scope: authorityVersion, ProjectID: snapshot.ProjectID, Target: snapshot.Target, TaskID: task.ID, AssessmentID: task.AssessmentID, BudgetAvailable: true, Now: now})
+		if err != nil {
+			return trustcontext.Context{}, err
+		}
+		return trustcontext.New(trustcontext.Input{Decision: decision, Record: authorizationRecord, Scope: authorityVersion, TaskID: task.ID, AssessmentID: task.AssessmentID, CampaignID: campaignID, BudgetReference: "campaign-budget", CreatedAt: now, ExpiresAt: now.Add(time.Minute)})
+	}
+	engine := assessmentexec.NewEngine(&registry, assessmentexec.Dependencies{RunContext: pentest.RunContext{Budget: budget, Rate: rate, Concurrency: concurrency}, Now: time.Now, Authorize: func(context.Context, assessment.ScopeSnapshot) error { return nil }, ValidateTask: func(context.Context, assessment.ScopeSnapshot, assessment.Task) error { return nil }, TrustContext: trustFactory, AuditTrust: func(context.Context, trustcontext.Context) error { return nil }})
 	coordinator := Coordinator{Authorize: func(context.Context, assessment.ScopeSnapshot) error { return nil }, Execute: engine.Execute, Now: time.Now}
 
 	summary, err := coordinator.Run(context.Background(), RunRequest{Campaign: &campaignState, Cycle: &cycle, Plan: plan})

@@ -19,7 +19,7 @@ func (a *recordingAdapter) Execute(_ context.Context, task TaskContext) (Adapter
 	return AdapterResult{Owner: a.owner, TaskID: task.Task.ID}, nil
 }
 
-func TestAdapterRegistryMapsEachTaskToOneOwnerAndDelegates(t *testing.T) {
+func TestAdapterRegistryRejectsLegacyExecuteWithoutTrustContext(t *testing.T) {
 	now := time.Unix(1_700_000_000, 0).UTC()
 	plan, err := PlanActiveAssessment(PlanInput{ProjectID: "alpha", Target: "https://app.test", Authorized: true, ScopeVersion: "scope-v1", Profile: ProfileSafe, ExpiresAt: now.Add(time.Hour), Limits: Limits{MaxRequests: 8, MaxDuration: time.Minute, MaxConcurrency: 1, MaxRate: 1}, CreatedAt: now})
 	if err != nil {
@@ -51,20 +51,47 @@ func TestAdapterRegistryMapsEachTaskToOneOwnerAndDelegates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := registry.Execute(context.Background(), plan, pentest.RunContext{Budget: budget, Concurrency: concurrency, Rate: rate}, func() time.Time { return now })
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(result.Completed) != len(plan.Tasks) {
-		t.Fatalf("result=%#v", result)
+	if _, err := registry.Execute(context.Background(), plan, pentest.RunContext{Budget: budget, Concurrency: concurrency, Rate: rate}, func() time.Time { return now }); err == nil {
+		t.Fatal("Execute() error = nil, want missing trust context rejection")
 	}
 	for kind, adapter := range records {
-		if len(adapter.calls) != 1 || adapter.calls[0].Task.Type != kind || adapter.calls[0].Scope.ProjectID != "alpha" || adapter.calls[0].Scope.Authorized != true {
-			t.Fatalf("kind=%s calls=%#v", kind, adapter.calls)
+		if len(adapter.calls) != 0 {
+			t.Fatalf("kind=%s calls=%#v, want no legacy dispatch", kind, adapter.calls)
 		}
 	}
 	if _, err := NewAdapterRegistry(TypedAdapter{TaskType: TaskCrawl, Adapter: &recordingAdapter{owner: ""}}); err == nil {
 		t.Fatal("expected blank owner rejection")
+	}
+}
+
+func TestAdapterRegistryDispatchRequiresTrustContextBeforeOwnerInvocation(t *testing.T) {
+	adapter := &recordingAdapter{owner: "owner-crawl"}
+	registry, err := NewAdapterRegistry(TypedAdapter{TaskType: TaskCrawl, Adapter: adapter})
+	if err != nil {
+		t.Fatal(err)
+	}
+	limits := pentest.DefaultLimits()
+	limits.MaxRequests, limits.MaxConcurrency, limits.MaxRate, limits.MaxDuration = 8, 1, 1, time.Minute
+	budget, err := pentest.NewBudgetManager(limits)
+	if err != nil {
+		t.Fatal(err)
+	}
+	concurrency, err := pentest.NewConcurrencyController(limits.MaxConcurrency)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rate, err := pentest.NewGlobalRateLimiter(limits.MaxRate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	task := Task{ID: "task-crawl", AssessmentID: "assessment-a", ProjectID: "project-a", Type: TaskCrawl, Target: "https://app.test", Status: StatusPlanned}
+	_, err = registry.Dispatch(context.Background(), TaskContext{AssessmentID: task.AssessmentID, Scope: ScopeSnapshot{ProjectID: task.ProjectID, ScopeVersion: "scope-v1", Target: task.Target, Authorized: true, ExpiresAt: now.Add(time.Minute), Profile: ProfileSafe, Limits: Limits{MaxRequests: 8, MaxConcurrency: 1, MaxRate: 1, MaxDuration: time.Minute}}, Task: task, RunContext: pentest.RunContext{Budget: budget, Concurrency: concurrency, Rate: rate}, Now: func() time.Time { return now }})
+	if err == nil {
+		t.Fatal("Dispatch() error = nil, want missing trust context rejection")
+	}
+	if len(adapter.calls) != 0 {
+		t.Fatalf("adapter calls = %d, want zero without trust context", len(adapter.calls))
 	}
 }
 

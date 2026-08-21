@@ -39,7 +39,7 @@ func (coordinator Coordinator) Run(ctx context.Context, request RunRequest) (ass
 		return assessmentexec.ExecutionSummary{}, err
 	}
 	if request.DryRun {
-		return coordinator.Execute(ctx, assessmentexec.ExecutionRequest{Plan: filteredPlan, ProjectID: request.Campaign.ProjectID, DryRun: true})
+		return coordinator.Execute(ctx, assessmentexec.ExecutionRequest{Plan: filteredPlan, ProjectID: request.Campaign.ProjectID, CampaignID: request.Campaign.ID, DryRun: true})
 	}
 	now := coordinator.now()
 	if err := request.Campaign.Transition(StatusRunning, now); err != nil {
@@ -47,7 +47,7 @@ func (coordinator Coordinator) Run(ctx context.Context, request RunRequest) (ass
 	}
 	request.Cycle.Status = StatusRunning
 	request.Cycle.StartedAt = now.UTC()
-	summary, err := coordinator.Execute(ctx, assessmentexec.ExecutionRequest{Plan: filteredPlan, ProjectID: request.Campaign.ProjectID})
+	summary, err := coordinator.Execute(ctx, assessmentexec.ExecutionRequest{Plan: filteredPlan, ProjectID: request.Campaign.ProjectID, CampaignID: request.Campaign.ID})
 	if err != nil {
 		_ = request.Campaign.Transition(StatusFailed, coordinator.now())
 		request.Cycle.Status, request.Cycle.FinishedAt = StatusFailed, coordinator.now().UTC()

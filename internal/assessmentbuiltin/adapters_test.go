@@ -7,9 +7,13 @@ import (
 	"time"
 
 	"github.com/Adam-Ghanem/Wraith/internal/assessment"
+	"github.com/Adam-Ghanem/Wraith/internal/authorization"
 	"github.com/Adam-Ghanem/Wraith/internal/evidence"
 	"github.com/Adam-Ghanem/Wraith/internal/httpengine"
 	"github.com/Adam-Ghanem/Wraith/internal/pentest"
+	"github.com/Adam-Ghanem/Wraith/internal/scope"
+	"github.com/Adam-Ghanem/Wraith/internal/securitytrust"
+	"github.com/Adam-Ghanem/Wraith/internal/trustcontext"
 )
 
 func TestRegistryDelegatesCrawlOnlyThroughInjectedR3Client(t *testing.T) {
@@ -162,5 +166,21 @@ func testTaskContext(t testing.TB, taskType assessment.TaskType) assessment.Task
 	}
 	now := time.Now().UTC()
 	task := assessment.Task{ID: "task-" + string(taskType), AssessmentID: "assessment-1", ProjectID: "alpha", Type: taskType, Target: "https://app.example.test/", Status: assessment.StatusPlanned, CreatedAt: now}
-	return assessment.TaskContext{AssessmentID: task.AssessmentID, Scope: assessment.ScopeSnapshot{ProjectID: "alpha", ScopeVersion: "scope-v1", Target: task.Target, Authorized: true, ExpiresAt: now.Add(time.Minute), Profile: assessment.ProfileSafe, Limits: assessment.Limits{MaxRequests: 8, MaxConcurrency: 1, MaxRate: 20, MaxDuration: time.Minute}}, Task: task, RunContext: pentest.RunContext{Budget: budget, Rate: rate, Concurrency: concurrency}, Now: func() time.Time { return now }}
+	record, err := authorization.Create(authorization.CreateInput{ProjectID: "alpha", Subject: "owner-a", ScopeReference: "scope-v1", EvidenceReference: "ticket-1", CreatedBy: "operator", Type: authorization.TypeAssessment, CreatedAt: now.Add(-time.Minute), ExpiresAt: now.Add(time.Hour)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	version, err := scope.NewVersion(scope.VersionInput{ProjectID: "alpha", Version: "scope-v1", CreatedAt: now.Add(-time.Minute), Rules: []scope.Rule{{Kind: scope.RuleHostExact, Effect: scope.EffectAllow, Value: "app.example.test"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	decision, err := securitytrust.Classify(securitytrust.ChainInput{Acknowledged: true, Record: record, Scope: version, ProjectID: task.ProjectID, Target: task.Target, TaskID: task.ID, AssessmentID: task.AssessmentID, BudgetAvailable: true, Now: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	trusted, err := trustcontext.New(trustcontext.Input{Decision: decision, Record: record, Scope: version, TaskID: task.ID, AssessmentID: task.AssessmentID, BudgetReference: "test-budget", CreatedAt: now, ExpiresAt: now.Add(time.Minute)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return assessment.TaskContext{AssessmentID: task.AssessmentID, Scope: assessment.ScopeSnapshot{ProjectID: "alpha", ScopeVersion: "scope-v1", Target: task.Target, Authorized: true, ExpiresAt: now.Add(time.Minute), Profile: assessment.ProfileSafe, Limits: assessment.Limits{MaxRequests: 8, MaxConcurrency: 1, MaxRate: 20, MaxDuration: time.Minute}}, Task: task, Trust: trusted, RunContext: pentest.RunContext{Budget: budget, Rate: rate, Concurrency: concurrency}, Now: func() time.Time { return now }}
 }
