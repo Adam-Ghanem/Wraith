@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Adam-Ghanem/Wraith/internal/assessment"
+	"github.com/Adam-Ghanem/Wraith/internal/authorization"
 	"github.com/Adam-Ghanem/Wraith/internal/crawler"
 	"github.com/Adam-Ghanem/Wraith/internal/endpointintelligence"
 	"github.com/Adam-Ghanem/Wraith/internal/evidence"
@@ -30,17 +31,11 @@ const (
 )
 
 type Dependencies struct {
-	// Client is an already configured R3 transport. It is never constructed here.
 	Client httpengine.Client
-	// Outbound is the required T5 decision gateway for active R15 R3 reads.
-	// It authorizes and audits each delegated request; it owns no transport.
 	Outbound          *outbound.Gateway
 	Repository        evidence.Repository
 	EndpointSource    endpointintelligence.Source
 	DiscoveryEvidence smartdiscovery.DiscoveryEvidenceSink
-	// ScopeStore is the authoritative T2 scope/authorization seam used by NPD
-	// for per-destination revalidation. It is intentionally separate from the
-	// evidence repository so NPD cannot infer authorization from evidence state.
 	ScopeStore interface {
 		LoadScopeVersion(context.Context, string, string) (scope.Version, error)
 		LoadActiveAuthorizationForScope(context.Context, string, string, time.Time) (authorization.Record, error)
