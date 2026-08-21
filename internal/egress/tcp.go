@@ -56,7 +56,7 @@ func sameTCPDestination(left, right policy.Target) bool {
 	if leftErr != nil || rightErr != nil || leftNormalized.Port == 0 || rightNormalized.Port == 0 {
 		return false
 	}
-	if leftNormalized.Port != rightNormalized.Port || leftNormalized.Path != rightNormalized.Path {
+	if leftNormalized.Port != rightNormalized.Port {
 		return false
 	}
 	if leftNormalized.IP.IsValid() || rightNormalized.IP.IsValid() {
