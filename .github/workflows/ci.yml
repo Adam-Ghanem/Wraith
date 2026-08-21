@@ -62,6 +62,8 @@ jobs:
         run: bash scripts/check-t6-central-egress-adoption.sh
       - name: Check T7 data governance boundary
         run: bash scripts/check-t7-data-governance.sh
+      - name: Check T8 data protection boundary
+        run: bash scripts/check-t8-data-protection.sh
 
   web-quality:
     name: Web quality
