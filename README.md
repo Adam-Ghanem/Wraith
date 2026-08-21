@@ -1,5 +1,9 @@
 # Wraith
 
+<p align="center">
+  <img src="docs/assets/wraith-logo.png" alt="Wraith raven-feather logo" width="320">
+</p>
+
 [![CI](https://github.com/Adam-Ghanem/Wraith/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Adam-Ghanem/Wraith/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
