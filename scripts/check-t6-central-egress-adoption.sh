@@ -47,3 +47,9 @@ if grep -REn --include='*.go' '"net"|"net/http"|"net/url"|"os/exec"|"os/command"
   echo 'T5 outbound policy package must remain free of transport, resolver, socket, and subprocess imports' >&2
   exit 1
 fi
+
+# NPD must delegate through R3 and never introduce a second transport stack.
+if grep -REn --include='*.go' 'net\.Dial|net\.DialTimeout|net\.Listen|net\.ListenPacket|syscall|golang\.org/x/sys|exec\.Command|exec\.CommandContext|os/exec|http\.Client|http\.Get|http\.Post|net\.Resolver' internal/npd >/dev/null; then
+  echo 'NPD contains a forbidden transport, resolver, or subprocess primitive; use the existing R3 TCPClient' >&2
+  exit 1
+fi
