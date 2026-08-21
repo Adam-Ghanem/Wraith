@@ -93,6 +93,8 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 			return runData(ctx, args, stdout)
 		case "governance":
 			return runGovernance(ctx, args, stdout)
+		case "release":
+			return runRelease(ctx, args, stdout)
 		case "export-fixtures":
 			return runExportFixtures(ctx, args, stdout, stderr)
 		case "version":

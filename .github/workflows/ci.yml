@@ -72,6 +72,8 @@ jobs:
         run: bash scripts/check-t7-data-governance.sh
       - name: Check T8 data protection boundary
         run: bash scripts/check-t8-data-protection.sh
+      - name: Check T9 release-trust boundary
+        run: bash scripts/check-t9-release-trust.sh
 
   web-quality:
     name: Web quality
