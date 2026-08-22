@@ -60,3 +60,33 @@ func TestEngineKeepsTargetNormalizationInNPD(t *testing.T) {
 		t.Fatalf("normalized target = %#v", parsed)
 	}
 }
+
+func TestEngineCancelledContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	e := Engine{TCP: fakeTCP{}}
+	result, err := e.Scan(ctx, "tcp://192.0.2.10/", Options{Ports: []uint16{80}})
+	if err == nil {
+		t.Fatal("Scan() error = nil, want cancellation")
+	}
+	if result.State != StateCancelled {
+		t.Fatalf("state = %q, want %q", result.State, StateCancelled)
+	}
+	if result.CompletedAt.IsZero() {
+		t.Fatal("CompletedAt is zero")
+	}
+}
+
+func TestEngineTimeoutContext(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Nanosecond)
+	defer cancel()
+	time.Sleep(time.Millisecond)
+	e := Engine{TCP: fakeTCP{}}
+	result, err := e.Scan(ctx, "tcp://192.0.2.10/", Options{Ports: []uint16{80}})
+	if err == nil {
+		t.Fatal("Scan() error = nil, want deadline exceeded")
+	}
+	if result.State != StateTimedOut {
+		t.Fatalf("state = %q, want %q", result.State, StateTimedOut)
+	}
+}
