@@ -15,6 +15,7 @@ import (
 )
 
 const MaxConcurrency = npd.MaxConcurrency
+const MaxAttempts = npd.MaxAttempts
 
 const (
 	DefaultTimeout = 5 * time.Second
@@ -29,6 +30,7 @@ type Options struct {
 	ProjectID   string
 	ScopeID     string
 	Concurrency int
+	MaxAttempts int
 }
 
 type Result struct {
@@ -66,6 +68,12 @@ func (e Engine) Scan(ctx context.Context, target string, opts Options) (Result, 
 	}
 	if opts.Concurrency > MaxConcurrency {
 		return Result{}, ErrInvalidConcurrency
+	}
+	if opts.MaxAttempts <= 0 {
+		opts.MaxAttempts = 1
+	}
+	if opts.MaxAttempts > MaxAttempts {
+		return Result{}, errors.New("scan retry attempts exceed bounded maximum")
 	}
 	if opts.Timeout == 0 {
 		opts.Timeout = DefaultTimeout
@@ -112,6 +120,7 @@ func (e Engine) Scan(ctx context.Context, target string, opts Options) (Result, 
 	plan.Profile = opts.Profile
 	plan.Timeout = opts.Timeout
 	plan.Concurrency = opts.Concurrency
+	plan.MaxAttempts = opts.MaxAttempts
 	result, err := scanner.Scan(ctx, plan)
 	base.Target = result.Target
 	base.Ports = result.Ports
