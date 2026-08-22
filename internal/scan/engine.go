@@ -54,12 +54,6 @@ func (e Engine) Scan(ctx context.Context, target string, opts Options) (Result, 
 	if strings.TrimSpace(target) == "" {
 		return Result{}, ErrInvalidTarget
 	}
-	if opts.ProjectID == "" {
-		opts.ProjectID = "direct"
-	}
-	if opts.ScopeID == "" {
-		opts.ScopeID = "direct"
-	}
 	if opts.Profile == "" {
 		opts.Profile = npd.ProfileStandard
 	}
@@ -99,12 +93,12 @@ func (e Engine) Scan(ctx context.Context, target string, opts Options) (Result, 
 	if now == nil {
 		now = time.Now
 	}
-	started := now()
+	started := now().UTC()
 	base := Result{Target: target, Profile: opts.Profile, State: StateRunning, StartedAt: started}
 
 	if err := ctx.Err(); err != nil {
 		base.State = stateFromContext(err)
-		base.CompletedAt = now()
+		base.CompletedAt = now().UTC()
 		return base, err
 	}
 
@@ -112,15 +106,14 @@ func (e Engine) Scan(ctx context.Context, target string, opts Options) (Result, 
 	plan, err := scanner.Plan(target, ports)
 	if err != nil {
 		base.State = StateFailed
-		base.CompletedAt = now()
+		base.CompletedAt = now().UTC()
 		return base, err
 	}
-	plan.ProjectID = opts.ProjectID
-	plan.ScopeVersion = opts.ScopeID
 	plan.Profile = opts.Profile
 	plan.Timeout = opts.Timeout
 	plan.Concurrency = opts.Concurrency
 	plan.MaxAttempts = opts.MaxAttempts
+
 	result, err := scanner.Scan(ctx, plan)
 	base.Target = result.Target
 	base.Ports = result.Ports
