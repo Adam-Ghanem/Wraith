@@ -18,6 +18,7 @@ import (
 
 const MaxPorts = 4096
 const MaxConcurrency = 64
+const MaxAttempts = 3
 
 var (
 	ErrInvalidSpec = errors.New("INVALID_PORT_SPEC")
@@ -47,13 +48,14 @@ const (
 )
 
 type PortResult struct {
-	Target     string        `json:"target"`
-	Port       uint16        `json:"port"`
-	Protocol   string        `json:"protocol"`
-	State      State         `json:"state"`
-	Duration   time.Duration `json:"duration"`
-	ObservedAt time.Time     `json:"observed_at"`
-	Error      string        `json:"error,omitempty"`
+	Target       string        `json:"target"`
+	Port         uint16        `json:"port"`
+	Protocol     string        `json:"protocol"`
+	State        State         `json:"state"`
+	Duration     time.Duration `json:"duration"`
+	ObservedAt   time.Time     `json:"observed_at"`
+	AttemptCount int           `json:"attempt_count"`
+	Error        string        `json:"error,omitempty"`
 }
 
 type Scan struct {
@@ -64,6 +66,7 @@ type Scan struct {
 	Ports        []uint16
 	Timeout      time.Duration
 	Concurrency  int
+	MaxAttempts  int
 }
 
 type Result struct {
@@ -204,6 +207,13 @@ func (scanner Scanner) Scan(ctx context.Context, scan Scan) (Result, error) {
 	if concurrency > MaxConcurrency {
 		concurrency = MaxConcurrency
 	}
+	attempts := scan.MaxAttempts
+	if attempts <= 0 {
+		attempts = 1
+	}
+	if attempts > MaxAttempts {
+		attempts = MaxAttempts
+	}
 	now := time.Now
 	if scanner.Now != nil {
 		now = scanner.Now
@@ -226,14 +236,33 @@ func (scanner Scanner) Scan(ctx context.Context, scan Scan) (Result, error) {
 				}
 				target := policy.Target{Scheme: string(policy.ProtocolTCP), IP: parsed.IP, Hostname: parsed.Hostname, Port: port}
 				observed := now().UTC()
-				probe, probeErr := scanner.TCP.ProbeTCP(ctx, httpengine.TCPRequest{ProjectID: scan.ProjectID, Target: target, Timeout: scan.Timeout})
-				entry := PortResult{Target: scan.Target, Port: port, Protocol: "tcp", ObservedAt: observed, Duration: probe.Duration}
-				if probeErr == nil {
-					entry.State = StateOpen
-				} else {
+				entry := PortResult{Target: scan.Target, Port: port, Protocol: "tcp", ObservedAt: observed}
+				for attempt := 1; attempt <= attempts; attempt++ {
+					if err := ctx.Err(); err != nil {
+						entry.State = classify(err)
+						entry.AttemptCount = attempt - 1
+						break
+					}
+					probe, probeErr := scanner.TCP.ProbeTCP(ctx, httpengine.TCPRequest{ProjectID: scan.ProjectID, Target: target, Timeout: scan.Timeout})
+					entry.AttemptCount = attempt
+					entry.Duration = probe.Duration
+					if probeErr == nil {
+						entry.State = StateOpen
+						break
+					}
 					entry.State = classify(probeErr)
-					if entry.State == StateTransport {
-						entry.Error = safeError(probeErr)
+					if entry.State == StateClosed || entry.State == StatePolicy || entry.State == StateAuthorization || entry.State == StateCancelled {
+						break
+					}
+					if attempt == attempts {
+						if entry.State == StateTransport {
+							entry.Error = safeError(probeErr)
+						}
+						break
+					}
+					if err := waitRetry(ctx, retryDelay(attempt)); err != nil {
+						entry.State = classify(err)
+						break
 					}
 				}
 				mu.Lock()
@@ -269,6 +298,31 @@ func (scanner Scanner) Scan(ctx context.Context, scan Scan) (Result, error) {
 		return result, err
 	}
 	return result, nil
+}
+
+func retryDelay(attempt int) time.Duration {
+	switch attempt {
+	case 1:
+		return 25 * time.Millisecond
+	case 2:
+		return 50 * time.Millisecond
+	default:
+		return 0
+	}
+}
+
+func waitRetry(ctx context.Context, delay time.Duration) error {
+	if delay <= 0 {
+		return ctx.Err()
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 func canonicalTargetString(target policy.Target) string {
