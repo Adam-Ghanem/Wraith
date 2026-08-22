@@ -81,8 +81,6 @@ func TestScannerUsesOnlyR3TCPClient(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan.ProjectID = "project-a"
-	plan.ScopeVersion = "scope-v1"
 	result, err := scanner.Scan(context.Background(), plan)
 	if err != nil {
 		t.Fatal(err)
@@ -104,8 +102,6 @@ func TestScannerRetriesTransientTransportFailuresBoundedly(t *testing.T) {
 	fake := &fakeTCP{errs: []error{errors.New("temporary network failure"), errors.New("temporary network failure"), nil}}
 	scanner := Scanner{TCP: fake}
 	result, err := scanner.Scan(context.Background(), Scan{
-		ProjectID:   "project-a",
-		ScopeVersion: "scope-v1",
 		Target:      "tcp://192.0.2.10/",
 		Ports:       []uint16{443},
 		MaxAttempts: 3,
@@ -125,10 +121,8 @@ func TestScannerDoesNotRetryClosedOrPolicyResults(t *testing.T) {
 	for _, probeErr := range []error{httpengine.ErrTCPRefused, httpengine.ErrTCPPolicyDenied} {
 		fake := &fakeTCP{err: probeErr}
 		result, err := (Scanner{TCP: fake}).Scan(context.Background(), Scan{
-			ProjectID:    "project-a",
-			ScopeVersion: "scope-v1",
-			Target:       "tcp://192.0.2.10/",
-			Ports:        []uint16{22},
+			Target:      "tcp://192.0.2.10/",
+			Ports:       []uint16{22},
 			MaxAttempts:  3,
 		})
 		if err != nil {
@@ -145,7 +139,7 @@ func TestScannerDoesNotCallR3AfterCancellation(t *testing.T) {
 	cancel()
 	fake := &fakeTCP{}
 	scanner := Scanner{TCP: fake}
-	_, err := scanner.Scan(ctx, Scan{ProjectID: "project-a", ScopeVersion: "scope-v1", Target: "tcp://192.0.2.10/", Ports: []uint16{22}})
+	_, err := scanner.Scan(ctx, Scan{Target: "tcp://192.0.2.10/", Ports: []uint16{22}})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("error=%v want cancellation", err)
 	}
@@ -157,7 +151,7 @@ func TestScannerDoesNotCallR3AfterCancellation(t *testing.T) {
 func TestScannerNeverTreatsPolicyFailureAsClosed(t *testing.T) {
 	fake := &fakeTCP{err: httpengine.ErrTCPPolicyDenied}
 	scanner := Scanner{TCP: fake}
-	result, err := scanner.Scan(context.Background(), Scan{ProjectID: "project-a", ScopeVersion: "scope-v1", Target: "tcp://192.0.2.10/", Ports: []uint16{22}})
+	result, err := scanner.Scan(context.Background(), Scan{Target: "tcp://192.0.2.10/", Ports: []uint16{22}})
 	if err != nil {
 		t.Fatal(err)
 	}
