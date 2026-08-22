@@ -37,14 +37,13 @@ const (
 type State string
 
 const (
-	StateOpen          State = "open"
-	StateClosed        State = "closed"
-	StateFiltered      State = "filtered"
-	StateAuthorization State = "authorization_denied"
-	StateBudget        State = "budget_exhausted"
-	StatePolicy        State = "policy_denied"
-	StateTransport     State = "transport_error"
-	StateCancelled     State = "cancelled"
+	StateOpen      State = "open"
+	StateClosed    State = "closed"
+	StateFiltered  State = "filtered"
+	StateBudget    State = "budget_exhausted"
+	StatePolicy    State = "policy_denied"
+	StateTransport State = "transport_error"
+	StateCancelled State = "cancelled"
 )
 
 type PortResult struct {
@@ -59,8 +58,7 @@ type PortResult struct {
 }
 
 type Scan struct {
-	ProjectID    string
-	ScopeVersion string
+	ExecutionID  string
 	Target       string
 	Profile      Profile
 	Ports        []uint16
@@ -70,13 +68,12 @@ type Scan struct {
 }
 
 type Result struct {
-	ProjectID    string       `json:"project_id"`
-	ScopeVersion string       `json:"scope_version"`
-	Target       string       `json:"target"`
-	Profile      Profile      `json:"profile"`
-	Ports        []PortResult `json:"results"`
-	StartedAt    time.Time    `json:"started_at"`
-	CompletedAt  time.Time    `json:"completed_at"`
+	ExecutionID string       `json:"execution_id,omitempty"`
+	Target      string       `json:"target"`
+	Profile     Profile      `json:"profile"`
+	Ports       []PortResult `json:"results"`
+	StartedAt   time.Time    `json:"started_at"`
+	CompletedAt time.Time    `json:"completed_at"`
 }
 
 type Scanner struct {
@@ -193,7 +190,7 @@ func (scanner Scanner) Plan(target string, ports []uint16) (Scan, error) {
 }
 
 func (scanner Scanner) Scan(ctx context.Context, scan Scan) (Result, error) {
-	if scanner.TCP == nil || ctx == nil || scan.ProjectID == "" || scan.ScopeVersion == "" || scan.Target == "" || len(scan.Ports) == 0 || len(scan.Ports) > MaxPorts {
+	if scanner.TCP == nil || ctx == nil || scan.Target == "" || len(scan.Ports) == 0 || len(scan.Ports) > MaxPorts {
 		return Result{}, errors.New("invalid NPD scan")
 	}
 	parsed, err := policy.ParseTarget(scan.Target)
@@ -219,7 +216,7 @@ func (scanner Scanner) Scan(ctx context.Context, scan Scan) (Result, error) {
 		now = scanner.Now
 	}
 	started := now().UTC()
-	result := Result{ProjectID: scan.ProjectID, ScopeVersion: scan.ScopeVersion, Target: scan.Target, Profile: scan.Profile, StartedAt: started, Ports: make([]PortResult, 0, len(scan.Ports))}
+	result := Result{ExecutionID: scan.ExecutionID, Target: scan.Target, Profile: scan.Profile, StartedAt: started, Ports: make([]PortResult, 0, len(scan.Ports))}
 
 	jobs := make(chan uint16)
 	var wg sync.WaitGroup
@@ -243,7 +240,7 @@ func (scanner Scanner) Scan(ctx context.Context, scan Scan) (Result, error) {
 						entry.AttemptCount = attempt - 1
 						break
 					}
-					probe, probeErr := scanner.TCP.ProbeTCP(ctx, httpengine.TCPRequest{ProjectID: scan.ProjectID, Target: target, Timeout: scan.Timeout})
+					probe, probeErr := scanner.TCP.ProbeTCP(ctx, httpengine.TCPRequest{Target: target, Timeout: scan.Timeout})
 					entry.AttemptCount = attempt
 					entry.Duration = probe.Duration
 					if probeErr == nil {
@@ -251,7 +248,7 @@ func (scanner Scanner) Scan(ctx context.Context, scan Scan) (Result, error) {
 						break
 					}
 					entry.State = classify(probeErr)
-					if entry.State == StateClosed || entry.State == StatePolicy || entry.State == StateAuthorization || entry.State == StateCancelled {
+					if entry.State == StateClosed || entry.State == StatePolicy || entry.State == StateCancelled {
 						break
 					}
 					if attempt == attempts {
@@ -350,9 +347,6 @@ func classify(err error) State {
 		return StatePolicy
 	}
 	lower := strings.ToLower(err.Error())
-	if strings.Contains(lower, "authorization") || strings.Contains(lower, "out of scope") {
-		return StateAuthorization
-	}
 	if strings.Contains(lower, "budget") || strings.Contains(lower, "rate") {
 		return StateBudget
 	}
