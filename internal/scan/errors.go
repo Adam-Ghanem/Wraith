@@ -24,7 +24,7 @@ const (
 	ProbeTransport     ProbeErrorKind = "transport"
 	ProbeAuthorization ProbeErrorKind = "authorization"
 	ProbePolicy         ProbeErrorKind = "policy"
-	ProbeUnknown        ProbeErrorKind = "unknown"
+	ProbeUnknown       ProbeErrorKind = "unknown"
 )
 
 var (
