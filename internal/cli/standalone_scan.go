@@ -16,6 +16,7 @@ import (
 	"github.com/Adam-Ghanem/Wraith/internal/httpengine"
 	"github.com/Adam-Ghanem/Wraith/internal/npd"
 	"github.com/Adam-Ghanem/Wraith/internal/policy"
+	"github.com/Adam-Ghanem/Wraith/internal/scan"
 )
 
 type standaloneGateway struct{}
@@ -85,24 +86,24 @@ func RunStandaloneScan(ctx context.Context, args []string, stdout, _ io.Writer) 
 	if len(ports) == 0 || len(ports) > npd.MaxPorts {
 		return errors.New("scan port set is empty or exceeds the 4096-port bound")
 	}
-	engine := httpengine.NewEngine(httpengine.Config{
+	transport := httpengine.NewEngine(httpengine.Config{
 		Gateway:               standaloneGateway{},
 		DestinationPolicy:     httpengine.DestinationPolicy{AllowPrivate: true},
 		RateLimiter:           httpengine.NewRateLimiter(time.Second / time.Duration(*rate)),
 		MaxConcurrentRequests: *concurrency,
 		RequestTimeout:        *timeout,
 	})
-	defer func() { _ = engine.CloseIdleConnections() }()
-	scanner := npd.Scanner{TCP: engine}
-	plan, err := scanner.Plan(target, ports)
-	if err != nil {
-		return err
-	}
-	plan.ProjectID = "standalone"
-	plan.ScopeVersion = "standalone"
-	plan.Profile = selected
-	plan.Timeout = *timeout
-	result, err := scanner.Scan(ctx, plan)
+	defer func() { _ = transport.CloseIdleConnections() }()
+
+	engine := scan.Engine{TCP: transport}
+	result, err := engine.Scan(ctx, target, scan.Options{
+		Profile:     selected,
+		Ports:       ports,
+		Timeout:     *timeout,
+		ProjectID:   "standalone",
+		ScopeID:     "standalone",
+		Concurrency: *concurrency,
+	})
 	if err != nil && ctx.Err() != nil {
 		return err
 	}
