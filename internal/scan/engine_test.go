@@ -12,8 +12,8 @@ import (
 
 type fakeTCP struct{}
 
-func (fakeTCP) ProbeTCP(context.Context, httpengine.TCPRequest) (httpengine.TCPProbeResult, error) {
-	return httpengine.TCPProbeResult{Duration: time.Millisecond}, nil
+func (fakeTCP) ProbeTCP(context.Context, httpengine.TCPRequest) (httpengine.TCPResponse, error) {
+	return httpengine.TCPResponse{Duration: time.Millisecond}, nil
 }
 
 func TestEngineUsesStandardProfileByDefault(t *testing.T) {
@@ -35,6 +35,14 @@ func TestEngineRejectsDuplicatePorts(t *testing.T) {
 	_, err := e.Scan(context.Background(), "tcp://192.0.2.10/", Options{Ports: []uint16{80, 80}})
 	if err == nil {
 		t.Fatal("Scan() error = nil, want duplicate-port error")
+	}
+}
+
+func TestEngineRejectsRetryBudgetAboveBound(t *testing.T) {
+	e := Engine{TCP: fakeTCP{}}
+	_, err := e.Scan(context.Background(), "tcp://192.0.2.10/", Options{Ports: []uint16{80}, MaxAttempts: MaxAttempts + 1})
+	if err == nil {
+		t.Fatal("Scan() error = nil, want retry-bound error")
 	}
 }
 
