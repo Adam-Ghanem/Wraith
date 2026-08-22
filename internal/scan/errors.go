@@ -23,7 +23,7 @@ const (
 	ProbeCancelled     ProbeErrorKind = "cancelled"
 	ProbeTransport     ProbeErrorKind = "transport"
 	ProbeAuthorization ProbeErrorKind = "authorization"
-	ProbePolicy         ProbeErrorKind = "policy"
+	ProbePolicy        ProbeErrorKind = "policy"
 	ProbeUnknown       ProbeErrorKind = "unknown"
 )
 
