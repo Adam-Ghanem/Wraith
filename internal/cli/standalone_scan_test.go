@@ -7,12 +7,13 @@ import (
 	"testing"
 
 	"github.com/Adam-Ghanem/Wraith/internal/npd"
+	"github.com/Adam-Ghanem/Wraith/internal/policy"
 )
 
 func TestStandaloneTargetAcceptsIPHostnameAndTCP(t *testing.T) {
 	cases := map[string]string{
-		"192.0.2.10":        "tcp://192.0.2.10/",
-		"example.com":       "tcp://example.com/",
+		"192.0.2.10":         "tcp://192.0.2.10/",
+		"example.com":        "tcp://example.com/",
 		"tcp://example.com/": "tcp://example.com/",
 	}
 	for input, want := range cases {
@@ -48,6 +49,16 @@ func TestStandaloneProfileAndPortPlanning(t *testing.T) {
 	}
 	if len(parsed) != 6 {
 		t.Fatalf("parsed %v has %d ports, want 6", parsed, len(parsed))
+	}
+}
+
+func TestStandaloneGatewayDoesNotRequireAuthorizationRecord(t *testing.T) {
+	decision, err := (standaloneGateway{}).Authorize(context.Background(), "standalone", policy.Target{Scheme: string(policy.ProtocolTCP), Hostname: "example.com"}, policy.ActionConnect)
+	if err != nil {
+		t.Fatalf("standalone gateway authorization: %v", err)
+	}
+	if !decision.Allowed {
+		t.Fatal("standalone gateway unexpectedly denied the standalone scan")
 	}
 }
 
