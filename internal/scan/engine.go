@@ -55,10 +55,10 @@ func (e Engine) Scan(ctx context.Context, target string, opts Options) (Result, 
 		return Result{}, ErrInvalidTarget
 	}
 	if opts.ProjectID == "" {
-		opts.ProjectID = "standalone"
+		opts.ProjectID = "direct"
 	}
 	if opts.ScopeID == "" {
-		opts.ScopeID = "standalone"
+		opts.ScopeID = "direct"
 	}
 	if opts.Profile == "" {
 		opts.Profile = npd.ProfileStandard
