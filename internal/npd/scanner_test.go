@@ -3,6 +3,7 @@ package npd
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -10,13 +11,27 @@ import (
 )
 
 type fakeTCP struct {
+	mu    sync.Mutex
 	calls int
 	err   error
+	errs  []error
 }
 
 func (f *fakeTCP) ProbeTCP(context.Context, httpengine.TCPRequest) (httpengine.TCPResponse, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	index := f.calls
 	f.calls++
+	if len(f.errs) > index {
+		return httpengine.TCPResponse{Duration: time.Millisecond}, f.errs[index]
+	}
 	return httpengine.TCPResponse{Duration: time.Millisecond}, f.err
+}
+
+func (f *fakeTCP) count() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.calls
 }
 
 func TestParsePortsCanonicalAndBounded(t *testing.T) {
@@ -66,17 +81,15 @@ func TestScannerUsesOnlyR3TCPClient(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan.ProjectID = "project-a"
-	plan.ScopeVersion = "scope-v1"
 	result, err := scanner.Scan(context.Background(), plan)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if fake.calls != 3 {
-		t.Fatalf("R3 calls=%d want 3", fake.calls)
+	if fake.count() != 3 {
+		t.Fatalf("R3 calls=%d want 3", fake.count())
 	}
 	for i, port := range []uint16{22, 80, 443} {
-		if result.Ports[i].Port != port || result.Ports[i].State != StateOpen {
+		if result.Ports[i].Port != port || result.Ports[i].State != StateOpen || result.Ports[i].AttemptCount != 1 {
 			t.Fatalf("result[%d]=%#v", i, result.Ports[i])
 		}
 	}
@@ -85,24 +98,60 @@ func TestScannerUsesOnlyR3TCPClient(t *testing.T) {
 	}
 }
 
+func TestScannerRetriesTransientTransportFailuresBoundedly(t *testing.T) {
+	fake := &fakeTCP{errs: []error{errors.New("temporary network failure"), errors.New("temporary network failure"), nil}}
+	scanner := Scanner{TCP: fake}
+	result, err := scanner.Scan(context.Background(), Scan{
+		Target:      "tcp://192.0.2.10/",
+		Ports:       []uint16{443},
+		MaxAttempts: 3,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fake.count() != 3 {
+		t.Fatalf("R3 calls=%d want 3", fake.count())
+	}
+	if result.Ports[0].State != StateOpen || result.Ports[0].AttemptCount != 3 {
+		t.Fatalf("result=%#v", result.Ports[0])
+	}
+}
+
+func TestScannerDoesNotRetryClosedOrPolicyResults(t *testing.T) {
+	for _, probeErr := range []error{httpengine.ErrTCPRefused, httpengine.ErrTCPPolicyDenied} {
+		fake := &fakeTCP{err: probeErr}
+		result, err := (Scanner{TCP: fake}).Scan(context.Background(), Scan{
+			Target:      "tcp://192.0.2.10/",
+			Ports:       []uint16{22},
+			MaxAttempts:  3,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if fake.count() != 1 || result.Ports[0].AttemptCount != 1 {
+			t.Fatalf("err=%v calls=%d result=%#v", probeErr, fake.count(), result.Ports[0])
+		}
+	}
+}
+
 func TestScannerDoesNotCallR3AfterCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	fake := &fakeTCP{}
 	scanner := Scanner{TCP: fake}
-	_, err := scanner.Scan(ctx, Scan{ProjectID: "project-a", ScopeVersion: "scope-v1", Target: "tcp://192.0.2.10/", Ports: []uint16{22}})
+	_, err := scanner.Scan(ctx, Scan{Target: "tcp://192.0.2.10/", Ports: []uint16{22}})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("error=%v want cancellation", err)
 	}
-	if fake.calls != 0 {
-		t.Fatalf("R3 calls=%d want 0", fake.calls)
+	if fake.count() != 0 {
+		t.Fatalf("R3 calls=%d want 0", fake.count())
 	}
 }
 
 func TestScannerNeverTreatsPolicyFailureAsClosed(t *testing.T) {
 	fake := &fakeTCP{err: httpengine.ErrTCPPolicyDenied}
 	scanner := Scanner{TCP: fake}
-	result, err := scanner.Scan(context.Background(), Scan{ProjectID: "project-a", ScopeVersion: "scope-v1", Target: "tcp://192.0.2.10/", Ports: []uint16{22}})
+	result, err := scanner.Scan(context.Background(), Scan{Target: "tcp://192.0.2.10/", Ports: []uint16{22}})
 	if err != nil {
 		t.Fatal(err)
 	}
