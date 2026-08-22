@@ -70,7 +70,7 @@ func (e Engine) Scan(ctx context.Context, target string, opts Options) (Result, 
 		return Result{}, ErrInvalidConcurrency
 	}
 	if opts.MaxAttempts <= 0 {
-		opts.MaxAttempts = 1
+		opts.MaxAttempts = MaxAttempts
 	}
 	if opts.MaxAttempts > MaxAttempts {
 		return Result{}, errors.New("scan retry attempts exceed bounded maximum")
