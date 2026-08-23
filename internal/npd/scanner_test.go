@@ -123,7 +123,7 @@ func TestScannerDoesNotRetryClosedOrPolicyResults(t *testing.T) {
 		result, err := (Scanner{TCP: fake}).Scan(context.Background(), Scan{
 			Target:      "tcp://192.0.2.10/",
 			Ports:       []uint16{22},
-			MaxAttempts:  3,
+			MaxAttempts: 3,
 		})
 		if err != nil {
 			t.Fatal(err)

@@ -21,15 +21,15 @@ func Snapshot(result Result, campaignID, assessmentID string) (regression.Snapsh
 	}
 	sort.Strings(ids)
 	return regression.NewSnapshot(regression.SnapshotInput{
-		ProjectID:     "direct",
+		ProjectID:     result.ProjectID,
 		CampaignID:    campaignID,
-		ScopeVersion:  "direct",
+		ScopeVersion:  result.ScopeVersion,
 		AssessmentID:  assessmentID,
 		SchemaVersion: regression.SchemaVersion,
 		CreatedAt:     result.CompletedAt.UTC(),
 		EndpointIDs:   ids,
 		Coverage: regression.Coverage{
-			Definition: "tcp_ports",
+			Definition:  "tcp_ports",
 			Numerator:   len(result.Ports),
 			Denominator: len(result.Ports),
 		},

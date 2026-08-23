@@ -113,6 +113,12 @@ func (e Engine) Scan(ctx context.Context, target string, opts Options) (Result, 
 	plan.Timeout = opts.Timeout
 	plan.Concurrency = opts.Concurrency
 	plan.MaxAttempts = opts.MaxAttempts
+	if strings.TrimSpace(opts.ProjectID) != "" {
+		plan.ProjectID = opts.ProjectID
+	}
+	if strings.TrimSpace(opts.ScopeID) != "" {
+		plan.ScopeVersion = opts.ScopeID
+	}
 
 	result, err := scanner.Scan(ctx, plan)
 	base.Target = result.Target

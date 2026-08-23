@@ -1,13 +1,13 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"strings"
 	"testing"
 
 	"github.com/Adam-Ghanem/Wraith/internal/npd"
-	"github.com/Adam-Ghanem/Wraith/internal/policy"
 )
 
 func TestStandaloneTargetAcceptsIPHostnameAndTCP(t *testing.T) {
@@ -52,13 +52,11 @@ func TestStandaloneProfileAndPortPlanning(t *testing.T) {
 	}
 }
 
-func TestStandaloneGatewayDoesNotRequireAuthorizationRecord(t *testing.T) {
-	decision, err := (standaloneGateway{}).Authorize(context.Background(), "standalone", policy.Target{Scheme: string(policy.ProtocolTCP), Hostname: "example.com"}, policy.ActionConnect)
-	if err != nil {
-		t.Fatalf("standalone gateway authorization: %v", err)
-	}
-	if !decision.Allowed {
-		t.Fatal("standalone gateway unexpectedly denied the standalone scan")
+func TestRunStandaloneScanFailsClosedWithoutProjectAuthorizationAndScope(t *testing.T) {
+	var stdout bytes.Buffer
+	err := RunStandaloneScan(context.Background(), []string{"scan", "192.0.2.10", "-p", "443"}, &stdout, io.Discard)
+	if err == nil || !strings.Contains(err.Error(), "active authorization and matching scope") {
+		t.Fatalf("RunStandaloneScan() error = %v, want fail-closed authorization and scope rejection", err)
 	}
 }
 

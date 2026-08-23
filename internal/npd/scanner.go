@@ -52,29 +52,32 @@ type PortResult struct {
 	Port         uint16        `json:"port"`
 	Protocol     string        `json:"protocol"`
 	State        State         `json:"state"`
+	AttemptCount int           `json:"attempt_count"`
 	Duration     time.Duration `json:"duration"`
 	ObservedAt   time.Time     `json:"observed_at"`
-	AttemptCount int           `json:"attempt_count"`
 	Error        string        `json:"error,omitempty"`
 }
 
 type Scan struct {
-	ExecutionID string
-	Target      string
-	Profile     Profile
-	Ports       []uint16
-	Timeout     time.Duration
-	Concurrency int
-	MaxAttempts int
+	ProjectID    string
+	ScopeVersion string
+	Target       string
+	Profile      Profile
+	Ports        []uint16
+	Timeout      time.Duration
+	Concurrency  int
+	MaxAttempts  int
+	Events       chan<- Event
 }
 
 type Result struct {
-	ExecutionID string       `json:"execution_id,omitempty"`
-	Target      string       `json:"target"`
-	Profile     Profile      `json:"profile"`
-	Ports       []PortResult `json:"results"`
-	StartedAt   time.Time    `json:"started_at"`
-	CompletedAt time.Time    `json:"completed_at"`
+	ProjectID    string       `json:"project_id"`
+	ScopeVersion string       `json:"scope_version"`
+	Target       string       `json:"target"`
+	Profile      Profile      `json:"profile"`
+	Ports        []PortResult `json:"results"`
+	StartedAt    time.Time    `json:"started_at"`
+	CompletedAt  time.Time    `json:"completed_at"`
 }
 
 type Scanner struct {
@@ -187,11 +190,17 @@ func (scanner Scanner) Plan(target string, ports []uint16) (Scan, error) {
 			return Scan{}, ErrInvalidSpec
 		}
 	}
-	return Scan{Target: canonicalTargetString(canonicalTarget), Ports: canonical, Profile: ProfileCustom}, nil
+	return Scan{ProjectID: "direct", ScopeVersion: "direct", Target: canonicalTargetString(canonicalTarget), Ports: canonical, Profile: ProfileCustom}, nil
 }
 
 func (scanner Scanner) Scan(ctx context.Context, scan Scan) (Result, error) {
-	if scanner.TCP == nil || ctx == nil || scan.Target == "" || len(scan.Ports) == 0 || len(scan.Ports) > MaxPorts {
+	if strings.TrimSpace(scan.ProjectID) == "" {
+		scan.ProjectID = "direct"
+	}
+	if strings.TrimSpace(scan.ScopeVersion) == "" {
+		scan.ScopeVersion = "direct"
+	}
+	if scanner.TCP == nil || ctx == nil || scan.ProjectID == "" || scan.ScopeVersion == "" || scan.Target == "" || len(scan.Ports) == 0 || len(scan.Ports) > MaxPorts {
 		return Result{}, errors.New("invalid NPD scan")
 	}
 	parsed, err := policy.ParseTarget(scan.Target)
@@ -210,13 +219,15 @@ func (scanner Scanner) Scan(ctx context.Context, scan Scan) (Result, error) {
 		attempts = 1
 	}
 	if attempts > MaxAttempts {
-		attempts = MaxAttempts
+		return Result{}, errors.New("NPD scan attempts exceed bounded maximum")
 	}
 	now := time.Now
 	if scanner.Now != nil {
 		now = scanner.Now
 	}
-	result := Result{ExecutionID: scan.ExecutionID, Target: scan.Target, Profile: scan.Profile, StartedAt: now().UTC(), Ports: make([]PortResult, 0, len(scan.Ports))}
+	started := now().UTC()
+	result := Result{ProjectID: scan.ProjectID, ScopeVersion: scan.ScopeVersion, Target: scan.Target, Profile: scan.Profile, StartedAt: started, Ports: make([]PortResult, 0, len(scan.Ports))}
+	emit(scan.Events, Event{Kind: EventScanStarted, Target: scan.Target, ObservedAt: started})
 
 	jobs := make(chan uint16)
 	var wg sync.WaitGroup
@@ -232,35 +243,36 @@ func (scanner Scanner) Scan(ctx context.Context, scan Scan) (Result, error) {
 					return
 				}
 				target := policy.Target{Scheme: string(policy.ProtocolTCP), IP: parsed.IP, Hostname: parsed.Hostname, Port: port}
-				entry := PortResult{Target: scan.Target, Port: port, Protocol: "tcp", ObservedAt: now().UTC()}
-				for attempt := 1; attempt <= attempts; attempt++ {
+				observed := now().UTC()
+				emit(scan.Events, Event{Kind: EventProbeStarted, Target: scan.Target, Port: port, ObservedAt: observed})
+				entry := PortResult{Target: scan.Target, Port: port, Protocol: "tcp", ObservedAt: observed}
+				var probe httpengine.TCPResponse
+				var probeErr error
+				for attempt := 0; attempt < attempts; attempt++ {
 					if err := ctx.Err(); err != nil {
-						entry.State = classify(err)
-						entry.AttemptCount = attempt - 1
+						probeErr = err
 						break
 					}
-					probe, probeErr := scanner.TCP.ProbeTCP(ctx, httpengine.TCPRequest{Target: target, Timeout: scan.Timeout})
-					entry.AttemptCount = attempt
-					entry.Duration = probe.Duration
-					if probeErr == nil {
-						entry.State = StateOpen
-						break
-					}
-					entry.State = classify(probeErr)
-					if entry.State == StateClosed || entry.State == StatePolicy || entry.State == StateCancelled {
-						break
-					}
-					if attempt == attempts {
-						if entry.State == StateTransport {
-							entry.Error = safeError(probeErr)
-						}
-						break
-					}
-					if err := waitRetry(ctx, retryDelay(attempt)); err != nil {
-						entry.State = classify(err)
+					entry.AttemptCount++
+					probe, probeErr = scanner.TCP.ProbeTCP(ctx, httpengine.TCPRequest{ProjectID: scan.ProjectID, Target: target, Timeout: scan.Timeout})
+					if probeErr == nil || !retryable(probeErr) {
 						break
 					}
 				}
+				entry.Duration = probe.Duration
+				if probeErr == nil {
+					entry.State = StateOpen
+				} else {
+					entry.State = classify(probeErr)
+					if entry.State == StateTransport {
+						entry.Error = safeError(probeErr)
+					}
+				}
+				kind := EventProbeCompleted
+				if probeErr != nil {
+					kind = EventProbeFailed
+				}
+				emit(scan.Events, Event{Kind: kind, Target: scan.Target, Port: port, Attempts: entry.AttemptCount, State: entry.State, ObservedAt: now().UTC()})
 				mu.Lock()
 				result.Ports = append(result.Ports, entry)
 				mu.Unlock()
@@ -282,6 +294,7 @@ func (scanner Scanner) Scan(ctx context.Context, scan Scan) (Result, error) {
 			wg.Wait()
 			sort.Slice(result.Ports, func(i, j int) bool { return result.Ports[i].Port < result.Ports[j].Port })
 			result.CompletedAt = now().UTC()
+			emit(scan.Events, Event{Kind: EventScanCancelled, Target: scan.Target, State: StateCancelled, ObservedAt: result.CompletedAt})
 			return result, ctx.Err()
 		case jobs <- port:
 		}
@@ -291,34 +304,11 @@ func (scanner Scanner) Scan(ctx context.Context, scan Scan) (Result, error) {
 	sort.Slice(result.Ports, func(i, j int) bool { return result.Ports[i].Port < result.Ports[j].Port })
 	result.CompletedAt = now().UTC()
 	if err := ctx.Err(); err != nil {
+		emit(scan.Events, Event{Kind: EventScanCancelled, Target: scan.Target, State: StateCancelled, ObservedAt: result.CompletedAt})
 		return result, err
 	}
+	emit(scan.Events, Event{Kind: EventScanCompleted, Target: scan.Target, ObservedAt: result.CompletedAt})
 	return result, nil
-}
-
-func retryDelay(attempt int) time.Duration {
-	switch attempt {
-	case 1:
-		return 25 * time.Millisecond
-	case 2:
-		return 50 * time.Millisecond
-	default:
-		return 0
-	}
-}
-
-func waitRetry(ctx context.Context, delay time.Duration) error {
-	if delay <= 0 {
-		return ctx.Err()
-	}
-	timer := time.NewTimer(delay)
-	defer timer.Stop()
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-timer.C:
-		return nil
-	}
 }
 
 func canonicalTargetString(target policy.Target) string {
@@ -346,6 +336,9 @@ func classify(err error) State {
 		return StatePolicy
 	}
 	lower := strings.ToLower(err.Error())
+	if strings.Contains(lower, "authorization") || strings.Contains(lower, "out of scope") {
+		return StateAuthorization
+	}
 	if strings.Contains(lower, "budget") || strings.Contains(lower, "rate") {
 		return StateBudget
 	}
@@ -363,4 +356,12 @@ func safeError(err error) string {
 		return "transport error"
 	}
 	return "transport error"
+}
+
+func retryable(err error) bool {
+	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || errors.Is(err, httpengine.ErrTCPTimeout) || errors.Is(err, httpengine.ErrTCPRefused) || errors.Is(err, httpengine.ErrTCPPolicyDenied) {
+		return false
+	}
+	state := classify(err)
+	return state == StateTransport
 }
