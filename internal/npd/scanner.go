@@ -16,7 +16,7 @@ import (
 	"github.com/Adam-Ghanem/Wraith/internal/policy"
 )
 
-const MaxPorts = 4096
+const MaxPorts = 65535
 const MaxConcurrency = 64
 
 var (
@@ -149,13 +149,15 @@ func parsePort(raw string) (uint16, error) {
 	return uint16(value), nil
 }
 
+// DefaultPorts returns the normal Wraith scan set. Standard is the top-100
+// common TCP ports; full-port scans are explicitly selected with FullPorts.
 func DefaultPorts(profile Profile) []uint16 {
 	var ports []uint16
 	switch profile {
 	case ProfileSafe:
 		ports = []uint16{22, 80, 443}
 	case ProfileStandard:
-		ports = []uint16{21, 22, 23, 25, 53, 80, 110, 111, 135, 139, 143, 443, 445, 993, 995, 1433, 1521, 2049, 2375, 3306, 3389, 5432, 5900, 6379, 8000, 8080, 8443, 9200, 27017}
+		ports = []uint16{1, 7, 9, 13, 17, 19, 20, 21, 22, 23, 25, 26, 37, 42, 43, 49, 53, 67, 68, 69, 70, 79, 80, 81, 88, 110, 111, 113, 119, 123, 135, 139, 143, 161, 162, 179, 199, 389, 427, 443, 445, 465, 500, 512, 513, 514, 515, 520, 548, 554, 587, 631, 636, 873, 902, 989, 990, 993, 995, 1025, 1026, 1027, 1028, 1110, 1433, 1720, 1723, 1755, 1900, 2000, 2049, 2121, 3000, 3128, 3268, 3306, 3389, 4444, 5000, 5001, 5060, 5432, 5631, 5900, 6000, 6379, 6667, 8000, 8008, 8009, 8080, 8443, 8888, 9000, 9090, 9200, 9300, 10000, 10001, 27017}
 	case ProfileDeep:
 		ports = make([]uint16, 1024)
 		for i := range ports {
@@ -165,6 +167,15 @@ func DefaultPorts(profile Profile) []uint16 {
 		return nil
 	}
 	return append([]uint16(nil), ports...)
+}
+
+// FullPorts returns every valid TCP destination port exactly once, in ascending order.
+func FullPorts() []uint16 {
+	ports := make([]uint16, MaxPorts)
+	for i := range ports {
+		ports[i] = uint16(i + 1)
+	}
+	return ports
 }
 
 func (scanner Scanner) Plan(target string, ports []uint16) (Scan, error) {
