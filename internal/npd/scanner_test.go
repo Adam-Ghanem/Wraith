@@ -19,6 +19,33 @@ func (f *fakeTCP) ProbeTCP(context.Context, httpengine.TCPRequest) (httpengine.T
 	return httpengine.TCPResponse{Duration: time.Millisecond}, f.err
 }
 
+func TestDefaultPortsStandardIsTop100(t *testing.T) {
+	ports := DefaultPorts(ProfileStandard)
+	if len(ports) != 100 {
+		t.Fatalf("standard ports=%d want 100", len(ports))
+	}
+	for i, port := range ports {
+		if port == 0 || (i > 0 && ports[i-1] >= port) {
+			t.Fatalf("ports are not strictly ascending at %d: %v", i, ports)
+		}
+	}
+}
+
+func TestFullPortsContainsEveryTCPPort(t *testing.T) {
+	ports := FullPorts()
+	if len(ports) != 65535 {
+		t.Fatalf("full ports=%d want 65535", len(ports))
+	}
+	if ports[0] != 1 || ports[len(ports)-1] != 65535 {
+		t.Fatalf("range=%d..%d want 1..65535", ports[0], ports[len(ports)-1])
+	}
+	for i, port := range ports {
+		if int(port) != i+1 {
+			t.Fatalf("ports[%d]=%d want %d", i, port, i+1)
+		}
+	}
+}
+
 func TestParsePortsCanonicalAndBounded(t *testing.T) {
 	ports, err := ParsePorts("443,22,80,8000-8002,80", 32)
 	if err != nil {
@@ -32,6 +59,16 @@ func TestParsePortsCanonicalAndBounded(t *testing.T) {
 		if ports[i] != want[i] {
 			t.Fatalf("got %v want %v", ports, want)
 		}
+	}
+}
+
+func TestParsePortsFullRange(t *testing.T) {
+	ports, err := ParsePorts("1-65535", MaxPorts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ports) != MaxPorts || ports[0] != 1 || ports[len(ports)-1] != 65535 {
+		t.Fatalf("got full range len=%d first=%d last=%d", len(ports), ports[0], ports[len(ports)-1])
 	}
 }
 
@@ -50,11 +87,11 @@ func TestParsePortsOverlappingRangesDeduplicateBeforeLimit(t *testing.T) {
 
 func TestParsePortsRejectsUnsafeInput(t *testing.T) {
 	for _, spec := range []string{"0", "65536", "10-1", "-1", "1--2"} {
-		if _, err := ParsePorts(spec, 4096); err == nil {
+		if _, err := ParsePorts(spec, MaxPorts); err == nil {
 			t.Fatalf("ParsePorts(%q) unexpectedly succeeded", spec)
 		}
 	}
-	if _, err := ParsePorts("1-4097", 4096); !errors.Is(err, ErrPortLimit) {
+	if _, err := ParsePorts("1-65535", 4096); !errors.Is(err, ErrPortLimit) {
 		t.Fatalf("error=%v want port limit", err)
 	}
 }
