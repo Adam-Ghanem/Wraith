@@ -3,6 +3,7 @@ package npd
 import (
 	"context"
 	"errors"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -31,6 +32,24 @@ func TestParsePortsCanonicalAndBounded(t *testing.T) {
 	for i := range want {
 		if ports[i] != want[i] {
 			t.Fatalf("got %v want %v", ports, want)
+		}
+	}
+}
+
+func TestParsePortsFullTCPRange(t *testing.T) {
+	ports, err := ParsePorts("1-65535", MaxPorts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ports) != 65535 {
+		t.Fatalf("got %d ports want 65535", len(ports))
+	}
+	if ports[0] != 1 || ports[len(ports)-1] != 65535 {
+		t.Fatalf("range endpoints=%d..%d", ports[0], ports[len(ports)-1])
+	}
+	for i, port := range ports {
+		if int(port) != i+1 {
+			t.Fatalf("ports[%d]=%d want %d", i, port, i+1)
 		}
 	}
 }
@@ -83,6 +102,50 @@ func TestScannerUsesOnlyR3TCPClient(t *testing.T) {
 	if result.Target != "tcp://192.0.2.10/" {
 		t.Fatalf("target=%q", result.Target)
 	}
+}
+
+func TestScannerConcurrencyIsBounded(t *testing.T) {
+	var active atomic.Int32
+	var peak atomic.Int32
+	fake := &boundedFakeTCP{active: &active, peak: &peak}
+	scanner := Scanner{TCP: fake}
+	ports := make([]uint16, 128)
+	for i := range ports {
+		ports[i] = uint16(i + 1)
+	}
+	_, err := scanner.Scan(context.Background(), Scan{
+		ProjectID: "project-a", ScopeVersion: "scope-v1", Target: "tcp://192.0.2.10/",
+		Ports: ports, Concurrency: MaxConcurrency + 32,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := peak.Load(); got > MaxConcurrency {
+		t.Fatalf("peak concurrency=%d exceeds max=%d", got, MaxConcurrency)
+	}
+	if got := fake.calls.Load(); got != int32(len(ports)) {
+		t.Fatalf("R3 calls=%d want %d", got, len(ports))
+	}
+}
+
+type boundedFakeTCP struct {
+	active *atomic.Int32
+	peak   *atomic.Int32
+	calls  atomic.Int32
+}
+
+func (f *boundedFakeTCP) ProbeTCP(context.Context, httpengine.TCPRequest) (httpengine.TCPResponse, error) {
+	f.calls.Add(1)
+	current := f.active.Add(1)
+	for {
+		previous := f.peak.Load()
+		if current <= previous || f.peak.CompareAndSwap(previous, current) {
+			break
+		}
+	}
+	time.Sleep(1 * time.Millisecond)
+	f.active.Add(-1)
+	return httpengine.TCPResponse{Duration: time.Millisecond}, nil
 }
 
 func TestScannerDoesNotCallR3AfterCancellation(t *testing.T) {

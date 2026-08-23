@@ -14,6 +14,19 @@ func BenchmarkParsePortsBounded(b *testing.B) {
 	}
 }
 
+func BenchmarkParsePortsFullRange(b *testing.B) {
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		ports, err := ParsePorts("1-65535", MaxPorts)
+		if err != nil {
+			b.Fatal(err)
+		}
+		if len(ports) != MaxPorts {
+			b.Fatalf("got %d ports want %d", len(ports), MaxPorts)
+		}
+	}
+}
+
 func BenchmarkCanonicalPortOrdering(b *testing.B) {
 	ports, err := ParsePorts("1024-2048,22,80,443,3306,5432", MaxPorts)
 	if err != nil {
@@ -53,6 +66,24 @@ func BenchmarkNPDPlanning(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		if _, err := scanner.Plan("tcp://example.test", ports); err != nil {
 			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkNPDPlanningFullRange(b *testing.B) {
+	ports, err := ParsePorts("1-65535", MaxPorts)
+	if err != nil {
+		b.Fatal(err)
+	}
+	scanner := Scanner{}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		plan, err := scanner.Plan("tcp://example.test", ports)
+		if err != nil {
+			b.Fatal(err)
+		}
+		if len(plan.Ports) != MaxPorts {
+			b.Fatalf("got %d ports want %d", len(plan.Ports), MaxPorts)
 		}
 	}
 }

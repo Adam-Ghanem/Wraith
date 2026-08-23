@@ -16,7 +16,7 @@ import (
 	"github.com/Adam-Ghanem/Wraith/internal/policy"
 )
 
-const MaxPorts = 4096
+const MaxPorts = 65535
 const MaxConcurrency = 64
 
 var (
