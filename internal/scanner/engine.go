@@ -1,13 +1,13 @@
 // Package scanner provides the top-level Wraith scan orchestration layer.
-//
-// The engine deliberately keeps transport ownership below the scanner: active
-// network I/O is delegated to the existing NPD/R3 TCP contract. This gives the
-// scan engine an Nmap-like workflow without duplicating socket implementations.
+// Active network I/O remains below the scanner: TCP uses NPD/R3 and optional
+// HTTP service detection uses the shared policy-aware HTTP engine.
 package scanner
 
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net"
 	"sort"
 	"strings"
 	"time"
@@ -16,159 +16,115 @@ import (
 	"github.com/Adam-Ghanem/Wraith/internal/npd"
 )
 
-// Profile controls the initial discovery scope. Custom profiles use Ports.
 type Profile string
-
 const (
-	ProfileSafe     Profile = "safe"
+	ProfileSafe Profile = "safe"
 	ProfileStandard Profile = "standard"
-	ProfileDeep     Profile = "deep"
-	ProfileCustom   Profile = "custom"
+	ProfileDeep Profile = "deep"
+	ProfileCustom Profile = "custom"
 )
 
-// Request is the stable input contract for the Scan Engine. Authorization and
-// scope provenance are intentionally explicit because the underlying transport
-// contract is policy-aware.
 type Request struct {
-	ProjectID    string
+	ProjectID string
 	ScopeVersion string
-	Target       string
-	Profile      Profile
-	Ports        []uint16
-	Timeout      time.Duration
-	Concurrency  int
+	Target string
+	Profile Profile
+	Ports []uint16
+	Timeout time.Duration
+	Concurrency int
+	DetectServices bool
 }
 
-// Result is the structured scan-engine result consumed by later Wraith parts.
-// It is deliberately independent from terminal formatting.
 type Result struct {
-	ProjectID    string          `json:"project_id"`
-	ScopeVersion string          `json:"scope_version"`
-	Target       string          `json:"target"`
-	Profile      Profile         `json:"profile"`
-	StartedAt    time.Time       `json:"started_at"`
-	CompletedAt  time.Time       `json:"completed_at"`
-	Ports        []PortObservation `json:"ports"`
+	ProjectID string `json:"project_id"`
+	ScopeVersion string `json:"scope_version"`
+	Target string `json:"target"`
+	Profile Profile `json:"profile"`
+	StartedAt time.Time `json:"started_at"`
+	CompletedAt time.Time `json:"completed_at"`
+	Ports []PortObservation `json:"ports"`
 }
 
-// PortObservation is the first normalized evidence unit. Later milestones can
-// attach service, TLS, HTTP, OS and confidence evidence without changing the
-// orchestration contract.
 type PortObservation struct {
-	Port       uint16        `json:"port"`
-	Protocol   string        `json:"protocol"`
-	State      npd.State     `json:"state"`
-	Duration   time.Duration `json:"duration"`
-	ObservedAt time.Time     `json:"observed_at"`
-	Error      string        `json:"error,omitempty"`
+	Port uint16 `json:"port"`
+	Protocol string `json:"protocol"`
+	State npd.State `json:"state"`
+	Duration time.Duration `json:"duration"`
+	ObservedAt time.Time `json:"observed_at"`
+	Error string `json:"error,omitempty"`
+	Service string `json:"service,omitempty"`
+	Version string `json:"version,omitempty"`
+	Evidence []Evidence `json:"evidence,omitempty"`
 }
 
-// Engine owns orchestration dependencies, not sockets.
+type Evidence struct {
+	Kind string `json:"kind"`
+	Value string `json:"value"`
+}
+
 type Engine struct {
 	TCP httpengine.TCPClient
+	HTTP httpengine.Client
 	Now func() time.Time
 }
 
-// Run executes the discovery stage through the existing NPD scanner. The
-// result ordering is deterministic regardless of worker scheduling.
 func (e Engine) Run(ctx context.Context, req Request) (Result, error) {
-	if ctx == nil {
-		return Result{}, errors.New("nil scan context")
-	}
-	if e.TCP == nil {
-		return Result{}, errors.New("scan engine TCP transport is unavailable")
-	}
-	if strings.TrimSpace(req.ProjectID) == "" || strings.TrimSpace(req.ScopeVersion) == "" || strings.TrimSpace(req.Target) == "" {
-		return Result{}, errors.New("scan request identity is incomplete")
-	}
-	if req.Timeout < 0 {
-		return Result{}, errors.New("scan timeout cannot be negative")
-	}
-
-	profile, err := normalizeProfile(req.Profile)
-	if err != nil {
-		return Result{}, err
-	}
-	ports, err := selectPorts(profile, req.Ports)
-	if err != nil {
-		return Result{}, err
-	}
-
-	now := time.Now
-	if e.Now != nil {
-		now = e.Now
-	}
+	if ctx == nil { return Result{}, errors.New("nil scan context") }
+	if e.TCP == nil { return Result{}, errors.New("scan engine TCP transport is unavailable") }
+	if strings.TrimSpace(req.ProjectID) == "" || strings.TrimSpace(req.ScopeVersion) == "" || strings.TrimSpace(req.Target) == "" { return Result{}, errors.New("scan request identity is incomplete") }
+	if req.Timeout < 0 { return Result{}, errors.New("scan timeout cannot be negative") }
+	profile, err := normalizeProfile(req.Profile); if err != nil { return Result{}, err }
+	ports, err := selectPorts(profile, req.Ports); if err != nil { return Result{}, err }
+	now := time.Now; if e.Now != nil { now = e.Now }
 	started := now().UTC()
-
 	npdScanner := npd.Scanner{TCP: e.TCP, Now: now}
-	plan, err := npdScanner.Plan(req.Target, ports)
-	if err != nil {
-		return Result{}, err
-	}
-	plan.ProjectID = req.ProjectID
-	plan.ScopeVersion = req.ScopeVersion
-	plan.Profile = npd.Profile(profile)
-	plan.Timeout = req.Timeout
-	plan.Concurrency = req.Concurrency
-
-	npdResult, err := npdScanner.Scan(ctx, plan)
-	result := Result{
-		ProjectID:    req.ProjectID,
-		ScopeVersion: req.ScopeVersion,
-		Target:       npdResult.Target,
-		Profile:      profile,
-		StartedAt:    started,
-		CompletedAt:  now().UTC(),
-		Ports:        make([]PortObservation, 0, len(npdResult.Ports)),
-	}
+	plan, err := npdScanner.Plan(req.Target, ports); if err != nil { return Result{}, err }
+	plan.ProjectID, plan.ScopeVersion, plan.Profile, plan.Timeout, plan.Concurrency = req.ProjectID, req.ScopeVersion, npd.Profile(profile), req.Timeout, req.Concurrency
+	npdResult, scanErr := npdScanner.Scan(ctx, plan)
+	result := Result{ProjectID:req.ProjectID, ScopeVersion:req.ScopeVersion, Target:npdResult.Target, Profile:profile, StartedAt:started, CompletedAt:now().UTC(), Ports:make([]PortObservation,0,len(npdResult.Ports))}
 	for _, port := range npdResult.Ports {
-		result.Ports = append(result.Ports, PortObservation{
-			Port: port.Port, Protocol: port.Protocol, State: port.State,
-			Duration: port.Duration, ObservedAt: port.ObservedAt, Error: port.Error,
-		})
-	}
-	sort.Slice(result.Ports, func(i, j int) bool {
-		if result.Ports[i].Port != result.Ports[j].Port {
-			return result.Ports[i].Port < result.Ports[j].Port
+		obs := PortObservation{Port:port.Port, Protocol:port.Protocol, State:port.State, Duration:port.Duration, ObservedAt:port.ObservedAt, Error:port.Error}
+		if scanErr == nil && req.DetectServices && port.State == npd.StateOpen && e.HTTP != nil {
+			obs.Service, obs.Version, obs.Evidence = e.detectHTTP(ctx, req, port.Port)
 		}
-		return result.Ports[i].Protocol < result.Ports[j].Protocol
-	})
-	if err != nil {
-		return result, err
+		result.Ports = append(result.Ports, obs)
 	}
+	sort.Slice(result.Ports, func(i,j int) bool { if result.Ports[i].Port != result.Ports[j].Port { return result.Ports[i].Port < result.Ports[j].Port }; return result.Ports[i].Protocol < result.Ports[j].Protocol })
+	if scanErr != nil { result.CompletedAt = npdResult.CompletedAt; return result, scanErr }
 	result.CompletedAt = npdResult.CompletedAt
 	return result, nil
 }
 
-func normalizeProfile(profile Profile) (Profile, error) {
-	profile = Profile(strings.ToLower(strings.TrimSpace(string(profile))))
-	switch profile {
-	case ProfileSafe, ProfileStandard, ProfileDeep, ProfileCustom:
-		return profile, nil
-	default:
-		return "", errors.New("invalid scan profile")
-	}
+func (e Engine) detectHTTP(ctx context.Context, req Request, port uint16) (string,string,[]Evidence) {
+	host := strings.TrimSuffix(strings.TrimPrefix(req.Target, "tcp://"), "/")
+	host = strings.TrimPrefix(host, "["); host = strings.TrimSuffix(host, "]")
+	scheme := "http"; if port == 443 || port == 8443 { scheme = "https" }
+	urlHost := host
+	if strings.Contains(host, ":") && net.ParseIP(host) == nil { urlHost = "[" + host + "]" }
+	url := fmt.Sprintf("%s://%s:%d/", scheme, urlHost, port)
+	response, err := e.HTTP.Do(ctx, httpengine.Request{ProjectID:req.ProjectID, Method:"HEAD", URL:url, Timeout:req.Timeout, MaxResponseBytes:1<<20, Source:"wraith-scan-service-detection"})
+	if err != nil { return "","",nil }
+	service := "http"; if scheme == "https" { service = "https" }
+	version := ""
+	evidence := make([]Evidence,0,3)
+	if server := strings.TrimSpace(response.Headers.Get("Server")); server != "" { version = server; evidence = append(evidence, Evidence{Kind:"http.server",Value:server}) }
+	if powered := strings.TrimSpace(response.Headers.Get("X-Powered-By")); powered != "" { evidence = append(evidence, Evidence{Kind:"http.powered_by",Value:powered}) }
+	evidence = append(evidence, Evidence{Kind:"http.status",Value:fmt.Sprintf("%d",response.StatusCode)})
+	return service, version, evidence
 }
 
-func selectPorts(profile Profile, requested []uint16) ([]uint16, error) {
-	if profile == ProfileCustom {
-		if len(requested) == 0 {
-			return nil, errors.New("custom scan profile requires ports")
-		}
-		ports := append([]uint16(nil), requested...)
-		sort.Slice(ports, func(i, j int) bool { return ports[i] < ports[j] })
-		for i, port := range ports {
-			if port == 0 || (i > 0 && ports[i-1] == port) {
-				return nil, npd.ErrInvalidSpec
-			}
-		}
-		if len(ports) > npd.MaxPorts {
-			return nil, npd.ErrPortLimit
-		}
-		return ports, nil
+func normalizeProfile(profile Profile) (Profile,error) {
+	profile=Profile(strings.ToLower(strings.TrimSpace(string(profile))))
+	switch profile { case ProfileSafe,ProfileStandard,ProfileDeep,ProfileCustom:return profile,nil; default:return "",errors.New("invalid scan profile") }
+}
+
+func selectPorts(profile Profile, requested []uint16) ([]uint16,error) {
+	if profile==ProfileCustom {
+		if len(requested)==0{return nil,errors.New("custom scan profile requires ports")}
+		ports:=append([]uint16(nil),requested...); sort.Slice(ports,func(i,j int)bool{return ports[i]<ports[j]})
+		for i,p:=range ports {if p==0 || (i>0&&ports[i-1]==p){return nil,npd.ErrInvalidSpec}}
+		if len(ports)>npd.MaxPorts{return nil,npd.ErrPortLimit}; return ports,nil
 	}
-	if len(requested) != 0 {
-		return nil, errors.New("ports are only valid with custom profile")
-	}
-	return npd.DefaultPorts(npd.Profile(profile)), nil
+	if len(requested)!=0{return nil,errors.New("ports are only valid with custom profile")}
+	return npd.DefaultPorts(npd.Profile(profile)),nil
 }
