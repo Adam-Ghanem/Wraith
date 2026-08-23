@@ -90,7 +90,7 @@ func DiscoverTCP(ctx context.Context, targets []netip.Addr, options TCPDiscovery
 	for target := range unique {
 		ordered = append(ordered, target)
 	}
-	sort.Slice(ordered, func(i, j int) bool { return ordered[i].Less(ordered[j]) })
+	sort.Slice(ordered, func(i, j int) bool { return ordered[i].Compare(ordered[j]) < 0 })
 
 	workerCount := options.Concurrency
 	if workerCount > len(ordered) {
@@ -151,6 +151,6 @@ func DiscoverTCP(ctx context.Context, targets []netip.Addr, options TCPDiscovery
 	for target := range live {
 		result = append(result, target)
 	}
-	sort.Slice(result, func(i, j int) bool { return result[i].Less(result[j]) })
+	sort.Slice(result, func(i, j int) bool { return result[i].Compare(result[j]) < 0 })
 	return result, nil
 }
