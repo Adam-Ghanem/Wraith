@@ -31,19 +31,20 @@ type Request struct {
 	Target         string
 	Profile        Profile
 	Ports          []uint16
+	AllPorts       bool
 	Timeout        time.Duration
 	Concurrency    int
 	DetectServices bool
 }
 
 type Result struct {
-	ProjectID   string            `json:"project_id"`
+	ProjectID    string            `json:"project_id"`
 	ScopeVersion string            `json:"scope_version"`
-	Target      string            `json:"target"`
-	Profile     Profile           `json:"profile"`
-	StartedAt   time.Time         `json:"started_at"`
-	CompletedAt time.Time         `json:"completed_at"`
-	Ports       []PortObservation `json:"ports"`
+	Target       string            `json:"target"`
+	Profile      Profile           `json:"profile"`
+	StartedAt    time.Time         `json:"started_at"`
+	CompletedAt  time.Time         `json:"completed_at"`
+	Ports        []PortObservation `json:"ports"`
 }
 
 type PortObservation struct {
@@ -86,7 +87,7 @@ func (e Engine) Run(ctx context.Context, req Request) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	ports, err := selectPorts(profile, req.Ports)
+	ports, err := selectPorts(profile, req.Ports, req.AllPorts)
 	if err != nil {
 		return Result{}, err
 	}
@@ -134,9 +135,6 @@ func (e Engine) Run(ctx context.Context, req Request) (Result, error) {
 	return result, nil
 }
 
-// identifyService supplies a deterministic Nmap-like service hint without
-// claiming version information. Active protocol probes are responsible for
-// upgrading this hint with evidence-backed identification.
 func identifyService(port uint16) (string, []Evidence) {
 	services := map[uint16]string{
 		20: "ftp-data", 21: "ftp", 22: "ssh", 23: "telnet", 25: "smtp",
@@ -207,7 +205,13 @@ func normalizeProfile(profile Profile) (Profile, error) {
 	}
 }
 
-func selectPorts(profile Profile, requested []uint16) ([]uint16, error) {
+func selectPorts(profile Profile, requested []uint16, allPorts bool) ([]uint16, error) {
+	if allPorts {
+		if profile == ProfileCustom && len(requested) != 0 {
+			return nil, errors.New("all-port selection cannot be combined with explicit ports")
+		}
+		return npd.FullPorts(), nil
+	}
 	if profile == ProfileCustom {
 		if len(requested) == 0 {
 			return nil, errors.New("custom scan profile requires ports")
