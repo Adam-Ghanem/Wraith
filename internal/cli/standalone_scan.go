@@ -32,7 +32,7 @@ func (standaloneGateway) Authorize(_ context.Context, projectID string, target p
 // socket ownership inside the R3 HTTP/TCP engine while intentionally omitting
 // project T1/T2 authorization for this explicit standalone mode.
 func RunStandaloneScan(ctx context.Context, args []string, stdout, _ io.Writer) error {
-	const usage = "usage: wraith scan TARGET [-A|-a] [-p PORTS] [--profile safe|standard|deep|custom] [--timeout D] [--max-concurrency N] [--rate N] [--json]"
+	const usage = "usage: wraith scan TARGET [-A|-a] [-p PORTS] [-g] [--profile safe|standard|deep|custom] [--timeout D] [--max-concurrency N] [--rate N] [--json]"
 	if ctx == nil || len(args) < 2 || args[0] != "scan" {
 		return errors.New(usage)
 	}
@@ -41,6 +41,7 @@ func RunStandaloneScan(ctx context.Context, args []string, stdout, _ io.Writer) 
 	aggressiveUpper := fs.Bool("A", false, "")
 	aggressiveLower := fs.Bool("a", false, "")
 	portsSpec := fs.String("p", "", "")
+	fullRange := fs.Bool("g", false, "")
 	profile := fs.String("profile", "standard", "")
 	timeout := fs.Duration("timeout", 3*time.Second, "")
 	concurrency := fs.Int("max-concurrency", 8, "")
@@ -68,23 +69,25 @@ func RunStandaloneScan(ctx context.Context, args []string, stdout, _ io.Writer) 
 	if selected != npd.ProfileSafe && selected != npd.ProfileStandard && selected != npd.ProfileDeep && selected != npd.ProfileCustom {
 		return errors.New("invalid scan profile")
 	}
-	ports := npd.DefaultPorts(selected)
-	if selected == npd.ProfileCustom {
-		if strings.TrimSpace(*portsSpec) == "" {
-			return errors.New("custom profile requires -p PORTS")
-		}
+	if *fullRange && strings.TrimSpace(*portsSpec) != "" {
+		return errors.New("-g cannot be combined with -p")
+	}
+	var ports []uint16
+	switch {
+	case *fullRange:
+		ports = npd.AllPorts()
+		selected = npd.ProfileCustom
+	case strings.TrimSpace(*portsSpec) != "":
 		ports, err = npd.ParsePorts(*portsSpec, npd.MaxPorts)
 		if err != nil {
 			return err
 		}
-	} else if strings.TrimSpace(*portsSpec) != "" {
-		ports, err = npd.ParsePorts(*portsSpec, npd.MaxPorts)
-		if err != nil {
-			return err
-		}
+		selected = npd.ProfileCustom
+	default:
+		ports = npd.Top100()
 	}
 	if len(ports) == 0 || len(ports) > npd.MaxPorts {
-		return errors.New("scan port set is empty or exceeds the 4096-port bound")
+		return errors.New("scan port set is empty or exceeds the 65535-port bound")
 	}
 	transport := httpengine.NewEngine(httpengine.Config{
 		Gateway:               standaloneGateway{},
