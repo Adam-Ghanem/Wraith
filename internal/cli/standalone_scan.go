@@ -28,11 +28,11 @@ func (standaloneGateway) Authorize(_ context.Context, projectID string, target p
 	return policy.Decision{Allowed: true, ProjectID: projectID, Target: target, Action: action, Reason: "standalone scan mode"}, nil
 }
 
-// RunStandaloneScan provides the top-level standalone scan command. It keeps
-// socket ownership inside the R3 HTTP/TCP engine while intentionally omitting
-// project T1/T2 authorization for this explicit standalone mode.
+// RunStandaloneScan provides the top-level native scan command. It keeps
+// socket ownership inside the shared TCP engine while requiring no persisted
+// project authorization/campaign records for explicit standalone scanning.
 func RunStandaloneScan(ctx context.Context, args []string, stdout, _ io.Writer) error {
-	const usage = "usage: wraith scan TARGET [-A|-a] [-p PORTS] [-g] [--profile safe|standard|deep|custom] [--timeout D] [--max-concurrency N] [--rate N] [--json]"
+	const usage = "usage: wraith scan TARGET [-A|-a] [-p PORTS|-p-] [--top-ports N] [--profile safe|standard|deep|custom] [--timeout D] [--max-concurrency N] [--rate N] [--json]"
 	if ctx == nil || len(args) < 2 || args[0] != "scan" {
 		return errors.New(usage)
 	}
@@ -41,7 +41,7 @@ func RunStandaloneScan(ctx context.Context, args []string, stdout, _ io.Writer) 
 	aggressiveUpper := fs.Bool("A", false, "")
 	aggressiveLower := fs.Bool("a", false, "")
 	portsSpec := fs.String("p", "", "")
-	fullRange := fs.Bool("g", false, "")
+	topPorts := fs.Int("top-ports", 0, "")
 	profile := fs.String("profile", "standard", "")
 	timeout := fs.Duration("timeout", 3*time.Second, "")
 	concurrency := fs.Int("max-concurrency", 8, "")
@@ -58,6 +58,12 @@ func RunStandaloneScan(ctx context.Context, args []string, stdout, _ io.Writer) 
 	if *timeout <= 0 || *timeout > 30*time.Second || *concurrency < 1 || *concurrency > 50 || *rate < 1 || *rate > 1000 {
 		return errors.New("scan limits are outside allowed bounds")
 	}
+	if *topPorts < 0 || *topPorts > npd.MaxCuratedTopPorts {
+		return fmt.Errorf("--top-ports must be between 1 and %d", npd.MaxCuratedTopPorts)
+	}
+	if *topPorts > 0 && strings.TrimSpace(*portsSpec) != "" {
+		return errors.New("--top-ports cannot be combined with -p or -p-")
+	}
 	target, err := standaloneTarget(targetArg)
 	if err != nil {
 		return err
@@ -69,20 +75,25 @@ func RunStandaloneScan(ctx context.Context, args []string, stdout, _ io.Writer) 
 	if selected != npd.ProfileSafe && selected != npd.ProfileStandard && selected != npd.ProfileDeep && selected != npd.ProfileCustom {
 		return errors.New("invalid scan profile")
 	}
-	if *fullRange && strings.TrimSpace(*portsSpec) != "" {
-		return errors.New("-g cannot be combined with -p")
-	}
+
 	var ports []uint16
 	switch {
-	case *fullRange:
-		ports = npd.AllPorts()
-		selected = npd.ProfileCustom
 	case strings.TrimSpace(*portsSpec) != "":
 		ports, err = npd.ParsePorts(*portsSpec, npd.MaxPorts)
 		if err != nil {
 			return err
 		}
 		selected = npd.ProfileCustom
+	case *topPorts > 0:
+		ports, err = npd.TopPorts(*topPorts)
+		if err != nil {
+			return err
+		}
+		selected = npd.ProfileCustom
+	case selected == npd.ProfileSafe || selected == npd.ProfileDeep:
+		ports = npd.DefaultPorts(selected)
+	case selected == npd.ProfileCustom:
+		return errors.New("custom profile requires -p PORTS")
 	default:
 		ports = npd.Top100()
 	}
@@ -129,9 +140,13 @@ func RunStandaloneScan(ctx context.Context, args []string, stdout, _ io.Writer) 
 
 func splitStandaloneScanArgs(args []string) ([]string, string, error) {
 	var target string
-	flags := make([]string, 0, len(args))
+	flags := make([]string, 0, len(args)+1)
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
+		if arg == "-p-" {
+			flags = append(flags, "-p", "1-65535")
+			continue
+		}
 		if !strings.HasPrefix(arg, "-") && target == "" {
 			target = arg
 			continue
