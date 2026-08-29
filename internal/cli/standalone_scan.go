@@ -51,8 +51,8 @@ func (probe standaloneTCPDiscoveryProbe) ProbeTCP(ctx context.Context, address n
 
 // RunStandaloneScan provides the top-level native scan command. Standalone
 // scanning requires no persisted project/campaign authorization record.
-func RunStandaloneScan(ctx context.Context, args []string, stdout, _ io.Writer) error {
-	const usage = "usage: wraith scan TARGET|CIDR [-sT] [-sU] [-sV] [-sn] [-Pn] [-A] [-p PORTS|-p-] [--top-ports N] [--profile safe|standard|deep|custom] [--timeout D] [--max-concurrency N] [--rate N] [--json]"
+func RunStandaloneScan(ctx context.Context, args []string, stdout, stderr io.Writer) error {
+	const usage = "usage: wraith scan TARGET|CIDR [-sT|-sS] [-sU] [-sV] [-O] [-sn] [-Pn] [-A] [-p PORTS|-p-] [--top-ports N] [--profile safe|standard|deep|custom] [--timeout D] [--max-concurrency N] [--rate N] [--json]"
 	if ctx == nil || len(args) < 2 || args[0] != "scan" {
 		return errors.New(usage)
 	}
@@ -61,8 +61,10 @@ func RunStandaloneScan(ctx context.Context, args []string, stdout, _ io.Writer) 
 	aggressiveUpper := fs.Bool("A", false, "")
 	aggressiveLower := fs.Bool("a", false, "")
 	tcpConnect := fs.Bool("sT", false, "")
+	synScan := fs.Bool("sS", false, "")
 	udpScan := fs.Bool("sU", false, "")
 	serviceVersion := fs.Bool("sV", false, "")
+	osDetect := fs.Bool("O", false, "")
 	hostDiscoveryOnly := fs.Bool("sn", false, "")
 	skipDiscovery := fs.Bool("Pn", false, "")
 	portsSpec := fs.String("p", "", "")
@@ -79,6 +81,9 @@ func RunStandaloneScan(ctx context.Context, args []string, stdout, _ io.Writer) 
 	}
 	if err := fs.Parse(flagArgs); err != nil {
 		return errors.New(usage)
+	}
+	if *tcpConnect && *synScan {
+		return errors.New("-sT and -sS are mutually exclusive")
 	}
 	if *timeout <= 0 || *timeout > 30*time.Second || *concurrency < 1 || *concurrency > 50 || *rate < 1 || *rate > 1000 {
 		return errors.New("scan limits are outside allowed bounds")
@@ -98,12 +103,17 @@ func RunStandaloneScan(ctx context.Context, args []string, stdout, _ io.Writer) 
 	if *aggressiveUpper || *aggressiveLower {
 		selected = npd.ProfileDeep
 		*serviceVersion = true
+		*osDetect = true
 	}
 	if selected != npd.ProfileSafe && selected != npd.ProfileStandard && selected != npd.ProfileDeep && selected != npd.ProfileCustom {
 		return errors.New("invalid scan profile")
 	}
 
-	runTCP := !*udpScan || *tcpConnect
+	runTCP := !*udpScan || *tcpConnect || *synScan
+	tcpMode := scan.ModeConnect
+	if *synScan {
+		tcpMode = scan.ModeSYN
+	}
 	ports, err := standaloneScanPorts(selected, strings.TrimSpace(*portsSpec), *topPorts, *udpScan && !runTCP)
 	if err != nil {
 		return err
@@ -138,11 +148,16 @@ func RunStandaloneScan(ctx context.Context, args []string, stdout, _ io.Writer) 
 		return err
 	}
 
-	results, scanErr := runStandaloneProtocolScans(ctx, transport, targets, ports, selected, runTCP, *udpScan, *timeout, *concurrency)
+	results, scanErr := runStandaloneProtocolScans(ctx, transport, targets, ports, selected, runTCP, *udpScan, tcpMode, *osDetect, *timeout, *concurrency)
 	if scanErr != nil && ctx.Err() != nil {
 		return scanErr
 	}
 	enrichScanResults(ctx, transport, results, *serviceVersion, *timeout)
+	if *osDetect {
+		if rawUnavailable := enrichOSFingerprints(ctx, transport, results, *timeout); rawUnavailable && stderr != nil && !*jsonOutput {
+			_, _ = fmt.Fprintln(stderr, "OS detection requires CAP_NET_RAW/root for raw SYN fingerprinting; unavailable results are marked explicitly.")
+		}
+	}
 	if *jsonOutput {
 		encoder := json.NewEncoder(stdout)
 		encoder.SetEscapeHTML(false)
@@ -190,11 +205,11 @@ func standaloneScanPorts(profile npd.Profile, portsSpec string, topPorts int, ud
 	return ports, nil
 }
 
-func runStandaloneProtocolScans(ctx context.Context, transport *httpengine.Engine, targets []string, ports []uint16, profile npd.Profile, runTCP, runUDP bool, timeout time.Duration, concurrency int) ([]scan.Result, error) {
+func runStandaloneProtocolScans(ctx context.Context, transport *httpengine.Engine, targets []string, ports []uint16, profile npd.Profile, runTCP, runUDP bool, tcpMode scan.Mode, osDetect bool, timeout time.Duration, concurrency int) ([]scan.Result, error) {
 	var results []scan.Result
 	var firstErr error
 	if runTCP {
-		engine := scan.Engine{TCP: transport}
+		engine := scan.Engine{TCP: transport, SYN: transport}
 		tcpResults, err := engine.ScanMany(ctx, targets, scan.Options{
 			Profile:     profile,
 			Ports:       ports,
@@ -202,6 +217,8 @@ func runStandaloneProtocolScans(ctx context.Context, transport *httpengine.Engin
 			ProjectID:   "standalone",
 			ScopeID:     "standalone",
 			Concurrency: concurrency,
+			Mode:        tcpMode,
+			OSDetect:    osDetect,
 		})
 		results = tcpResults
 		firstErr = err
@@ -334,6 +351,82 @@ func enrichScanResults(ctx context.Context, transport httpengine.TCPBannerClient
 	}
 }
 
+func enrichOSFingerprints(ctx context.Context, transport httpengine.SYNClient, results []scan.Result, timeout time.Duration) bool {
+	rawUnavailable := false
+	for resultIndex := range results {
+		if results[resultIndex].OS != nil || ctx.Err() != nil {
+			continue
+		}
+		parsed, err := policy.ParseTarget(results[resultIndex].Target)
+		if err != nil {
+			fingerprint := scan.OSFingerprintUnavailable("invalid target for OS fingerprinting")
+			results[resultIndex].OS = &fingerprint
+			continue
+		}
+		port := selectOSProbePort(results[resultIndex])
+		observations, probeErr := transport.ScanSYN(ctx, httpengine.SYNScanRequest{
+			ProjectID: "standalone",
+			Target:    policy.Target{IP: parsed.IP, Hostname: parsed.Hostname},
+			Ports:     []uint16{port},
+			Timeout:   boundedOSProbeTimeout(timeout),
+		})
+		if errors.Is(probeErr, httpengine.ErrSYNPermission) {
+			fingerprint := scan.OSFingerprintUnavailable("raw privileges required (CAP_NET_RAW/root)")
+			results[resultIndex].OS = &fingerprint
+			rawUnavailable = true
+			continue
+		}
+		if errors.Is(probeErr, httpengine.ErrSYNUnsupported) {
+			fingerprint := scan.OSFingerprintUnavailable("raw SYN OS fingerprinting currently requires IPv4")
+			results[resultIndex].OS = &fingerprint
+			continue
+		}
+		if probeErr != nil || len(observations) == 0 {
+			fingerprint := scan.OSFingerprintUnavailable("no raw TCP fingerprint response")
+			results[resultIndex].OS = &fingerprint
+			continue
+		}
+		var matched *httpengine.SYNResponse
+		for i := range observations {
+			if observations[i].TTL > 0 && (observations[i].State == httpengine.SYNStateOpen || observations[i].State == httpengine.SYNStateClosed) {
+				matched = &observations[i]
+				break
+			}
+		}
+		if matched == nil {
+			fingerprint := scan.OSFingerprintUnavailable("no TCP response with fingerprint metadata")
+			results[resultIndex].OS = &fingerprint
+			continue
+		}
+		fingerprint := scan.InferOS(*matched)
+		results[resultIndex].OS = &fingerprint
+	}
+	return rawUnavailable
+}
+
+func selectOSProbePort(result scan.Result) uint16 {
+	for _, desiredState := range []npd.State{npd.StateOpen, npd.StateClosed} {
+		for _, item := range result.Ports {
+			if item.Protocol == "tcp" && item.State == desiredState && item.Port != 0 {
+				return item.Port
+			}
+		}
+	}
+	for _, item := range result.Ports {
+		if item.Protocol == "tcp" && item.Port != 0 {
+			return item.Port
+		}
+	}
+	return 80
+}
+
+func boundedOSProbeTimeout(timeout time.Duration) time.Duration {
+	if timeout <= 0 || timeout > 2*time.Second {
+		return 2 * time.Second
+	}
+	return timeout
+}
+
 func writeStandaloneScanResult(stdout io.Writer, result scan.Result) error {
 	if _, err := fmt.Fprintf(stdout, "Wraith scan report for %s\n", result.Target); err != nil {
 		return err
@@ -348,7 +441,18 @@ func writeStandaloneScanResult(stdout io.Writer, result scan.Result) error {
 			return err
 		}
 	}
-	return table.Flush()
+	if err := table.Flush(); err != nil {
+		return err
+	}
+	if result.OS != nil {
+		if result.OS.Error != "" {
+			_, err := fmt.Fprintf(stdout, "OS detection: unavailable (%s)\n", result.OS.Error)
+			return err
+		}
+		_, err := fmt.Fprintf(stdout, "OS guess: %s [%s confidence] (ttl=%d, distance=%d, window=%d)\n", result.OS.Guess, result.OS.Confidence, result.OS.ObservedTTL, result.OS.Distance, result.OS.Window)
+		return err
+	}
+	return nil
 }
 
 func splitStandaloneScanArgs(args []string) ([]string, string, error) {
