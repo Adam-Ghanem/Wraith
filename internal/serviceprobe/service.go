@@ -89,6 +89,15 @@ func probeBanner(conn net.Conn, host string, port uint16) string {
 	return string(data)
 }
 
+func isTLSPort(port uint16) bool {
+	switch port {
+	case 443, 465, 636, 853, 990, 993, 995, 2376, 8443:
+		return true
+	default:
+		return false
+	}
+}
+
 func sanitizeBanner(value string) string {
 	value = strings.ReplaceAll(value, "\x00", " ")
 	value = strings.ReplaceAll(value, "\r", " ")
