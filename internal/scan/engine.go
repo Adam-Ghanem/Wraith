@@ -40,13 +40,13 @@ type Options struct {
 }
 
 type Result struct {
-	Target      string         `json:"target"`
-	Profile     npd.Profile    `json:"profile"`
-	State       State          `json:"state"`
+	Target      string           `json:"target"`
+	Profile     npd.Profile      `json:"profile"`
+	State       State            `json:"state"`
 	Ports       []npd.PortResult `json:"ports"`
-	OS          *OSFingerprint `json:"os,omitempty"`
-	StartedAt   time.Time      `json:"started_at"`
-	CompletedAt time.Time      `json:"completed_at"`
+	OS          *OSFingerprint   `json:"os,omitempty"`
+	StartedAt   time.Time        `json:"started_at"`
+	CompletedAt time.Time        `json:"completed_at"`
 }
 
 type Engine struct {
