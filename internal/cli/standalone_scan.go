@@ -186,41 +186,69 @@ func RunStandaloneScan(ctx context.Context, args []string, stdout, _ io.Writer) 
 }
 
 func discoverStandaloneTargets(ctx context.Context, transport httpengine.TCPClient, targets []string, timeout time.Duration, concurrency int) ([]string, error) {
+	if ctx == nil || transport == nil {
+		return nil, errors.New("host discovery requires context and TCP transport")
+	}
+	discoveryTimeout := timeout
+	if discoveryTimeout <= 0 || discoveryTimeout > 2*time.Second {
+		discoveryTimeout = 2 * time.Second
+	}
+	discoveryPorts := []uint16{80, 443, 22, 445, 3389}
 	addresses := make([]netip.Addr, 0, len(targets))
+	liveSet := make(map[string]struct{}, len(targets))
+
 	for _, raw := range targets {
 		parsed, err := policy.ParseTarget(raw)
 		if err != nil {
 			return nil, err
 		}
-		if !parsed.IP.IsValid() {
-			// Hostnames are resolved by the transport during the actual scan.
-			return targets, nil
+		if parsed.IP.IsValid() {
+			addresses = append(addresses, parsed.IP.Unmap())
+			continue
 		}
-		addresses = append(addresses, parsed.IP.Unmap())
-	}
-	if len(addresses) == 0 {
-		return targets, nil
-	}
-	discoveryTimeout := timeout
-	if discoveryTimeout > 2*time.Second {
-		discoveryTimeout = 2 * time.Second
-	}
-	live, err := discovery.DiscoverTCP(ctx, addresses, discovery.TCPDiscoveryOptions{
-		MaxTargets:  len(addresses),
-		Concurrency: concurrency,
-		Timeout:     discoveryTimeout,
-		Ports:       []uint16{80, 443, 22, 445, 3389},
-	}, standaloneTCPDiscoveryProbe{tcp: transport})
-	if err != nil {
-		return nil, err
-	}
-	result := make([]string, 0, len(live))
-	for _, address := range live {
-		host := address.String()
-		if address.Is6() {
-			host = "[" + host + "]"
+		if strings.TrimSpace(parsed.Hostname) == "" {
+			continue
 		}
-		result = append(result, "tcp://"+host+"/")
+		for _, port := range discoveryPorts {
+			_, probeErr := transport.ProbeTCP(ctx, httpengine.TCPRequest{
+				ProjectID: "standalone",
+				Target:    policy.Target{Hostname: parsed.Hostname, Port: port},
+				Timeout:   discoveryTimeout,
+			})
+			if probeErr == nil || errors.Is(probeErr, httpengine.ErrTCPRefused) {
+				liveSet[raw] = struct{}{}
+				break
+			}
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	if len(addresses) > 0 {
+		live, err := discovery.DiscoverTCP(ctx, addresses, discovery.TCPDiscoveryOptions{
+			MaxTargets:  len(addresses),
+			Concurrency: concurrency,
+			Timeout:     discoveryTimeout,
+			Ports:       discoveryPorts,
+		}, standaloneTCPDiscoveryProbe{tcp: transport})
+		if err != nil {
+			return nil, err
+		}
+		for _, address := range live {
+			host := address.String()
+			if address.Is6() {
+				host = "[" + host + "]"
+			}
+			liveSet["tcp://"+host+"/"] = struct{}{}
+		}
+	}
+
+	result := make([]string, 0, len(liveSet))
+	for _, target := range targets {
+		if _, ok := liveSet[target]; ok {
+			result = append(result, target)
+		}
 	}
 	return result, nil
 }
