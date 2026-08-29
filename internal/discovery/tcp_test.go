@@ -3,23 +3,35 @@ package discovery
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/netip"
+	"sync"
 	"testing"
 	"time"
 )
 
 type fakeTCPProbe struct {
+	mu   sync.Mutex
 	live map[string]bool
 	seen []string
 }
 
 func (p *fakeTCPProbe) ProbeTCP(_ context.Context, address netip.Addr, port uint16, _ time.Duration) error {
-	key := address.String() + ":" + string(rune(port))
+	key := fmt.Sprintf("%s:%d", address, port)
+	p.mu.Lock()
 	p.seen = append(p.seen, key)
-	if p.live[address.String()] {
+	live := p.live[address.String()]
+	p.mu.Unlock()
+	if live {
 		return nil
 	}
 	return errors.New("probe failed")
+}
+
+func (p *fakeTCPProbe) seenCount() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return len(p.seen)
 }
 
 func TestTCPDiscoveryDeduplicatesAndSortsLiveHosts(t *testing.T) {
@@ -65,8 +77,8 @@ func TestTCPDiscoveryStopsAfterFirstSuccessfulPort(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DiscoverTCP returned error: %v", err)
 	}
-	if len(probe.seen) != 1 {
-		t.Fatalf("got %d probes, want 1", len(probe.seen))
+	if got := probe.seenCount(); got != 1 {
+		t.Fatalf("got %d probes, want 1", got)
 	}
 }
 
