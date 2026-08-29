@@ -68,7 +68,7 @@ func InferOS(response httpengine.SYNResponse) OSFingerprint {
 		scoreApplianceSignature(response, fingerprint.InitialTTL),
 	}
 	best, second := bestOSSignatures(matches)
-	if best.score < 3 {
+	if best.score < 5 {
 		fingerprint.Family, fingerprint.Guess = genericOSGuess(fingerprint.InitialTTL)
 		fingerprint.Evidence = []string{fmt.Sprintf("observed TTL %d suggests initial TTL %d", response.TTL, fingerprint.InitialTTL)}
 		return fingerprint
