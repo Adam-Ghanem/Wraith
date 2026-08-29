@@ -34,6 +34,22 @@ func (f *fakeLayeredDiscovery) DiscoverICMP(_ context.Context, request httpengin
 	return []httpengine.ICMPResponse{{IP: request.Targets[0], Duration: time.Millisecond}}, nil
 }
 
+type fakeIPv6LayeredDiscovery struct {
+	tcpCalls int
+}
+
+func (f *fakeIPv6LayeredDiscovery) ProbeTCP(_ context.Context, _ httpengine.TCPRequest) (httpengine.TCPResponse, error) {
+	f.tcpCalls++
+	return httpengine.TCPResponse{Duration: time.Millisecond}, httpengine.ErrTCPRefused
+}
+
+func (f *fakeIPv6LayeredDiscovery) DiscoverICMP6(_ context.Context, request httpengine.ICMPScanRequest) ([]httpengine.ICMPResponse, error) {
+	if len(request.Targets) == 0 {
+		return nil, nil
+	}
+	return []httpengine.ICMPResponse{{IP: request.Targets[0], Duration: time.Millisecond}}, nil
+}
+
 func TestDiscoverStandaloneTargetsActivelyChecksHostnames(t *testing.T) {
 	targets, err := discoverStandaloneTargets(
 		context.Background(),
@@ -67,6 +83,26 @@ func TestDiscoverStandaloneTargetsUsesICMPBeforeTCPFallback(t *testing.T) {
 	}
 	if transport.tcpCalls != 1 {
 		t.Fatalf("TCP probes=%d, want 1 fallback probe after ICMP identified one live host", transport.tcpCalls)
+	}
+}
+
+func TestDiscoverStandaloneTargetsUsesICMP6BeforeTCPFallback(t *testing.T) {
+	transport := &fakeIPv6LayeredDiscovery{}
+	targets, err := discoverStandaloneTargets(
+		context.Background(),
+		transport,
+		[]string{"tcp://[2001:db8::1]/"},
+		50*time.Millisecond,
+		2,
+	)
+	if err != nil {
+		t.Fatalf("discoverStandaloneTargets() error = %v", err)
+	}
+	if len(targets) != 1 || targets[0] != "tcp://[2001:db8::1]/" {
+		t.Fatalf("targets=%v, want IPv6 host live", targets)
+	}
+	if transport.tcpCalls != 0 {
+		t.Fatalf("TCP probes=%d, want 0 after ICMPv6 identified host live", transport.tcpCalls)
 	}
 }
 
