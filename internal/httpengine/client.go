@@ -41,10 +41,16 @@ type SYN6Client interface {
 	ScanSYN6(context.Context, SYNScanRequest) ([]SYNResponse, error)
 }
 
-// ICMPClient owns privileged, bounded Echo discovery. Callers receive only
-// live-host observations and never receive raw ICMP sockets or packets.
+// ICMPClient owns privileged, bounded IPv4 Echo discovery. Callers receive
+// only live-host observations and never receive raw ICMP sockets or packets.
 type ICMPClient interface {
 	DiscoverICMP(context.Context, ICMPScanRequest) ([]ICMPResponse, error)
+}
+
+// ICMP6Client is the optional IPv6 Echo discovery counterpart. Keeping it
+// separate preserves compatibility with IPv4-only discovery adapters.
+type ICMP6Client interface {
+	DiscoverICMP6(context.Context, ICMPScanRequest) ([]ICMPResponse, error)
 }
 
 var _ Client = (*Engine)(nil)
@@ -54,3 +60,4 @@ var _ UDPClient = (*Engine)(nil)
 var _ SYNClient = (*Engine)(nil)
 var _ SYN6Client = (*Engine)(nil)
 var _ ICMPClient = (*Engine)(nil)
+var _ ICMP6Client = (*Engine)(nil)
