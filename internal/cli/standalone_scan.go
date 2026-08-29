@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/netip"
 	"strconv"
 	"strings"
 	"text/tabwriter"
@@ -32,7 +33,7 @@ func (standaloneGateway) Authorize(_ context.Context, projectID string, target p
 // socket ownership inside the shared TCP engine while requiring no persisted
 // project authorization/campaign records for explicit standalone scanning.
 func RunStandaloneScan(ctx context.Context, args []string, stdout, _ io.Writer) error {
-	const usage = "usage: wraith scan TARGET [-A|-a] [-p PORTS|-p-] [--top-ports N] [--profile safe|standard|deep|custom] [--timeout D] [--max-concurrency N] [--rate N] [--json]"
+	const usage = "usage: wraith scan TARGET|CIDR [-A|-a] [-p PORTS|-p-] [--top-ports N] [--profile safe|standard|deep|custom] [--timeout D] [--max-concurrency N] [--rate N] [--json]"
 	if ctx == nil || len(args) < 2 || args[0] != "scan" {
 		return errors.New(usage)
 	}
@@ -64,7 +65,7 @@ func RunStandaloneScan(ctx context.Context, args []string, stdout, _ io.Writer) 
 	if *topPorts > 0 && strings.TrimSpace(*portsSpec) != "" {
 		return errors.New("--top-ports cannot be combined with -p or -p-")
 	}
-	target, err := standaloneTarget(targetArg)
+	targets, err := standaloneTargets(targetArg)
 	if err != nil {
 		return err
 	}
@@ -110,7 +111,7 @@ func RunStandaloneScan(ctx context.Context, args []string, stdout, _ io.Writer) 
 	defer func() { _ = transport.CloseIdleConnections() }()
 
 	engine := scan.Engine{TCP: transport}
-	result, err := engine.Scan(ctx, target, scan.Options{
+	results, err := engine.ScanMany(ctx, targets, scan.Options{
 		Profile:     selected,
 		Ports:       ports,
 		Timeout:     *timeout,
@@ -124,7 +125,27 @@ func RunStandaloneScan(ctx context.Context, args []string, stdout, _ io.Writer) 
 	if *jsonOutput {
 		encoder := json.NewEncoder(stdout)
 		encoder.SetEscapeHTML(false)
-		return encoder.Encode(result)
+		if len(results) == 1 {
+			return encoder.Encode(results[0])
+		}
+		return encoder.Encode(results)
+	}
+	for i, result := range results {
+		if i > 0 {
+			if _, err := fmt.Fprintln(stdout); err != nil {
+				return err
+			}
+		}
+		if err := writeStandaloneScanResult(stdout, result); err != nil {
+			return err
+		}
+	}
+	return err
+}
+
+func writeStandaloneScanResult(stdout io.Writer, result scan.Result) error {
+	if _, err := fmt.Fprintf(stdout, "Wraith scan report for %s\n", result.Target); err != nil {
+		return err
 	}
 	table := tabwriter.NewWriter(stdout, 0, 4, 2, ' ', 0)
 	if _, err := fmt.Fprintln(table, "PORT\tSTATE\tPROTOCOL\tLATENCY"); err != nil {
@@ -159,6 +180,33 @@ func splitStandaloneScanArgs(args []string) ([]string, string, error) {
 	return flags, target, nil
 }
 
+func standaloneTargets(raw string) ([]string, error) {
+	raw = strings.TrimSpace(raw)
+	if prefix, err := netip.ParsePrefix(raw); err == nil {
+		prefix = prefix.Masked()
+		targets := make([]string, 0)
+		for address := prefix.Addr(); address.IsValid() && prefix.Contains(address); address = address.Next() {
+			if len(targets) >= scan.MaxTargets {
+				return nil, fmt.Errorf("CIDR expands beyond the %d-target scan bound", scan.MaxTargets)
+			}
+			host := address.String()
+			if address.Is6() {
+				host = "[" + host + "]"
+			}
+			targets = append(targets, "tcp://"+host+"/")
+		}
+		if len(targets) == 0 {
+			return nil, errors.New("CIDR produced no scan targets")
+		}
+		return targets, nil
+	}
+	target, err := standaloneTarget(raw)
+	if err != nil {
+		return nil, err
+	}
+	return []string{target}, nil
+}
+
 func standaloneTarget(raw string) (string, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" || strings.ContainsAny(raw, " \t\r\n") {
@@ -167,7 +215,7 @@ func standaloneTarget(raw string) (string, error) {
 	if strings.Contains(raw, "://") {
 		parsed, err := policy.ParseTarget(raw)
 		if err != nil || parsed.Scheme != string(policy.ProtocolTCP) || parsed.Port != 0 || parsed.Path != "/" {
-			return "", errors.New("scan target must be an IP, hostname, or tcp:// host")
+			return "", errors.New("scan target must be an IP, hostname, CIDR, or tcp:// host")
 		}
 		normalized, err := policy.NormalizeTarget(parsed)
 		if err != nil {
