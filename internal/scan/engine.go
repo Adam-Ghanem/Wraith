@@ -1,5 +1,5 @@
 // Package scan provides the orchestration layer for Wraith's network scanner.
-// Transport ownership remains in the existing R3 TCP engine; this package only
+// Transport ownership remains in the existing R3 engine; this package only
 // coordinates target normalization, bounded probe scheduling, and results.
 package scan
 
@@ -22,6 +22,13 @@ const (
 	MaxTimeout     = 2 * time.Minute
 )
 
+type Mode string
+
+const (
+	ModeConnect Mode = "connect"
+	ModeSYN     Mode = "syn"
+)
+
 type Options struct {
 	Profile     npd.Profile
 	Ports       []uint16
@@ -29,25 +36,34 @@ type Options struct {
 	ProjectID   string
 	ScopeID     string
 	Concurrency int
+	Mode        Mode
 }
 
 type Result struct {
-	Target      string
-	Profile     npd.Profile
-	State       State
-	Ports       []npd.PortResult
-	StartedAt   time.Time
-	CompletedAt time.Time
+	Target      string         `json:"target"`
+	Profile     npd.Profile    `json:"profile"`
+	State       State          `json:"state"`
+	Ports       []npd.PortResult `json:"ports"`
+	OS          *OSFingerprint `json:"os,omitempty"`
+	StartedAt   time.Time      `json:"started_at"`
+	CompletedAt time.Time      `json:"completed_at"`
 }
 
 type Engine struct {
 	TCP httpengine.TCPClient
+	SYN httpengine.SYNClient
 	Now func() time.Time
 }
 
 func (e Engine) Scan(ctx context.Context, target string, opts Options) (Result, error) {
-	if ctx == nil || e.TCP == nil {
-		return Result{}, errors.New("scan engine requires context and TCP transport")
+	if ctx == nil {
+		return Result{}, errors.New("scan engine requires context")
+	}
+	if opts.Mode == "" {
+		opts.Mode = ModeConnect
+	}
+	if !e.supportsMode(opts.Mode) {
+		return Result{}, errors.New("scan engine transport is unavailable for the selected mode")
 	}
 	if strings.TrimSpace(target) == "" {
 		return Result{}, ErrInvalidTarget
@@ -99,6 +115,9 @@ func (e Engine) Scan(ctx context.Context, target string, opts Options) (Result, 
 		base.CompletedAt = now()
 		return base, err
 	}
+	if opts.Mode == ModeSYN {
+		return e.scanSYN(ctx, target, opts, ports, started, now)
+	}
 
 	scanner := npd.Scanner{TCP: e.TCP, Now: e.Now}
 	plan, err := scanner.Plan(target, ports)
@@ -126,6 +145,17 @@ func (e Engine) Scan(ctx context.Context, target string, opts Options) (Result, 
 	}
 	base.State = StateCompleted
 	return base, nil
+}
+
+func (e Engine) supportsMode(mode Mode) bool {
+	switch mode {
+	case ModeConnect:
+		return e.TCP != nil
+	case ModeSYN:
+		return e.SYN != nil
+	default:
+		return false
+	}
 }
 
 func stateFromContext(err error) State {
