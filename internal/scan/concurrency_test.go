@@ -16,7 +16,7 @@ type concurrentTCP struct {
 	observed []uint16
 }
 
-func (f *concurrentTCP) ProbeTCP(context.Context, httpengine.TCPRequest) (httpengine.TCPProbeResult, error) {
+func (f *concurrentTCP) ProbeTCP(context.Context, httpengine.TCPRequest) (httpengine.TCPResponse, error) {
 	f.mu.Lock()
 	f.active++
 	if f.active > f.max {
@@ -27,7 +27,7 @@ func (f *concurrentTCP) ProbeTCP(context.Context, httpengine.TCPRequest) (httpen
 	f.mu.Lock()
 	f.active--
 	f.mu.Unlock()
-	return httpengine.TCPProbeResult{Duration: time.Millisecond}, nil
+	return httpengine.TCPResponse{Duration: time.Millisecond}, nil
 }
 
 func TestEngineBoundsConcurrencyAndKeepsOrdering(t *testing.T) {
