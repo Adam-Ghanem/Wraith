@@ -290,9 +290,51 @@ func discoverStandaloneTargets(ctx context.Context, transport httpengine.TCPClie
 		}
 	}
 
-	if len(addresses) > 0 {
-		live, err := discovery.DiscoverTCP(ctx, addresses, discovery.TCPDiscoveryOptions{
-			MaxTargets:  len(addresses),
+	arpLive, arpErr := discoverStandaloneARP(ctx, addresses, discoveryTimeout, concurrency)
+	if arpErr != nil && ctx.Err() != nil {
+		return nil, arpErr
+	}
+	for _, address := range arpLive {
+		liveSet[tcpTargetForAddress(address)] = struct{}{}
+	}
+
+	if icmpTransport, ok := transport.(httpengine.ICMPClient); ok {
+		icmpTargets := make([]netip.Addr, 0, len(addresses))
+		for _, address := range addresses {
+			if !address.Is4() {
+				continue
+			}
+			if _, live := liveSet[tcpTargetForAddress(address)]; live {
+				continue
+			}
+			icmpTargets = append(icmpTargets, address)
+		}
+		if len(icmpTargets) > 0 {
+			icmpLive, icmpErr := icmpTransport.DiscoverICMP(ctx, httpengine.ICMPScanRequest{
+				ProjectID: "standalone",
+				Targets:   icmpTargets,
+				Timeout:   discoveryTimeout,
+			})
+			if icmpErr != nil && !errors.Is(icmpErr, httpengine.ErrICMPPermission) && !errors.Is(icmpErr, httpengine.ErrICMPUnsupported) {
+				if errors.Is(icmpErr, httpengine.ErrTCPPolicyDenied) || errors.Is(icmpErr, httpengine.ErrTCPDestination) || ctx.Err() != nil {
+					return nil, icmpErr
+				}
+			}
+			for _, response := range icmpLive {
+				liveSet[tcpTargetForAddress(response.IP)] = struct{}{}
+			}
+		}
+	}
+
+	tcpAddresses := make([]netip.Addr, 0, len(addresses))
+	for _, address := range addresses {
+		if _, live := liveSet[tcpTargetForAddress(address)]; !live {
+			tcpAddresses = append(tcpAddresses, address)
+		}
+	}
+	if len(tcpAddresses) > 0 {
+		live, err := discovery.DiscoverTCP(ctx, tcpAddresses, discovery.TCPDiscoveryOptions{
+			MaxTargets:  len(tcpAddresses),
 			Concurrency: concurrency,
 			Timeout:     discoveryTimeout,
 			Ports:       discoveryPorts,
@@ -301,11 +343,7 @@ func discoverStandaloneTargets(ctx context.Context, transport httpengine.TCPClie
 			return nil, err
 		}
 		for _, address := range live {
-			host := address.String()
-			if address.Is6() {
-				host = "[" + host + "]"
-			}
-			liveSet["tcp://"+host+"/"] = struct{}{}
+			liveSet[tcpTargetForAddress(address)] = struct{}{}
 		}
 	}
 
@@ -316,6 +354,123 @@ func discoverStandaloneTargets(ctx context.Context, transport httpengine.TCPClie
 		}
 	}
 	return result, nil
+}
+
+func discoverStandaloneARP(ctx context.Context, addresses []netip.Addr, timeout time.Duration, concurrency int) ([]netip.Addr, error) {
+	prefix, ok := commonIPv4Prefix(addresses)
+	if !ok || (!prefix.Addr().IsPrivate() && !prefix.Addr().IsLinkLocalUnicast()) || prefix.Addr().IsLoopback() {
+		return nil, nil
+	}
+	iface, _, err := discovery.FindInterfaceForPrefix(prefix)
+	if err != nil {
+		return nil, nil
+	}
+	candidates, err := discovery.EnumerateIPv4Targets(prefix, scan.MaxTargets)
+	if err != nil {
+		return nil, nil
+	}
+	requested := make(map[netip.Addr]struct{}, len(addresses))
+	for _, address := range addresses {
+		if address.Is4() {
+			requested[address.Unmap()] = struct{}{}
+		}
+	}
+	filtered := candidates[:0]
+	for _, candidate := range candidates {
+		if _, exists := requested[candidate]; exists {
+			filtered = append(filtered, candidate)
+		}
+	}
+	if len(filtered) == 0 {
+		return nil, nil
+	}
+
+	poolSize := concurrency
+	if poolSize < 1 {
+		poolSize = 1
+	}
+	if poolSize > 16 {
+		poolSize = 16
+	}
+	if poolSize > len(filtered) {
+		poolSize = len(filtered)
+	}
+	resolver, err := discovery.NewLinuxARPResolverPool(iface, poolSize)
+	if err != nil {
+		return nil, nil
+	}
+	defer func() { _ = resolver.Close() }()
+
+	arpTimeout := 150 * time.Millisecond
+	if timeout > 0 && timeout < arpTimeout {
+		arpTimeout = timeout
+	}
+	live, err := discovery.DiscoverARPAddresses(ctx, filtered, discovery.ARPOptions{
+		MaxTargets:  len(filtered),
+		Concurrency: poolSize,
+		Timeout:     arpTimeout,
+	}, resolver)
+	if err != nil {
+		if ctx.Err() != nil {
+			return nil, err
+		}
+		return nil, nil
+	}
+	result := make([]netip.Addr, 0, len(live))
+	for _, target := range live {
+		if target.IP.IsValid() {
+			result = append(result, target.IP.Unmap())
+		}
+	}
+	return result, nil
+}
+
+func commonIPv4Prefix(addresses []netip.Addr) (netip.Prefix, bool) {
+	var minimum uint32
+	var maximum uint32
+	var first netip.Addr
+	found := false
+	for _, address := range addresses {
+		address = address.Unmap()
+		if !address.Is4() {
+			continue
+		}
+		value := ipv4AddressNumber(address)
+		if !found {
+			minimum, maximum, first, found = value, value, address, true
+			continue
+		}
+		if value < minimum {
+			minimum = value
+			first = address
+		}
+		if value > maximum {
+			maximum = value
+		}
+	}
+	if !found {
+		return netip.Prefix{}, false
+	}
+	difference := minimum ^ maximum
+	bits := 32
+	for difference != 0 {
+		bits--
+		difference >>= 1
+	}
+	return netip.PrefixFrom(first, bits).Masked(), true
+}
+
+func ipv4AddressNumber(address netip.Addr) uint32 {
+	value := address.As4()
+	return uint32(value[0])<<24 | uint32(value[1])<<16 | uint32(value[2])<<8 | uint32(value[3])
+}
+
+func tcpTargetForAddress(address netip.Addr) string {
+	host := address.String()
+	if address.Is6() {
+		host = "[" + host + "]"
+	}
+	return "tcp://" + host + "/"
 }
 
 func writeDiscoveredHosts(stdout io.Writer, targets []string, jsonOutput bool) error {
