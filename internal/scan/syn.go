@@ -51,6 +51,10 @@ func (e Engine) scanSYN(ctx context.Context, target string, opts Options, ports 
 		}
 		base.Ports = append(base.Ports, entry)
 	}
+	if opts.OSDetect {
+		fingerprint := osFingerprintFromSYN(observations)
+		base.OS = &fingerprint
+	}
 	sort.Slice(base.Ports, func(i, j int) bool { return base.Ports[i].Port < base.Ports[j].Port })
 	base.CompletedAt = now()
 	if err != nil {
@@ -62,6 +66,17 @@ func (e Engine) scanSYN(ctx context.Context, target string, opts Options, ports 
 	}
 	base.State = StateCompleted
 	return base, nil
+}
+
+func osFingerprintFromSYN(observations []httpengine.SYNResponse) OSFingerprint {
+	for _, preferred := range []httpengine.SYNState{httpengine.SYNStateOpen, httpengine.SYNStateClosed} {
+		for _, observation := range observations {
+			if observation.State == preferred && observation.TTL > 0 {
+				return InferOS(observation)
+			}
+		}
+	}
+	return OSFingerprintUnavailable("no TCP response with fingerprint metadata")
 }
 
 func synStateToPortState(state httpengine.SYNState) npd.State {
