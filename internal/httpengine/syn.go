@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/netip"
 	"os"
 	"sort"
 	"strings"
@@ -57,7 +58,6 @@ type SYNResponse struct {
 }
 
 type synProbe struct {
-	port   uint16
 	seq    uint32
 	sentAt time.Time
 }
@@ -94,7 +94,7 @@ func (engine *Engine) ScanSYN(ctx context.Context, request SYNScanRequest) ([]SY
 		return nil, err
 	}
 
-	remote, err := engine.resolveSYNIPv4(ctx, request.ProjectID, request.Target)
+	remote, err := engine.resolveSYNIPv4(ctx, request.Target)
 	if err != nil {
 		return nil, err
 	}
@@ -230,7 +230,6 @@ func (engine *Engine) ScanSYN(ctx context.Context, request SYNScanRequest) ([]SY
 		}
 	}()
 
-	var firstSendErr error
 	for _, port := range ports {
 		if err := ctx.Err(); err != nil {
 			close(done)
@@ -248,7 +247,6 @@ func (engine *Engine) ScanSYN(ctx context.Context, request SYNScanRequest) ([]SY
 		}
 		sequence, err := randomSYNSequence()
 		if err != nil {
-			firstSendErr = err
 			mu.Lock()
 			responses[port] = SYNResponse{Port: port, State: SYNStateError, ObservedAt: time.Now().UTC(), Error: "transport error"}
 			mu.Unlock()
@@ -256,7 +254,7 @@ func (engine *Engine) ScanSYN(ctx context.Context, request SYNScanRequest) ([]SY
 		}
 		sentAt := time.Now().UTC()
 		mu.Lock()
-		pending[port] = synProbe{port: port, seq: sequence, sentAt: sentAt}
+		pending[port] = synProbe{seq: sequence, sentAt: sentAt}
 		mu.Unlock()
 		segment := buildTCPSYN(local, net.IP(remote.AsSlice()), sourcePort, port, sequence)
 		if _, err := packetConn.WriteTo(segment, nil, &net.IPAddr{IP: net.IP(remote.AsSlice())}); err != nil {
@@ -265,9 +263,6 @@ func (engine *Engine) ScanSYN(ctx context.Context, request SYNScanRequest) ([]SY
 				_ = raw.Close()
 				receiver.Wait()
 				return collectSYNResponses(ports, pending, responses, remote), ErrSYNPermission
-			}
-			if firstSendErr == nil {
-				firstSendErr = err
 			}
 			mu.Lock()
 			responses[port] = SYNResponse{Port: port, State: SYNStateError, Duration: time.Since(sentAt), ObservedAt: time.Now().UTC(), Error: "transport error"}
@@ -294,7 +289,6 @@ func (engine *Engine) ScanSYN(ctx context.Context, request SYNScanRequest) ([]SY
 	if err := ctx.Err(); err != nil {
 		return result, err
 	}
-	_ = firstSendErr // Individual send failures are represented as transport_error results.
 	return result, nil
 }
 
@@ -315,48 +309,39 @@ func validateSYNRequest(request SYNScanRequest) ([]uint16, error) {
 	return ports, nil
 }
 
-func (engine *Engine) resolveSYNIPv4(ctx context.Context, projectID string, target policy.Target) (netIPAddr, error) {
-	addresses := []netIPAddr{}
+func (engine *Engine) resolveSYNIPv4(ctx context.Context, target policy.Target) (netip.Addr, error) {
+	addresses := []netip.Addr{}
 	if target.IP.IsValid() {
-		addresses = append(addresses, netIPAddr{addr: target.IP.Unmap()})
+		addresses = append(addresses, target.IP.Unmap())
 	} else {
+		if engine.config.Resolver == nil {
+			return netip.Addr{}, ErrTCPDNSResolution
+		}
 		resolved, err := engine.config.Resolver.Resolve(ctx, target.Hostname)
 		if err != nil || len(resolved) == 0 {
-			return netIPAddr{}, fmt.Errorf("%w: %v", ErrTCPDNSResolution, err)
+			return netip.Addr{}, fmt.Errorf("%w: %v", ErrTCPDNSResolution, err)
 		}
 		for _, address := range resolved {
-			addresses = append(addresses, netIPAddr{addr: address.Unmap()})
+			addresses = append(addresses, address.Unmap())
 		}
 	}
-	var selected netIPAddr
+	var selected netip.Addr
 	for _, candidate := range addresses {
-		if err := engine.config.DestinationPolicy.Validate(candidate.addr); err != nil {
-			return netIPAddr{}, fmt.Errorf("%w: %v", ErrTCPDestination, err)
+		if err := engine.config.DestinationPolicy.Validate(candidate); err != nil {
+			return netip.Addr{}, fmt.Errorf("%w: %v", ErrTCPDestination, err)
 		}
-		if candidate.addr.Is4() && !selected.addr.IsValid() {
+		if candidate.Is4() && !selected.IsValid() {
 			selected = candidate
 		}
 	}
-	if !selected.addr.IsValid() {
-		return netIPAddr{}, ErrSYNUnsupported
+	if !selected.IsValid() {
+		return netip.Addr{}, ErrSYNUnsupported
 	}
-	_ = projectID
 	return selected, nil
 }
 
-// netIPAddr keeps netip-like operations local without exposing another public type.
-type netIPAddr struct {
-	addr interfaceAddr
-}
-
-type interfaceAddr = netipAddrAlias
-
-type netipAddrAlias = structAddrAlias
-
-type structAddrAlias = netip.Addr
-
-func sourceIPv4For(remote netIPAddr, port uint16) (net.IP, error) {
-	conn, err := net.DialUDP("udp4", nil, &net.UDPAddr{IP: net.IP(remote.addr.AsSlice()), Port: int(port)})
+func sourceIPv4For(remote netip.Addr, port uint16) (net.IP, error) {
+	conn, err := net.DialUDP("udp4", nil, &net.UDPAddr{IP: net.IP(remote.AsSlice()), Port: int(port)})
 	if err != nil {
 		return nil, err
 	}
@@ -392,10 +377,11 @@ func buildTCPSYN(source, destination net.IP, sourcePort, destinationPort uint16,
 	segment[12] = 10 << 4
 	segment[13] = 0x02
 	binary.BigEndian.PutUint16(segment[14:16], 64240)
+	timestamp := uint32(time.Now().UnixMilli())
 	options := []byte{
 		2, 4, 0x05, 0xb4,
 		4, 2,
-		8, 10, byte(time.Now().UnixMilli() >> 24), byte(time.Now().UnixMilli() >> 16), byte(time.Now().UnixMilli() >> 8), byte(time.Now().UnixMilli()), 0, 0, 0, 0,
+		8, 10, byte(timestamp >> 24), byte(timestamp >> 16), byte(timestamp >> 8), byte(timestamp), 0, 0, 0, 0,
 		1, 3, 3, 7,
 	}
 	copy(segment[20:], options)
@@ -532,13 +518,13 @@ func parseTCPOptions(options []byte) (uint16, uint8, bool, bool, bool, string) {
 	return mss, windowScale, windowScaleSet, sack, timestamp, strings.Join(parts, ",")
 }
 
-func collectSYNResponses(ports []uint16, pending map[uint16]synProbe, responses map[uint16]SYNResponse, remote netIPAddr) []SYNResponse {
+func collectSYNResponses(ports []uint16, pending map[uint16]synProbe, responses map[uint16]SYNResponse, remote netip.Addr) []SYNResponse {
 	now := time.Now().UTC()
 	result := make([]SYNResponse, 0, len(ports))
 	for _, port := range ports {
 		response, ok := responses[port]
 		if !ok {
-			response = SYNResponse{Port: port, State: SYNStateFiltered, ObservedAt: now, RemoteAddr: net.JoinHostPort(remote.addr.String(), fmt.Sprintf("%d", port))}
+			response = SYNResponse{Port: port, State: SYNStateFiltered, ObservedAt: now, RemoteAddr: net.JoinHostPort(remote.String(), fmt.Sprintf("%d", port))}
 			if probe, exists := pending[port]; exists {
 				response.Duration = now.Sub(probe.sentAt)
 			}
