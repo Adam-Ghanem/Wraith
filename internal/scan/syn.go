@@ -2,6 +2,7 @@ package scan
 
 import (
 	"context"
+	"errors"
 	"sort"
 	"strings"
 	"time"
@@ -27,7 +28,7 @@ func (e Engine) scanSYN(ctx context.Context, target string, opts Options, ports 
 	}
 	base.Target = canonicalSYNTarget(normalized)
 
-	observations, err := e.SYN.ScanSYN(ctx, httpengine.SYNScanRequest{
+	request := httpengine.SYNScanRequest{
 		ProjectID: opts.ProjectID,
 		Target: policy.Target{
 			IP:       normalized.IP,
@@ -35,7 +36,8 @@ func (e Engine) scanSYN(ctx context.Context, target string, opts Options, ports 
 		},
 		Ports:   ports,
 		Timeout: opts.Timeout,
-	})
+	}
+	observations, err := e.executeSYN(ctx, normalized, request)
 	base.Ports = make([]npd.PortResult, 0, len(observations))
 	for _, observation := range observations {
 		entry := npd.PortResult{
@@ -66,6 +68,22 @@ func (e Engine) scanSYN(ctx context.Context, target string, opts Options, ports 
 	}
 	base.State = StateCompleted
 	return base, nil
+}
+
+func (e Engine) executeSYN(ctx context.Context, target policy.Target, request httpengine.SYNScanRequest) ([]httpengine.SYNResponse, error) {
+	syn6, hasSYN6 := e.SYN.(httpengine.SYN6Client)
+	if target.IP.IsValid() && target.IP.Is6() && !target.IP.Is4In6() {
+		if !hasSYN6 {
+			return nil, httpengine.ErrSYN6Unsupported
+		}
+		return syn6.ScanSYN6(ctx, request)
+	}
+
+	observations, err := e.SYN.ScanSYN(ctx, request)
+	if errors.Is(err, httpengine.ErrSYNUnsupported) && hasSYN6 {
+		return syn6.ScanSYN6(ctx, request)
+	}
+	return observations, err
 }
 
 func osFingerprintFromSYN(observations []httpengine.SYNResponse) OSFingerprint {
