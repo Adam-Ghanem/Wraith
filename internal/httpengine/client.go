@@ -35,8 +35,15 @@ type SYNClient interface {
 	ScanSYN(context.Context, SYNScanRequest) ([]SYNResponse, error)
 }
 
+// ICMPClient owns privileged, bounded Echo discovery. Callers receive only
+// live-host observations and never receive raw ICMP sockets or packets.
+type ICMPClient interface {
+	DiscoverICMP(context.Context, ICMPScanRequest) ([]ICMPResponse, error)
+}
+
 var _ Client = (*Engine)(nil)
 var _ TCPClient = (*Engine)(nil)
 var _ TCPBannerClient = (*Engine)(nil)
 var _ UDPClient = (*Engine)(nil)
 var _ SYNClient = (*Engine)(nil)
+var _ ICMPClient = (*Engine)(nil)
