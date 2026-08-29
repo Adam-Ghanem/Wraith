@@ -41,6 +41,27 @@ func TestLoadStandaloneTargetListDeduplicatesAndExpandsCIDR(t *testing.T) {
 	}
 }
 
+func TestAppendStandaloneJSONResultsFlattensArrays(t *testing.T) {
+	values, err := appendStandaloneJSONResults(nil, []byte(`[]`), "tcp://192.0.2.1/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(values) != 0 {
+		t.Fatalf("empty result appended %d values", len(values))
+	}
+	values, err = appendStandaloneJSONResults(values, []byte(`{"target":"tcp://192.0.2.2/"}`), "tcp://192.0.2.2/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	values, err = appendStandaloneJSONResults(values, []byte(`[{"target":"tcp://192.0.2.3/"}]`), "tcp://192.0.2.3/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(values) != 2 {
+		t.Fatalf("values=%d, want 2", len(values))
+	}
+}
+
 func TestStripStandaloneInputListRejectsMultipleLists(t *testing.T) {
 	if _, _, err := stripStandaloneInputList([]string{"scan", "-iL", "a.txt", "--input-list", "b.txt"}); err == nil {
 		t.Fatal("expected multiple input lists to fail")
