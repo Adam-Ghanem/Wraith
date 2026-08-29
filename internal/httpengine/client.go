@@ -28,7 +28,15 @@ type UDPClient interface {
 	ProbeUDP(context.Context, UDPRequest) (UDPResponse, error)
 }
 
+// SYNClient owns privileged raw TCP SYN scanning. The batch contract keeps one
+// raw socket per target and returns only classified observations/fingerprint
+// metadata; callers never receive packet sockets or raw packets.
+type SYNClient interface {
+	ScanSYN(context.Context, SYNScanRequest) ([]SYNResponse, error)
+}
+
 var _ Client = (*Engine)(nil)
 var _ TCPClient = (*Engine)(nil)
 var _ TCPBannerClient = (*Engine)(nil)
 var _ UDPClient = (*Engine)(nil)
+var _ SYNClient = (*Engine)(nil)
