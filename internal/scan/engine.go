@@ -37,6 +37,7 @@ type Options struct {
 	ScopeID     string
 	Concurrency int
 	Mode        Mode
+	OSDetect    bool
 }
 
 type Result struct {
