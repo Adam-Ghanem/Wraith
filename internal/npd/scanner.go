@@ -51,6 +51,10 @@ type PortResult struct {
 	Port       uint16        `json:"port"`
 	Protocol   string        `json:"protocol"`
 	State      State         `json:"state"`
+	Service    string        `json:"service,omitempty"`
+	Version    string        `json:"version,omitempty"`
+	Banner     string        `json:"banner,omitempty"`
+	TLS        bool          `json:"tls,omitempty"`
 	Duration   time.Duration `json:"duration"`
 	ObservedAt time.Time     `json:"observed_at"`
 	Error      string        `json:"error,omitempty"`
