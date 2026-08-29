@@ -22,6 +22,13 @@ type TCPBannerClient interface {
 	ProbeTCPBanner(context.Context, TCPBannerRequest) (TCPBannerResponse, error)
 }
 
+// UDPClient is the bounded UDP probe contract owned by the R3 transport.
+// Callers supply one datagram and receive at most the configured response cap.
+type UDPClient interface {
+	ProbeUDP(context.Context, UDPRequest) (UDPResponse, error)
+}
+
 var _ Client = (*Engine)(nil)
 var _ TCPClient = (*Engine)(nil)
 var _ TCPBannerClient = (*Engine)(nil)
+var _ UDPClient = (*Engine)(nil)
