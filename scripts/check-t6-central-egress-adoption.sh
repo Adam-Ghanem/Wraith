@@ -27,7 +27,7 @@ grep -q 't6OutboundBlock(args)' internal/cli/phase2_run.go || { echo 'root CLI d
 grep -q 'assessmentOutboundGateway' internal/cli/assessment.go || { echo 'T5 assessment gateway construction was removed' >&2; exit 1; }
 grep -q 'outbound.Client' internal/assessmentbuiltin/adapters.go || { echo 'R15 adapters are not T5-mediated' >&2; exit 1; }
 
-expected_engine_files=$'internal/cli/assessment.go\ninternal/cli/auth_test_command.go\ninternal/cli/compare.go\ninternal/cli/content.go\ninternal/cli/crawl.go\ninternal/cli/fuzz.go\ninternal/cli/http.go\ninternal/cli/phase2_run.go\ninternal/cli/smart_discover.go\ninternal/cli/validate.go\ninternal/cli/vhost.go'
+expected_engine_files=$'internal/cli/assessment.go\ninternal/cli/auth_test_command.go\ninternal/cli/compare.go\ninternal/cli/content.go\ninternal/cli/crawl.go\ninternal/cli/fuzz.go\ninternal/cli/http.go\ninternal/cli/phase2_run.go\ninternal/cli/smart_discover.go\ninternal/cli/standalone_scan.go\ninternal/cli/validate.go\ninternal/cli/vhost.go'
 actual_engine_files="$(grep -RIl --include='*.go' 'httpengine.NewEngine' internal/cli | grep -v '_test.go' | sort || true)"
 if [[ "$actual_engine_files" != "$expected_engine_files" ]]; then
   echo 'unaudited CLI R3 engine construction set changed; update T6 inventory and enforcement deliberately' >&2

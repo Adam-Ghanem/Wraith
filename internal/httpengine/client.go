@@ -15,5 +15,13 @@ type TCPClient interface {
 	ProbeTCP(context.Context, TCPRequest) (TCPResponse, error)
 }
 
+// TCPBannerClient extends the R3 TCP boundary with a bounded application-layer
+// probe used by native service/version fingerprinting. Callers never receive a
+// socket and may only exchange a small, explicitly bounded payload/banner.
+type TCPBannerClient interface {
+	ProbeTCPBanner(context.Context, TCPBannerRequest) (TCPBannerResponse, error)
+}
+
 var _ Client = (*Engine)(nil)
 var _ TCPClient = (*Engine)(nil)
+var _ TCPBannerClient = (*Engine)(nil)

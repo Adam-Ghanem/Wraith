@@ -1,17 +1,16 @@
 package serviceprobe
 
 import (
-	"bufio"
 	"context"
-	"crypto/tls"
 	"errors"
 	"fmt"
-	"io"
-	"net"
+	"net/netip"
 	"regexp"
-	"strconv"
 	"strings"
 	"time"
+
+	"github.com/Adam-Ghanem/Wraith/internal/httpengine"
+	"github.com/Adam-Ghanem/Wraith/internal/policy"
 )
 
 const MaxBannerBytes = 4096
@@ -24,45 +23,47 @@ type Result struct {
 }
 
 type Detector struct {
-	Timeout time.Duration
+	Client    httpengine.TCPBannerClient
+	ProjectID string
+	Timeout   time.Duration
 }
 
 func (d Detector) Detect(ctx context.Context, host string, port uint16) Result {
 	result := Result{Service: ServiceName(port)}
-	if ctx == nil || strings.TrimSpace(host) == "" || port == 0 {
+	if ctx == nil || d.Client == nil || strings.TrimSpace(host) == "" || port == 0 {
 		return result
 	}
 	timeout := d.Timeout
 	if timeout <= 0 || timeout > 10*time.Second {
 		timeout = 2 * time.Second
 	}
-	probeCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-
-	address := net.JoinHostPort(host, strconv.Itoa(int(port)))
-	dialer := &net.Dialer{Timeout: timeout}
-	var conn net.Conn
-	var err error
-	if isTLSPort(port) {
-		serverName := host
-		if net.ParseIP(host) != nil {
-			serverName = ""
-		}
-		conn, err = tls.DialWithDialer(dialer, "tcp", address, &tls.Config{ServerName: serverName, InsecureSkipVerify: true, MinVersion: tls.VersionTLS10}) // #nosec G402 -- fingerprinting intentionally accepts unknown certificates.
-		if err == nil {
-			result.TLS = true
-		}
-	} else {
-		conn, err = dialer.DialContext(probeCtx, "tcp", address)
+	projectID := strings.TrimSpace(d.ProjectID)
+	if projectID == "" {
+		projectID = "standalone"
 	}
+	target := policy.Target{Port: port}
+	serverName := ""
+	if address, err := netip.ParseAddr(host); err == nil {
+		target.IP = address.Unmap()
+	} else {
+		target.Hostname = host
+		serverName = host
+	}
+
+	response, err := d.Client.ProbeTCPBanner(ctx, httpengine.TCPBannerRequest{
+		ProjectID:  projectID,
+		Target:     target,
+		Timeout:    timeout,
+		Payload:    probePayload(host, port),
+		MaxBytes:   MaxBannerBytes,
+		TLS:        isTLSPort(port),
+		ServerName: serverName,
+	})
 	if err != nil {
 		return result
 	}
-	defer func() { _ = conn.Close() }()
-	_ = conn.SetDeadline(time.Now().Add(timeout))
-
-	banner := probeBanner(conn, host, port)
-	result.Banner = sanitizeBanner(banner)
+	result.TLS = response.TLS
+	result.Banner = sanitizeBanner(string(response.Banner))
 	service, version := Identify(port, result.Banner)
 	if service != "" {
 		result.Service = service
@@ -71,22 +72,15 @@ func (d Detector) Detect(ctx context.Context, host string, port uint16) Result {
 	return result
 }
 
-func probeBanner(conn net.Conn, host string, port uint16) string {
+func probePayload(host string, port uint16) []byte {
 	switch port {
 	case 80, 443, 8000, 8008, 8080, 8081, 8443, 8888:
-		_, _ = io.WriteString(conn, "HEAD / HTTP/1.0\r\nHost: "+host+"\r\nUser-Agent: Wraith/scan\r\nConnection: close\r\n\r\n")
+		return []byte("HEAD / HTTP/1.0\r\nHost: " + host + "\r\nUser-Agent: Wraith/scan\r\nConnection: close\r\n\r\n")
 	case 6379:
-		_, _ = io.WriteString(conn, "PING\r\n")
-	case 25, 465, 587:
-		// SMTP servers normally greet first; no command is needed for detection.
-	case 21, 22, 23, 110, 143, 993, 995, 3306:
-		// These protocols normally provide an initial greeting/banner.
+		return []byte("PING\r\n")
 	default:
-		// Generic detection is read-only to avoid changing remote state.
+		return nil
 	}
-	reader := bufio.NewReader(io.LimitReader(conn, MaxBannerBytes))
-	data, _ := io.ReadAll(reader)
-	return string(data)
 }
 
 func isTLSPort(port uint16) bool {
