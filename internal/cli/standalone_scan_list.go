@@ -55,11 +55,10 @@ func RunStandaloneScanList(ctx context.Context, args []string, stdout, stderr io
 			if err := RunStandaloneScan(ctx, callArgs, &buffer, stderr); err != nil {
 				return err
 			}
-			var value any
-			if err := json.Unmarshal(buffer.Bytes(), &value); err != nil {
-				return fmt.Errorf("decode standalone scan result for %s: %w", target, err)
+			values, err = appendStandaloneJSONResults(values, buffer.Bytes(), target)
+			if err != nil {
+				return err
 			}
-			values = append(values, value)
 		}
 		encoder := json.NewEncoder(stdout)
 		encoder.SetEscapeHTML(false)
@@ -81,6 +80,17 @@ func RunStandaloneScanList(ctx context.Context, args []string, stdout, stderr io
 		}
 	}
 	return nil
+}
+
+func appendStandaloneJSONResults(values []any, data []byte, target string) ([]any, error) {
+	var value any
+	if err := json.Unmarshal(data, &value); err != nil {
+		return nil, fmt.Errorf("decode standalone scan result for %s: %w", target, err)
+	}
+	if list, ok := value.([]any); ok {
+		return append(values, list...), nil
+	}
+	return append(values, value), nil
 }
 
 func hasStandaloneInputList(args []string) bool {
