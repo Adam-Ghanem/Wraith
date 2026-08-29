@@ -326,6 +326,12 @@ func discoverStandaloneTargets(ctx context.Context, transport httpengine.TCPClie
 		}
 	}
 
+	if icmp6Transport, ok := transport.(httpengine.ICMP6Client); ok {
+		if err := discoverStandaloneICMP6(ctx, icmp6Transport, addresses, liveSet, discoveryTimeout); err != nil {
+			return nil, err
+		}
+	}
+
 	tcpAddresses := make([]netip.Addr, 0, len(addresses))
 	for _, address := range addresses {
 		if _, live := liveSet[tcpTargetForAddress(address)]; !live {
@@ -519,20 +525,21 @@ func enrichOSFingerprints(ctx context.Context, transport httpengine.SYNClient, r
 			continue
 		}
 		port := selectOSProbePort(results[resultIndex])
-		observations, probeErr := transport.ScanSYN(ctx, httpengine.SYNScanRequest{
-			ProjectID: "standalone",
-			Target:    policy.Target{IP: parsed.IP, Hostname: parsed.Hostname},
-			Ports:     []uint16{port},
-			Timeout:   boundedOSProbeTimeout(timeout),
-		})
+		observations, probeErr := scanStandaloneOSProbe(
+			ctx,
+			transport,
+			policy.Target{IP: parsed.IP, Hostname: parsed.Hostname},
+			port,
+			boundedOSProbeTimeout(timeout),
+		)
 		if errors.Is(probeErr, httpengine.ErrSYNPermission) {
 			fingerprint := scan.OSFingerprintUnavailable("raw privileges required (CAP_NET_RAW/root)")
 			results[resultIndex].OS = &fingerprint
 			rawUnavailable = true
 			continue
 		}
-		if errors.Is(probeErr, httpengine.ErrSYNUnsupported) {
-			fingerprint := scan.OSFingerprintUnavailable("raw SYN OS fingerprinting currently requires IPv4")
+		if errors.Is(probeErr, httpengine.ErrSYNUnsupported) || errors.Is(probeErr, httpengine.ErrSYN6Unsupported) {
+			fingerprint := scan.OSFingerprintUnavailable("raw SYN OS fingerprinting unavailable for resolved address family")
 			results[resultIndex].OS = &fingerprint
 			continue
 		}
