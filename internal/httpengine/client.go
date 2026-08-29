@@ -28,11 +28,17 @@ type UDPClient interface {
 	ProbeUDP(context.Context, UDPRequest) (UDPResponse, error)
 }
 
-// SYNClient owns privileged raw TCP SYN scanning. The batch contract keeps one
-// raw socket per target and returns only classified observations/fingerprint
-// metadata; callers never receive packet sockets or raw packets.
+// SYNClient owns privileged raw IPv4 TCP SYN scanning. The batch contract
+// keeps one raw socket per target and returns only classified observations and
+// fingerprint metadata; callers never receive packet sockets or raw packets.
 type SYNClient interface {
 	ScanSYN(context.Context, SYNScanRequest) ([]SYNResponse, error)
+}
+
+// SYN6Client is the IPv6 counterpart to SYNClient. It is deliberately a
+// separate optional interface so existing IPv4-only adapters remain valid.
+type SYN6Client interface {
+	ScanSYN6(context.Context, SYNScanRequest) ([]SYNResponse, error)
 }
 
 // ICMPClient owns privileged, bounded Echo discovery. Callers receive only
@@ -46,4 +52,5 @@ var _ TCPClient = (*Engine)(nil)
 var _ TCPBannerClient = (*Engine)(nil)
 var _ UDPClient = (*Engine)(nil)
 var _ SYNClient = (*Engine)(nil)
+var _ SYN6Client = (*Engine)(nil)
 var _ ICMPClient = (*Engine)(nil)
