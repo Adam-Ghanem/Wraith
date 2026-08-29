@@ -14,13 +14,10 @@ import (
 	"github.com/Adam-Ghanem/Wraith/internal/scan"
 )
 
-// RunStandaloneScanCommand dispatches the native scanner and adds Nmap-style
-// input-list support without complicating the single-target parser.
+// RunStandaloneScanCommand dispatches the native scanner and composes local
+// target-list and output-file compatibility without complicating scan parsing.
 func RunStandaloneScanCommand(ctx context.Context, args []string, stdout, stderr io.Writer) error {
-	if hasStandaloneInputList(args) {
-		return RunStandaloneScanList(ctx, args, stdout, stderr)
-	}
-	return RunStandaloneScan(ctx, args, stdout, stderr)
+	return runStandaloneScanWithOutputs(ctx, args, stdout, stderr)
 }
 
 // RunStandaloneScanList reads a bounded local target list and reuses the
