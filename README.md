@@ -4,71 +4,52 @@
   <img src="docs/assets/wraith-logo.png" alt="Wraith raven-feather logo" width="320">
 </p>
 
+<p align="center">
+  <strong>Safety-first attack-surface discovery & evidence review in Go.</strong><br>
+  Bounded collection · Explicit authorization · Local evidence · Fail-closed behavior
+</p>
+
 [![CI](https://github.com/Adam-Ghanem/Wraith/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Adam-Ghanem/Wraith/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-**Wraith is a phased, safety-first Go toolkit for authorized attack-surface discovery and evidence review.** It favors bounded collection, provenance, and explicit non-guarantees over broad, unverifiable scanning.
+Wraith is a phased Go toolkit for **authorized** local-network discovery, web reconnaissance, evidence collection, reporting, regression review, and security governance. It is designed to make scope, limits, provenance, and exclusions explicit rather than pretending that scanner output is a security verdict.
 
-Most reconnaissance tools optimize for reach. Wraith is intentionally narrow: each phase makes its target boundary, authorization gate, limits, evidence model, and exclusions visible. The result is an inspectable local-network and web-reconnaissance workflow—not an exploitation framework or a claim that observed output is a security verdict.
+> **Authorization:** `--authorized` is an operator self-attestation, not technical verification. Only scan systems you own or are explicitly authorized to test.
 
 ## Product preview
 
 ![Wraith Evidence workspace product showcase](docs/assets/wraith-evidence-showcase.png)
 
-> The framed workspace is a real render of the bundled, sanitized Phase 5 fixtures. The surrounding grid and product frame are presentation only; they do not imply a live service, risk calculation, or validated security finding.
+## Evidence dashboard
 
-> **Legal Notice — `--authorized` is a self-attestation only.** This flag is a checkbox supplied by the operator, not technical verification. Wraith does not verify domain ownership, WHOIS records, or authorization in any way. You are 100% legally responsible for confirming real authorization—through ownership, written permission, or an in-scope bug bounty program—before running any scan against a target. Misuse against unauthorized targets may be illegal in your jurisdiction.
+![Wraith Evidence Ledger rendering the bundled fixture-backed snapshot evidence](docs/assets/wraith-dashboard-sample.webp)
 
-## Table of contents
+The dashboard is a static, read-only viewer backed by sanitized local fixtures. It does not perform scanning or make network requests.
 
-- [At a glance](#at-a-glance)
-- [Product preview](#product-preview)
-- [Quick start: inspect real sample output without scanning](#quick-start-inspect-real-sample-output-without-scanning)
-- [Visual proof: Phase 5 fixture dashboard](#visual-proof-phase-5-fixture-dashboard)
-- [Phase details](#phase-details)
-- [Build and test](#build-and-test)
-- [Safe testing](#safe-testing)
-- [Project documents](#project-documents)
+## What Wraith covers
 
-## At a glance
+| Area | Highlights |
+|---|---|
+| **Discovery** | Linux-first local IPv4 discovery, bounded ARP candidates, curated TCP checks, service metadata |
+| **Web recon** | Authorized domain discovery, HTTP probing, content discovery, JavaScript analysis, persistence and diffs |
+| **Enrichment** | Optional Nmap/Nuclei wrappers with the same-scan target boundary |
+| **Evidence** | Local SQLite evidence, redaction, provenance, correlation, snapshots and regression comparison |
+| **Assessment** | Bounded parameter testing, passive checks, controlled reproduction and deterministic findings |
+| **Campaigns** | Project-scoped campaign planning, checkpoints, reports and safe resume |
+| **Governance** | Data classification, protection profiles, policies, recommendations and audit history |
+| **Release** | CI validation, reproducible metadata, checksums, dependency review and release inspection |
 
-| Phase | Status | What it provides | Important boundary |
-| --- | --- | --- | --- |
-| 1 | Implemented | Linux-first local IPv4 discovery, bounded ARP candidates, curated TCP connect checks, and read-only metadata | Explicit interface/CIDR only; local-network scope; no public-target discovery |
-| 2–3 + R3 transport | Implemented on feature branch | Authorized domain reconnaissance, bounded probing, persistence/diffs, content discovery, JavaScript analysis, and project-scoped HTTP transport | Every target-web `scan` requires `--authorized --project`; R1 authorizes every migrated HTTP target/resolved address and potential secrets remain redacted |
-| 4 | Implemented | Optional Nmap and Nuclei enrichment wrappers | Opt-in only; same-scan targets only; no arbitrary target injection, exploitation, fuzzing, or DAST modes |
-| 5 | Implemented | Static, read-only evidence dashboard backed by local JSON fixtures | No backend, live database connection, network polling, authentication, or write actions |
-| 6 | Implemented | Blocking CI, reproducible build metadata, checksums, dependency review, MIT licensing, disclosure, threat model, and support guidance | Release artifacts are checksummed, **not signed** |
-| R7 | Implemented on feature branch | Explicit bounded parameter/request fuzzing with R1/R3-only execution and redacted response evidence | Safe-method default; explicit target/parameter selection; no findings, credentials, or exploitation |
-| R7.5 | Implemented on feature branch | Bounded local-wordlist path and virtual-host discovery with soft-404 filtering | Explicit project-local base evidence, `--authorized`, R1/R3-only requests, hard budgets, redacted observations; no crawler expansion or validation |
-| R8 | In progress on feature branch | Evidence-led passive checks for security headers, CORS, cookies, error disclosure, and information disclosure | Explicit project endpoint, one bounded R1/R3 request, redacted validation observations; no payloads, credential testing, or exploitation |
-| R9 | Implemented on feature branch | Local asset graph, evidence-only correlation, explainable confidence, and snapshot change detection | Project-scoped SQLite structures and `wraith intelligence`; no network I/O, remote advisory feed, graph service, severity invention, or exploit claims |
-| R10 | Implemented on feature branch | Project identities, bounded auth-test, and differential comparison | Explicit dual gate, local bounded sources, R1/R3-only live requests, secret-free persistence, and protection stops |
-| R10.5 | Implemented on feature branch | `wraith pentest` plans and coordinates existing approved modules, project-scoped run history, safe resume, and local reports | Reuses existing R1/R3-controlled paths only; one global budget/rate/concurrency limit; `auth_attack` requires `--attack-auth` and is not replayed during resume |
-| R11.1 | Implemented on feature branch | Deterministic, project-scoped request-variant planning for existing R2 endpoint and parameter identities | No network execution, R1/R3 bypass, secret/header persistence, findings, or validation; R11.2 and later are unstarted |
-| R11.2 | Implemented on feature branch | Project-scoped candidate discovery from R5/R2 inventory, local R6 references, and explicit safe wordlists | Passive/dry-run discovery is no-network; optional `--verify` uses only non-destructive R3 `HEAD` calls under R10.5 budget/rate/concurrency controls and stores redacted R2 response metadata |
-| R11.3 | Implemented on feature branch | Bounded, evidence-driven injection test planning and explicit R3-only execution seam | Immutable safe canaries, GET/HEAD only, R10.5 budget/rate/concurrency controls, redacted R2 signals, R8 validation handoff, no direct findings, and no CLI active execution |
-| R11.4 | Implemented on feature branch | Project-scoped controlled reproduction of R11.3 signals into R8-backed evidence and R9-ready finding candidates | Required R1 recheck before every injected-R3 request; GET/HEAD only; R10.5 controls; `429` and generic infrastructure instability are inconclusive; payloads remain memory-only; no final finding, scheduler, or CLI active execution |
-| R11.5 | Implemented on feature branch | Deterministic project-scoped security findings and risk intelligence over validated R11.4/R9 inputs | No network or scanner capability; fixed explainable `r11.5-v1` scoring, local SQLite lifecycle/history/suppression records, secret-free `findings`/`risk` output, and no R11.6/R12 work |
-| R11.6 | Implemented on feature branch | Deterministic project-scoped attack-surface graph and local campaign intelligence over existing evidence and R11.5 risk | No scanner or active testing; SQLite graph snapshots, known-surface coverage/gaps, local `surface` and campaign dry-run output, R10.5 phase registration only, and no R12 work |
-| R12 | Implemented on feature branch | Integration smoke tests, production validation, CI regression protection, and release-operational documentation for R1–R11.6 | No scanner, attack engine, deployment, external service, or security-semantic change; local temporary SQLite smoke coverage only and no R13 work |
-| R13 | Implemented on feature branch | Fail-closed active-assessment scope/task planning and injected R10.5 execution seam over existing R1–R12 components | No direct network client, auto-wired live scanner, local finding creation, secret persistence, or R14 work |
-| R13.1 | Implemented on feature branch | Single-owner execution adapter registry with a secret-free task context and result identity validation | No new transport, DNS, socket, subprocess, credential storage, scanner, or owner implementation |
-| R13.2 | Implemented on feature branch | Deterministic, timeout/cancellation-aware assessment execution, R1 rechecks, R10.5 controls, explicit run/dry-run CLI, and R10.5 lifecycle persistence reuse | No auto-wired live owner capability; placeholders fail closed, dry-run invokes no adapter or lifecycle write, and no R14 work is started |
-| R14 | Implemented on feature branch | Project-scoped bounded campaign state, immutable R11.6 surface references, deterministic checkpoints, explicit create/status/run CLI, and R13.2 handoff through R10.5 lifecycle runs | No background scheduler, transport, scanner, direct adapter dispatch, automatic authorization expansion, or configured live owner adapter; dry-run remains zero-execution and unconfigured owners produce partial fail-closed checkpoints |
-| R15 | Implemented on feature branch | Built-in R13.1 owners delegate bounded R4 crawling, passive R5 endpoint inventory, and R11.2 Smart Discovery verification through R13.2/R14 | No new transport, resolver, scanner, or persistence model; R3 carries every request, owners consume the supplied R10.5 controls, and all unconfigured task owners return typed `ADAPTER_UNAVAILABLE` failures |
-| R16 | Implemented on feature branch | Deterministic local campaign reporting through `wraith report`, with project-scoped R11.5 findings, recorded campaign-task coverage, stable content fingerprints, and terminal/JSON/Markdown/self-contained HTML output | Read-only SQLite assembly only; no network I/O, lifecycle/data mutation, risk rescoring, finding creation, snapshot-membership reconstruction, or claim that incomplete work is covered |
-| R17 | Implemented on feature branch | Deterministic project-scoped correlation of existing R2 observations, R11.5 findings, and R14 outcomes through `wraith evidence verify|correlate`, with optional idempotent snapshots and R16 report presentation | R1-gated and no new scanner, transport, scheduler, or lifecycle mutation; missing lineage remains explicit, cross-project/timeline contradictions fail closed, and R11.5 finding/risk state is never changed |
-| R18 | Implemented on feature branch | Deterministic, project-scoped comparison of immutable assessment snapshots through `wraith regression snapshot|compare|check`, plus R16 security-regression reporting | Offline SQLite reads and explicit idempotent persistence only; no scanner, transport, DNS, socket, subprocess, R11.5 lifecycle/risk mutation, R17 snapshot mutation, or automatic scheduling; cross-project inputs and secret-bearing identifiers fail closed, and unknown coverage remains non-comparable |
-| R19 | Implemented on feature branch | Deterministic local continuous-assessment policy control through `wraith assess policy|baseline|evaluate|check|actions`, with R16 technical and executive report projection | Strict bounded JSON policy input, immutable project-scoped R18 baseline/comparison references, explicit idempotent local persistence, and non-executing recommendations only; no new transport, resolver, socket, subprocess, scheduler, scanner, credential store, R11.5/R14/R17/R18 mutation, or autonomous assessment; malformed/cross-project/secret-like inputs fail closed |
-| R20 | Implemented on feature branch | Deterministic local operations and governance through `wraith govern status|recommendations|acknowledge|accept|defer|reject|complete|history|check`, with R16 governance reporting | References and governs existing R19 recommendations only; expected-state transitions and immutable audit events are project-scoped, transactional, idempotent, and secret-screened. No task dispatch, remediation, new egress, authorization bypass, scheduler, worker, credential store, R11.5/R14/R17/R18/R19 mutation, or claim that a decision proves remediation; absent data is explicit `unknown` and strict CI fails closed. |
-| T7 | Implemented on feature branch | Central local data classification, redaction, immutable consumer policy, retention evaluation, governance audit, and `wraith governance` controls | T7 is fail-closed and project-scoped; it reuses T1 records for policy mutation, does not create a transport, egress path, scheduler, worker, credential store, or encrypted-at-rest SQLite database, and leaves legacy coverage explicit. |
-| T8 | Implemented on feature branch | Central classification-aware protection profiles, deterministic redaction, immutable protected snapshots, and `wraith data` protection controls | T8 consumes T7 classification/governance and T1 authorization; it adds no egress, transport, scheduler, credential store, or private-key handling. |
-| T9 | In progress on feature branch | Offline release manifest, provenance, Ed25519 signer, local artifact verification, and `wraith release` inspection controls | T9 does not publish releases, retrieve remote keys, perform network/DNS/subprocess work, manage private signing keys, or claim encrypted-at-rest/key-rotation coverage. |
+### Current roadmap
 
-## Quick start: inspect real sample output without scanning
+**R1–R20** and **T7–T9** are implemented or actively developed on the feature branch, with later phases focused on deterministic evidence, assessment orchestration, reporting, regression, governance, and release integrity.
 
-Wraith does not offer a zero-configuration scanner demo: Phase 1 needs a real selected local interface/CIDR, and web reconnaissance requires a domain that you own or are explicitly authorized to test. The safe no-target route is the Phase 5 dashboard, which reads the repository’s bundled sanitized fixtures and makes **no network request for scanning**.
+Wraith deliberately does **not** claim to be an exploitation framework, autonomous attack system, or definitive vulnerability oracle.
+
+## Quick start
+
+### Safe dashboard demo
+
+No target or scan is required:
 
 ```bash
 git clone https://github.com/Adam-Ghanem/Wraith.git
@@ -77,26 +58,9 @@ pnpm install --frozen-lockfile
 pnpm dev
 ```
 
-Open the local URL printed by Vite. The dashboard renders `web/public/fixtures/scan.json` and `web/public/fixtures/history.json`; it is a read-only evidence viewer, not a security assessment. The supported local-development versions are documented in the [support matrix](docs/support-matrix.md).
+Open the local Vite URL to inspect the bundled Phase 5 fixtures.
 
-## Visual proof: Phase 5 fixture dashboard
-
-The product preview above presents the actual dashboard inside a static showcase frame. The direct render below is captured from the local Phase 5 application using its bundled sanitized fixtures. It shows the white, provenance-aware workspace with its recorded source failure and redacted potential-secret display.
-
-![Wraith Evidence Ledger rendering the bundled fixture-backed snapshot evidence](docs/assets/wraith-dashboard-sample.webp)
-
-The screenshot demonstrates the interface only. Its rows are sample observations, and missing entries mean only that none were observed in that fixture.
-
-## Phase details
-
-<details>
-<summary><strong>Phase 1 — Linux-first local-network discovery</strong></summary>
-
-Phase 1 is a standalone CLI for authorized local IPv4 inventory. It remains intentionally local-only; it is not an internet scanner, vulnerability scanner, exploitation framework, or web-reconnaissance platform.
-
-The implementation provides explicit local IPv4 interface and CIDR selection; explicit operator confirmation that targets are owned or authorized; bounded ARP candidate discovery on the selected local CIDR; TCP connect checks against the versioned curated top-100 TCP port list; bounded, read-only service metadata capture; JSON and terminal output; and fail-closed validation for scope, authorization, limits, and port-list changes.
-
-The Linux ARP adapter may require raw or packet-socket privileges. If packet access is denied, Wraith returns an operator-readable error identifying a possible `CAP_NET_RAW`/`CAP_NET_ADMIN` or controlled elevated-execution requirement; it does not silently fall back to another scanner. Prefer the least-privilege capability or controlled elevated execution required by the host configuration.
+### Local-network discovery
 
 ```bash
 ./bin/wraith discover \
@@ -106,164 +70,93 @@ The Linux ARP adapter may require raw or packet-socket privileges. If packet acc
   --format terminal
 ```
 
-For JSON output, use `--format json` or the compatible `--json` alias. Use `-v` for structured diagnostic messages on stderr. If the selected CIDR contains more than 256 candidate hosts, Wraith requires `--confirm-large-subnet`; the candidate count remains bounded by `--arp-max-targets`.
-
-</details>
-
-<details>
-<summary><strong>Phase 2–3 — authorized web reconnaissance, content discovery, and JavaScript analysis</strong></summary>
-
-Phase 2 and Phase 3 provide a bounded workflow for domains that the operator owns or is explicitly authorized to test. Every `scan` requires `--authorized --project PROJECT` and an active R1 scope in the selected SQLite database; `history` remains a local read-only command with `--authorized`. Wraith does not technically verify ownership or permission. Migrated target-web activity is bounded by timeout, concurrency, rate, response-size, redirect, retry, TLS, destination, and persistence controls.
-
-| Capability | Boundary |
-| --- | --- |
-| Subdomain enumeration | crt.sh passive certificate discovery, optional VirusTotal enrichment when `VT_API_KEY` is configured, and bounded DNS enumeration. |
-| HTTP/HTTPS probing | Bounded requests with same-host redirect limits, response-size caps, technology guesses, and read-only metadata. |
-| Content discovery | A curated path list with a random soft-404 baseline; findings are limited to meaningful 200, 301, 302, and baseline-different 403 observations. |
-| JavaScript analysis | Same-host script extraction and bounded file analysis for API-like endpoints and redacted potential-secret pattern matches. |
-| Storage and diffing | Versioned SQLite migrations, transactional scan persistence, and pure NEW/REMOVED/CHANGED history diffs. |
-| Explicit exclusions | No subdomain port scanning, cross-finding vulnerability correlation, REST API, PDF/CSV export, scheduling, or multi-tenancy. |
-
-Run an authorized scan and retain it locally:
+### Authorized web scan
 
 ```bash
-./bin/wraith scan -d example.com --project project-a --authorized --db wraith.db
-./bin/wraith scan -d example.com --project project-a --authorized --json --db wraith.db > scan.json
-./bin/wraith history -d example.com --authorized --db wraith.db
-```
-
-The default database is `wraith.db` in the current directory. VirusTotal is optional and is used only when `VT_API_KEY` is present; if absent, Wraith logs that the source was skipped and continues with crt.sh and bounded DNS enumeration. A source failure does not abort the complete scan.
-
-Content discovery and JavaScript analysis run by default after Phase 2 HTTP probing. Disable them independently with `--skip-content-discovery` or `--skip-js-analysis`.
-
-```bash
-./bin/wraith scan -d example.com --project project-a --authorized --db wraith.db --skip-content-discovery
-./bin/wraith scan -d example.com --project project-a --authorized --db wraith.db --skip-js-analysis
-```
-
-Potential-secret findings are pattern matches only. They are always labeled `potential`, shown in redacted form, and never validated, used, or exfiltrated. A finding may be a false positive; handle any suspected credential through an authorized incident-response process without giving Wraith the value.
-
-</details>
-
-<details>
-<summary><strong>R7.5 — bounded content and virtual-host discovery</strong></summary>
-
-`wraith content` and `wraith vhost` are separate, explicitly authorized wordlist-driven workflows. They require an R2-observed base URL in the selected project and a local wordlist; they never download lists or create an alternate HTTP/DNS/socket path. A path run performs a bounded soft-404 baseline and candidate checks. A virtual-host run keeps the transport base URL fixed while applying a validated Host override; each candidate hostname receives an R1 authorization decision before resolution or connection.
-
-Use `--dry-run` to validate the plan first. `content --depth` defaults to `0` and is capped at `2`; it derives only wordlist-based children below meaningful HTML paths and never follows links, robots, or sitemaps. See [`docs/content-discovery.md`](docs/content-discovery.md) for exact commands and exclusions.
-
-</details>
-
-<details>
-<summary><strong>R8 — evidence-led passive validation</strong></summary>
-
-`wraith validate` selects one existing endpoint from the named project and, unless `--dry-run` is supplied, refreshes it once through the same R1/R3 transport used by the other target-web modules. The current validator set only examines bounded response evidence for missing HSTS, unsafe wildcard-credential CORS metadata, missing cookie attributes, bounded stack/error indicators, and versioned server banners. It writes redacted validation observations, not exploit claims. See [`docs/r8-security-validation-spec.md`](docs/r8-security-validation-spec.md) for the exact contract and exclusions.
-
-</details>
-
-<details>
-<summary><strong>Phase 4 — optional Nmap and Nuclei enrichment</strong></summary>
-
-Phase 4 adds two opt-in enrichment wrappers for an authorized `wraith scan`. Both flags are off by default and require the existing `--authorized --project` scan gate. Wraith passes only targets discovered and probed during the same scan; it does not accept arbitrary Nmap or Nuclei target injection.
-
-```bash
-./bin/wraith scan -d example.com --project project-a --authorized --use-nmap --db wraith.db
-./bin/wraith scan -d example.com --project project-a --authorized --use-nuclei --json --db wraith.db > scan-with-vulns.json
-./bin/wraith scan -d example.com --project project-a --authorized --use-nmap --use-nuclei --db wraith.db
-```
-
-When installed, Nmap uses the conservative TCP-connect profile `-sT -n -Pn -T3 --top-ports 1000 --max-retries 2 --open -oX -`. Wraith deliberately does not enable `-A`, OS detection, service-version detection, NSE scripts, UDP scanning, or aggressive timing. Each discovered IP target has a five-minute context timeout, and XML output is parsed with a bounded output limit.
-
-When installed, Nuclei runs only against live HTTP(S) hosts selected by Wraith’s same-scan web probing. The wrapper selects the `cves,exposures,misconfiguration` template tags, applies a five-request-per-second built-in rate limit, emits JSONL without raw request/response bodies, disables redirects and interactsh, and blocks local/private network access. Fuzzing, DAST, code, headless, AI, and other intrusive modes are not enabled. Each scan has a ten-minute context timeout.
-
-Nmap and Nuclei are optional external dependencies. If either binary is absent, the corresponding enrichment is skipped with a diagnostic message and the scan continues. Port findings record their observed source and read-only service evidence. Nuclei findings preserve template-reported severity and include the template ID, matched URL, and description. Wraith reports these observations only; it never validates, exploits, follows up on, or invents severity for a vulnerability finding.
-
-</details>
-
-<details>
-<summary><strong>Phase 5 — static fixture dashboard</strong></summary>
-
-Phase 5 adds a local, read-only React dashboard under [`web/`](web/). It reads static `scan.json` and `history.json` fixtures only; it does not use a backend server, REST API, live SQLite connection, network polling, authentication, sessions, or write actions. The dashboard preserves original evidence state: per-row scan ID and observation time, source failures, explicit “none observed” text for empty finding types, and distinct `NEW`, `REMOVED`, and `CHANGED` history groups. It does not calculate risk scores, aggregate severity, or render scanner-derived values as HTML.
-
-Generate your own fixtures from the existing authorized scan and history paths:
-
-```bash
-./bin/wraith export-fixtures \
+./bin/wraith scan \
   -d example.com \
-  --db wraith.db \
-  --out web/public/fixtures \
-  --authorized
+  --project project-a \
+  --authorized \
+  --db wraith.db
 ```
 
-The export writes `scan.json` first. If fewer than two completed scans exist, it leaves `scan.json` in place, does not retain `history.json`, prints an explanatory note to stderr, and returns the existing history error. The repository includes sanitized sample fixtures for local interface testing. Replace them only through the authorized export command or with your own appropriately redacted fixture copies.
+Use `--json` for machine-readable output and `history` for local scan diffs.
 
-</details>
+## Safety model
 
-<details>
-<summary><strong>Phase 6 — hardening, CI, and packaging</strong></summary>
+Every active web operation is constrained by project scope and bounded transport controls. Wraith favors:
 
-The repository runs a blocking [CI workflow](.github/workflows/ci.yml) on pull requests to `main` and pushes to `main`. The Go job verifies module checksums and formatting, runs `go vet`, unit tests, race-detector tests, `golangci-lint`, and `go build`. The web job installs the locked dependency graph, checks TypeScript, runs frontend tests, builds the static dashboard, audits production dependencies, and verifies dependency-review coverage.
+- explicit authorization and target scope
+- bounded rate, concurrency, timeout and response size
+- read-only defaults where possible
+- redacted secrets and secret-free persistence
+- local evidence and provenance
+- deterministic output and reproducible checks
+- fail-closed behavior when scope or evidence is ambiguous
 
-Build release artifacts with `make release`; the target uses `-trimpath` and embeds version, commit, and date build metadata. Run `make sha256sums` to generate `SHA256SUMS` for release artifacts. Artifacts are checksummed, **not signed**; the release process does not claim signing or provenance attestation. See the [release process](docs/release-process.md) for exact commands and publication limitations.
+## Architecture
 
-The [dependency and license review](docs/dependency-review.md) covers the active Go and pnpm graphs and is checked in CI. Wraith is released under the [MIT License](LICENSE). Security issues have a [responsible-disclosure process](SECURITY.md), while the [threat model](docs/threat-model.md) and [support matrix](docs/support-matrix.md) describe the current trust boundaries, supported environment, capability requirements, and non-guarantees.
+```text
+                 ┌─────────────────────┐
+                 │      Wraith CLI     │
+                 └──────────┬──────────┘
+                            │
+        ┌───────────────────┼───────────────────┐
+        ▼                   ▼                   ▼
+   Discovery             Web Recon           Campaigns
+   R1 / local            R2–R5 / R3          R10.5 / R14+
+        │                   │                   │
+        └───────────────────┼───────────────────┘
+                            ▼
+                     Evidence / SQLite
+                            │
+              ┌─────────────┼─────────────┐
+              ▼             ▼             ▼
+           Findings      Reports      Governance
+           R11.5+        R16          R19–R20 / T7–T9
+```
 
-</details>
+The web application provides the read-only evidence workspace and consumes sanitized local fixtures for its demo mode.
 
-## Build and test
+## Project layout
+
+```text
+Wraith/
+├── cmd/              CLI entry points
+├── internal/          discovery, transport, evidence and phase logic
+├── web/               evidence dashboard
+├── docs/              architecture, support, threat model and phase docs
+├── docs/assets/       README and dashboard visuals
+├── bin/               built CLI artifacts
+└── tests/             integration and regression coverage
+```
+
+## Build & test
 
 ```bash
 go test ./...
-go build -o ./bin/wraith ./cmd/wraith
+go build ./...
 ```
 
-The repository is Linux-first. The ARP adapter uses the focused [`mdlayher/arp`](https://github.com/mdlayher/arp) package behind an internal interface. A typed Go adapter is preferred over shelling out to `arp-scan`: it avoids executable lookup and command parsing, keeps deadlines and scope checks inside the process, and makes permission failures explicit. The remaining scope and output logic stays separate from packet access so it can be tested without network traffic.
+For the dashboard:
 
-## Safe testing
+```bash
+cd web
+pnpm install --frozen-lockfile
+pnpm build
+```
 
-Use an isolated lab network, Linux network namespaces, disposable virtual machines, or devices that you own and are authorized to test. Begin with unit tests and interface inspection. Then verify ARP and TCP behavior against a small lab CIDR containing a known listener and a closed port. Confirm the selected interface and CIDR before each run, and stop if the result is incomplete or scope is ambiguous.
+CI is the source of truth for the complete validation matrix.
 
-Do not use random public hosts, shared networks, employer networks, bug-bounty targets, or `scanme.nmap.org` for Phase 1. Public test hosts cannot override the local-only Phase 1 policy.
+## Documentation
 
-## Project documents
+- [Support matrix](docs/support-matrix.md)
+- [Architecture / phase documentation](docs/)
+- [Threat model](docs/)
+- [Contributing](CONTRIBUTING.md)
+- [Security policy](SECURITY.md)
+- [Changelog](CHANGELOG.md)
 
-- [`docs/phase-1-scope.md`](docs/phase-1-scope.md) — frozen Phase 1 boundary and acceptance criteria.
-- [`docs/responsible-use.md`](docs/responsible-use.md) — ownership, authorization, prohibited use, and operator duties.
-- [`docs/project-plan.md`](docs/project-plan.md) — skill gaps, resources, AI-assistance guidance, Phase 1 build order, and future roadmap.
-- [`docs/phase-1-prompt-reconciliation.md`](docs/phase-1-prompt-reconciliation.md) — reconciliation of the attached build prompt with the frozen Phase 1 boundary.
-- [`docs/phase-2-implementation.md`](docs/phase-2-implementation.md) — Phase 2 architecture, migrations, limits, and authorized testing instructions.
-- [`docs/phase-2-premerge-review.md`](docs/phase-2-premerge-review.md) — Phase 2 pre-merge review findings, decisions, and verification notes.
-- [`docs/phase-3-implementation.md`](docs/phase-3-implementation.md) — Phase 3 content-discovery and JavaScript-analysis boundaries, limits, and testing notes.
-- [`docs/content-discovery.md`](docs/content-discovery.md) — R7.5 bounded local-wordlist path and virtual-host discovery commands, controls, and exclusions.
-- [`docs/r8-security-validation-spec.md`](docs/r8-security-validation-spec.md) — R8 passive validation contract, lifecycle vocabulary, R1/R3 boundary, and exclusions.
-- [`docs/r11/r11.3-injection.md`](docs/r11/r11.3-injection.md) — R11.3 bounded injection planner, R3-only active runner seam, redacted evidence signals, and R8/R9 handoff boundary.
-- [`docs/r11/r11.4-validation.md`](docs/r11/r11.4-validation.md) — R11.4 controlled reproduction, repeatability, R8 evidence, R9 handoff, and explicit exclusions.
-- [`docs/r11/r11.5-risk-intelligence.md`](docs/r11/r11.5-risk-intelligence.md) — R11.5 local deterministic findings, risk model, lifecycle, suppression, and output boundaries.
-- [`docs/r11/r11.6-attack-surface.md`](docs/r11/r11.6-attack-surface.md) — R11.6 deterministic graph, snapshots, coverage/gaps, and campaign dry-run boundary.
-- [`docs/r12/r12-integration-audit.md`](docs/r12/r12-integration-audit.md) — R12 verified integration audit and bounded smoke-test plan.
-- [`docs/r12/release-checklist.md`](docs/r12/release-checklist.md) — R12 release validation and operational safety checklist.
-- [`docs/r13/r13-active-assessment.md`](docs/r13/r13-active-assessment.md) — R13 scope snapshots, task dependencies, profiles, and injected execution boundary.
-- [`docs/r13/r13.1-execution-adapters.md`](docs/r13/r13.1-execution-adapters.md) — R13.1 single-owner adapter registry and secret-free task context contract.
-- [`docs/r13/r13.2-execution-engine.md`](docs/r13/r13.2-execution-engine.md) — R13.2 state machine, R1/R10.5 integration, CLI lifecycle, persistence, and explicit limitations.
-- [`docs/r13/r13.2-security-review.md`](docs/r13/r13.2-security-review.md) — R13.2 egress, authorization, secret-minimization, cancellation, and audit review.
-- [`docs/r14/r14-audit.md`](docs/r14/r14-audit.md) — R14 reuse, persistence, lifecycle, and security-boundary audit.
-- [`docs/r14/r14-campaign-orchestration.md`](docs/r14/r14-campaign-orchestration.md) — R14 campaign state, checkpoint, CLI, ownership, and limitations.
-- [`docs/r14/r14-security-review.md`](docs/r14/r14-security-review.md) — R14 project isolation, egress, dry-run, secret-minimization, and deferred-lifecycle review.
-- [`docs/r15/r15-audit.md`](docs/r15/r15-audit.md) — R15 owner-seam audit, R4/R5/R11.2 delegation boundary, security invariants, and acceptance criteria.
-- [`docs/r17/r17-architecture-audit.md`](docs/r17/r17-architecture-audit.md) — R17 owner-seam, persistence, deterministic-correlation, and security-boundary audit.
-- [`docs/r18/r18-architecture-audit.md`](docs/r18/r18-architecture-audit.md) — R18 immutable snapshot comparison, offline persistence, and regression-reporting boundary audit.
-- [`docs/r19/r19-architecture-audit.md`](docs/r19/r19-architecture-audit.md) — R19 local policy-control owner seams, persistence, CI semantics, reporting reuse, and explicit non-goals.
-- [`docs/r20/r20-audit.md`](docs/r20/r20-audit.md) — R20 owner-seam audit, transactional governance lifecycle, local CI/report boundary, and explicit non-goals.
-- [`docs/r20/r20-governance-contract.md`](docs/r20/r20-governance-contract.md) — R20 recommendation-treatment state machine, event/audit semantics, CLI contract, status meanings, and retained limitations.
-- [`docs/r20/r20-security-review.md`](docs/r20/r20-security-review.md) — R20 project isolation, fingerprint integrity, transaction rollback, egress, secret-screening, reporting, and CI review.
-- [`docs/t7/t7-master-prompt-reconciliation.md`](docs/t7/t7-master-prompt-reconciliation.md) — T7 central policy, retention, authority ownership, migration, and explicit coverage reconciliation.
-- [`docs/t7/t7-data-classification.md`](docs/t7/t7-data-classification.md) — T7 classification hierarchy, consumer policy, secret minimization, and egress representation boundary.
-- [`docs/t7/t7-retention.md`](docs/t7/t7-retention.md) — T7 deterministic retention states and dry-run-only purge boundary.
-- [`docs/t7/t7-audit.md`](docs/t7/t7-audit.md) — T7 append-only secret-free governance audit model and integrity protections.
-- [`docs/phase-2-3-real-target-verification.md`](docs/phase-2-3-real-target-verification.md) — redacted record of authorized Phase 2+3 live verification and its limitations.
-- [`docs/phase-5-implementation.md`](docs/phase-5-implementation.md) — static fixture dashboard, export command, hard exclusions, and Phase 5 testing limitations.
-- [`docs/dependency-review.md`](docs/dependency-review.md) — reviewed Go and pnpm dependency inventory, license evidence, exceptions, and CI update control.
-- [`docs/release-process.md`](docs/release-process.md) — reproducible build commands, checksum process, and unsigned-release limitations.
-- [`SECURITY.md`](SECURITY.md) — security issue scope, responsible-disclosure route, and handling expectations.
-- [`docs/threat-model.md`](docs/threat-model.md) — current trust boundaries, assets, assumptions, and mitigations.
-- [`docs/support-matrix.md`](docs/support-matrix.md) — supported platforms, prerequisites, privileges, and behavior when capabilities are missing.
+## License
+
+MIT — see [LICENSE](LICENSE).
