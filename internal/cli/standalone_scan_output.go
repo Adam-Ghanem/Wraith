@@ -24,8 +24,9 @@ type standaloneOutputOptions struct {
 }
 
 type standaloneOutputPayload struct {
-	Results []scan.Result
-	Hosts   []string
+	Results   []scan.Result
+	Hosts     []string
+	Discovery bool
 }
 
 func runStandaloneScanWithOutputs(ctx context.Context, args []string, stdout, stderr io.Writer) error {
@@ -168,6 +169,7 @@ func collectStandaloneOutputValue(payload *standaloneOutputPayload, value any) e
 		return nil
 	case map[string]any:
 		if hosts, ok := typed["hosts"].([]any); ok {
+			payload.Discovery = true
 			for _, rawHost := range hosts {
 				if host, ok := rawHost.(string); ok && strings.TrimSpace(host) != "" {
 					payload.Hosts = append(payload.Hosts, host)
@@ -193,7 +195,11 @@ func collectStandaloneOutputValue(payload *standaloneOutputPayload, value any) e
 
 func writeStandaloneNormalPayload(writer io.Writer, payload standaloneOutputPayload) error {
 	if len(payload.Results) == 0 {
-		return writeDiscoveredHosts(writer, payload.Hosts, false)
+		if payload.Discovery {
+			return writeDiscoveredHosts(writer, payload.Hosts, false)
+		}
+		_, err := fmt.Fprintln(writer, "No live hosts found. Use -Pn to skip host discovery.")
+		return err
 	}
 	for i, result := range payload.Results {
 		if i > 0 {
