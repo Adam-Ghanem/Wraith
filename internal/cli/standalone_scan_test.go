@@ -8,6 +8,7 @@ import (
 
 	"github.com/Adam-Ghanem/Wraith/internal/npd"
 	"github.com/Adam-Ghanem/Wraith/internal/policy"
+	"github.com/Adam-Ghanem/Wraith/internal/scan"
 )
 
 func TestStandaloneTargetAcceptsIPHostnameAndTCP(t *testing.T) {
@@ -24,6 +25,33 @@ func TestStandaloneTargetAcceptsIPHostnameAndTCP(t *testing.T) {
 		if got != want {
 			t.Fatalf("standaloneTarget(%q)=%q, want %q", input, got, want)
 		}
+	}
+}
+
+func TestStandaloneTargetsExpandsCIDR(t *testing.T) {
+	targets, err := standaloneTargets("192.0.2.0/30")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"tcp://192.0.2.0/",
+		"tcp://192.0.2.1/",
+		"tcp://192.0.2.2/",
+		"tcp://192.0.2.3/",
+	}
+	if len(targets) != len(want) {
+		t.Fatalf("targets=%d, want %d", len(targets), len(want))
+	}
+	for i := range want {
+		if targets[i] != want[i] {
+			t.Fatalf("target[%d]=%q, want %q", i, targets[i], want[i])
+		}
+	}
+}
+
+func TestStandaloneTargetsRejectsOversizedCIDR(t *testing.T) {
+	if _, err := standaloneTargets("10.0.0.0/8"); err == nil {
+		t.Fatalf("expected CIDR larger than %d targets to fail", scan.MaxTargets)
 	}
 }
 
