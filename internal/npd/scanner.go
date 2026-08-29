@@ -9,13 +9,15 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Adam-Ghanem/Wraith/internal/httpengine"
 	"github.com/Adam-Ghanem/Wraith/internal/policy"
 )
 
-const MaxPorts = 4096
+const MaxPorts = 65535
+const MaxConcurrency = 64
 
 var (
 	ErrInvalidSpec = errors.New("INVALID_PORT_SPEC")
@@ -49,6 +51,10 @@ type PortResult struct {
 	Port       uint16        `json:"port"`
 	Protocol   string        `json:"protocol"`
 	State      State         `json:"state"`
+	Service    string        `json:"service,omitempty"`
+	Version    string        `json:"version,omitempty"`
+	Banner     string        `json:"banner,omitempty"`
+	TLS        bool          `json:"tls,omitempty"`
 	Duration   time.Duration `json:"duration"`
 	ObservedAt time.Time     `json:"observed_at"`
 	Error      string        `json:"error,omitempty"`
@@ -61,6 +67,7 @@ type Scan struct {
 	Profile      Profile
 	Ports        []uint16
 	Timeout      time.Duration
+	Concurrency  int
 }
 
 type Result struct {
@@ -71,6 +78,11 @@ type Result struct {
 	Ports        []PortResult `json:"results"`
 	StartedAt    time.Time    `json:"started_at"`
 	CompletedAt  time.Time    `json:"completed_at"`
+}
+
+type Scanner struct {
+	TCP httpengine.TCPClient
+	Now func() time.Time
 }
 
 func ParsePorts(spec string, max int) ([]uint16, error) {
@@ -159,11 +171,6 @@ func DefaultPorts(profile Profile) []uint16 {
 	return append([]uint16(nil), ports...)
 }
 
-type Scanner struct {
-	TCP httpengine.TCPClient
-	Now func() time.Time
-}
-
 func (scanner Scanner) Plan(target string, ports []uint16) (Scan, error) {
 	if strings.TrimSpace(target) == "" || len(ports) == 0 || len(ports) > MaxPorts {
 		return Scan{}, errors.New("invalid NPD scan plan")
@@ -194,32 +201,77 @@ func (scanner Scanner) Scan(ctx context.Context, scan Scan) (Result, error) {
 	if err != nil || parsed.Scheme != string(policy.ProtocolTCP) || parsed.Port != 0 || parsed.Path != "/" {
 		return Result{}, errors.New("invalid NPD TCP target")
 	}
+	concurrency := scan.Concurrency
+	if concurrency <= 0 {
+		concurrency = 1
+	}
+	if concurrency > MaxConcurrency {
+		concurrency = MaxConcurrency
+	}
 	now := time.Now
 	if scanner.Now != nil {
 		now = scanner.Now
 	}
 	started := now().UTC()
 	result := Result{ProjectID: scan.ProjectID, ScopeVersion: scan.ScopeVersion, Target: scan.Target, Profile: scan.Profile, StartedAt: started, Ports: make([]PortResult, 0, len(scan.Ports))}
-	for _, port := range scan.Ports {
-		if err := ctx.Err(); err != nil {
-			result.CompletedAt = now().UTC()
-			return result, err
-		}
-		target := policy.Target{Scheme: string(policy.ProtocolTCP), IP: parsed.IP, Hostname: parsed.Hostname, Port: port}
-		observed := now().UTC()
-		probe, err := scanner.TCP.ProbeTCP(ctx, httpengine.TCPRequest{ProjectID: scan.ProjectID, Target: target, Timeout: scan.Timeout})
-		entry := PortResult{Target: scan.Target, Port: port, Protocol: "tcp", ObservedAt: observed, Duration: probe.Duration}
-		if err == nil {
-			entry.State = StateOpen
-		} else {
-			entry.State = classify(err)
-			if entry.State == StateTransport {
-				entry.Error = safeError(err)
+
+	jobs := make(chan uint16)
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	worker := func() {
+		defer wg.Done()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case port, ok := <-jobs:
+				if !ok {
+					return
+				}
+				target := policy.Target{Scheme: string(policy.ProtocolTCP), IP: parsed.IP, Hostname: parsed.Hostname, Port: port}
+				observed := now().UTC()
+				probe, probeErr := scanner.TCP.ProbeTCP(ctx, httpengine.TCPRequest{ProjectID: scan.ProjectID, Target: target, Timeout: scan.Timeout})
+				entry := PortResult{Target: scan.Target, Port: port, Protocol: "tcp", ObservedAt: observed, Duration: probe.Duration}
+				if probeErr == nil {
+					entry.State = StateOpen
+				} else {
+					entry.State = classify(probeErr)
+					if entry.State == StateTransport {
+						entry.Error = safeError(probeErr)
+					}
+				}
+				mu.Lock()
+				result.Ports = append(result.Ports, entry)
+				mu.Unlock()
 			}
 		}
-		result.Ports = append(result.Ports, entry)
 	}
+	workers := concurrency
+	if workers > len(scan.Ports) {
+		workers = len(scan.Ports)
+	}
+	wg.Add(workers)
+	for i := 0; i < workers; i++ {
+		go worker()
+	}
+	for _, port := range scan.Ports {
+		select {
+		case <-ctx.Done():
+			close(jobs)
+			wg.Wait()
+			sort.Slice(result.Ports, func(i, j int) bool { return result.Ports[i].Port < result.Ports[j].Port })
+			result.CompletedAt = now().UTC()
+			return result, ctx.Err()
+		case jobs <- port:
+		}
+	}
+	close(jobs)
+	wg.Wait()
+	sort.Slice(result.Ports, func(i, j int) bool { return result.Ports[i].Port < result.Ports[j].Port })
 	result.CompletedAt = now().UTC()
+	if err := ctx.Err(); err != nil {
+		return result, err
+	}
 	return result, nil
 }
 

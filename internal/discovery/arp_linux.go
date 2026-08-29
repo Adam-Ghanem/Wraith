@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/netip"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/mdlayher/arp"
@@ -53,4 +54,50 @@ func (r *LinuxARPResolver) Close() error {
 		return nil
 	}
 	return r.client.Close()
+}
+
+// LinuxARPResolverPool parallelizes L2 discovery with a small bounded set of
+// independent ARP clients. Each client stays serialized internally while the
+// pool allows several unresolved hosts to be timed out concurrently.
+type LinuxARPResolverPool struct {
+	resolvers []*LinuxARPResolver
+	next      atomic.Uint64
+}
+
+func NewLinuxARPResolverPool(iface net.Interface, size int) (*LinuxARPResolverPool, error) {
+	if size < 1 || size > 16 {
+		return nil, errors.New("ARP resolver pool size must be between 1 and 16")
+	}
+	pool := &LinuxARPResolverPool{resolvers: make([]*LinuxARPResolver, 0, size)}
+	for i := 0; i < size; i++ {
+		resolver, err := NewLinuxARPResolver(iface)
+		if err != nil {
+			_ = pool.Close()
+			return nil, err
+		}
+		pool.resolvers = append(pool.resolvers, resolver)
+	}
+	return pool, nil
+}
+
+func (p *LinuxARPResolverPool) Resolve(ctx context.Context, address netip.Addr) (net.HardwareAddr, error) {
+	if p == nil || len(p.resolvers) == 0 {
+		return nil, errors.New("ARP resolver pool is not initialized")
+	}
+	index := int((p.next.Add(1) - 1) % uint64(len(p.resolvers)))
+	return p.resolvers[index].Resolve(ctx, address)
+}
+
+func (p *LinuxARPResolverPool) Close() error {
+	if p == nil {
+		return nil
+	}
+	var firstErr error
+	for _, resolver := range p.resolvers {
+		if err := resolver.Close(); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	p.resolvers = nil
+	return firstErr
 }
