@@ -48,3 +48,13 @@ func TestProbePayloadsAreBounded(t *testing.T) {
 		}
 	}
 }
+
+func TestDefaultPorts(t *testing.T) {
+	ports := DefaultPorts()
+	if len(ports) < 20 {
+		t.Fatalf("DefaultPorts() returned only %d ports", len(ports))
+	}
+	if ports[0] != 53 {
+		t.Fatalf("DefaultPorts()[0] = %d, want 53", ports[0])
+	}
+}

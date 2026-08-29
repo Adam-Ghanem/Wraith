@@ -15,6 +15,16 @@ import (
 
 const MaxConcurrency = 64
 
+var defaultPorts = []uint16{
+	53, 67, 68, 69, 123, 137, 138, 161, 162, 500, 514, 520, 623, 631,
+	1194, 1434, 1701, 1812, 1813, 1900, 2049, 3478, 4500, 4789, 5060, 5353,
+	11211, 27015,
+}
+
+func DefaultPorts() []uint16 {
+	return append([]uint16(nil), defaultPorts...)
+}
+
 type Options struct {
 	ProjectID   string
 	Timeout     time.Duration

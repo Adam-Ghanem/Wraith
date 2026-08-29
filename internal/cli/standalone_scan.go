@@ -9,6 +9,7 @@ import (
 	"io"
 	"net"
 	"net/netip"
+	"sort"
 	"strconv"
 	"strings"
 	"text/tabwriter"
@@ -20,6 +21,7 @@ import (
 	"github.com/Adam-Ghanem/Wraith/internal/policy"
 	"github.com/Adam-Ghanem/Wraith/internal/scan"
 	"github.com/Adam-Ghanem/Wraith/internal/serviceprobe"
+	"github.com/Adam-Ghanem/Wraith/internal/udpscan"
 )
 
 type standaloneGateway struct{}
@@ -41,7 +43,6 @@ func (probe standaloneTCPDiscoveryProbe) ProbeTCP(ctx context.Context, address n
 		Target:    policy.Target{IP: address, Port: port},
 		Timeout:   timeout,
 	})
-	// A TCP RST/refusal still proves that the host is reachable.
 	if errors.Is(err, httpengine.ErrTCPRefused) {
 		return nil
 	}
@@ -51,7 +52,7 @@ func (probe standaloneTCPDiscoveryProbe) ProbeTCP(ctx context.Context, address n
 // RunStandaloneScan provides the top-level native scan command. Standalone
 // scanning requires no persisted project/campaign authorization record.
 func RunStandaloneScan(ctx context.Context, args []string, stdout, _ io.Writer) error {
-	const usage = "usage: wraith scan TARGET|CIDR [-sT] [-sV] [-sn] [-Pn] [-A] [-p PORTS|-p-] [--top-ports N] [--profile safe|standard|deep|custom] [--timeout D] [--max-concurrency N] [--rate N] [--json]"
+	const usage = "usage: wraith scan TARGET|CIDR [-sT] [-sU] [-sV] [-sn] [-Pn] [-A] [-p PORTS|-p-] [--top-ports N] [--profile safe|standard|deep|custom] [--timeout D] [--max-concurrency N] [--rate N] [--json]"
 	if ctx == nil || len(args) < 2 || args[0] != "scan" {
 		return errors.New(usage)
 	}
@@ -60,6 +61,7 @@ func RunStandaloneScan(ctx context.Context, args []string, stdout, _ io.Writer) 
 	aggressiveUpper := fs.Bool("A", false, "")
 	aggressiveLower := fs.Bool("a", false, "")
 	tcpConnect := fs.Bool("sT", false, "")
+	udpScan := fs.Bool("sU", false, "")
 	serviceVersion := fs.Bool("sV", false, "")
 	hostDiscoveryOnly := fs.Bool("sn", false, "")
 	skipDiscovery := fs.Bool("Pn", false, "")
@@ -78,7 +80,6 @@ func RunStandaloneScan(ctx context.Context, args []string, stdout, _ io.Writer) 
 	if err := fs.Parse(flagArgs); err != nil {
 		return errors.New(usage)
 	}
-	_ = tcpConnect // TCP connect is the current native default and -sT makes it explicit.
 	if *timeout <= 0 || *timeout > 30*time.Second || *concurrency < 1 || *concurrency > 50 || *rate < 1 || *rate > 1000 {
 		return errors.New("scan limits are outside allowed bounds")
 	}
@@ -88,6 +89,7 @@ func RunStandaloneScan(ctx context.Context, args []string, stdout, _ io.Writer) 
 	if *topPorts > 0 && strings.TrimSpace(*portsSpec) != "" {
 		return errors.New("--top-ports cannot be combined with -p or -p-")
 	}
+
 	targets, err := standaloneTargets(targetArg)
 	if err != nil {
 		return err
@@ -101,30 +103,15 @@ func RunStandaloneScan(ctx context.Context, args []string, stdout, _ io.Writer) 
 		return errors.New("invalid scan profile")
 	}
 
-	var ports []uint16
-	switch {
-	case strings.TrimSpace(*portsSpec) != "":
-		ports, err = npd.ParsePorts(*portsSpec, npd.MaxPorts)
-		if err != nil {
-			return err
-		}
-		selected = npd.ProfileCustom
-	case *topPorts > 0:
-		ports, err = npd.TopPorts(*topPorts)
-		if err != nil {
-			return err
-		}
-		selected = npd.ProfileCustom
-	case selected == npd.ProfileSafe || selected == npd.ProfileDeep:
-		ports = npd.DefaultPorts(selected)
-	case selected == npd.ProfileCustom:
-		return errors.New("custom profile requires -p PORTS")
-	default:
-		ports = npd.Top100()
+	runTCP := !*udpScan || *tcpConnect
+	ports, err := standaloneScanPorts(selected, strings.TrimSpace(*portsSpec), *topPorts, *udpScan && !runTCP)
+	if err != nil {
+		return err
 	}
-	if len(ports) == 0 || len(ports) > npd.MaxPorts {
-		return errors.New("scan port set is empty or exceeds the 65535-port bound")
+	if strings.TrimSpace(*portsSpec) != "" || *topPorts > 0 {
+		selected = npd.ProfileCustom
 	}
+
 	transport := httpengine.NewEngine(httpengine.Config{
 		Gateway:               standaloneGateway{},
 		DestinationPolicy:     httpengine.DestinationPolicy{AllowPrivate: true},
@@ -151,17 +138,9 @@ func RunStandaloneScan(ctx context.Context, args []string, stdout, _ io.Writer) 
 		return err
 	}
 
-	engine := scan.Engine{TCP: transport}
-	results, err := engine.ScanMany(ctx, targets, scan.Options{
-		Profile:     selected,
-		Ports:       ports,
-		Timeout:     *timeout,
-		ProjectID:   "standalone",
-		ScopeID:     "standalone",
-		Concurrency: *concurrency,
-	})
-	if err != nil && ctx.Err() != nil {
-		return err
+	results, scanErr := runStandaloneProtocolScans(ctx, transport, targets, ports, selected, runTCP, *udpScan, *timeout, *concurrency)
+	if scanErr != nil && ctx.Err() != nil {
+		return scanErr
 	}
 	enrichScanResults(ctx, transport, results, *serviceVersion, *timeout)
 	if *jsonOutput {
@@ -182,7 +161,76 @@ func RunStandaloneScan(ctx context.Context, args []string, stdout, _ io.Writer) 
 			return err
 		}
 	}
-	return err
+	return scanErr
+}
+
+func standaloneScanPorts(profile npd.Profile, portsSpec string, topPorts int, udpOnly bool) ([]uint16, error) {
+	var ports []uint16
+	var err error
+	switch {
+	case portsSpec != "":
+		ports, err = npd.ParsePorts(portsSpec, npd.MaxPorts)
+	case topPorts > 0:
+		ports, err = npd.TopPorts(topPorts)
+	case profile == npd.ProfileSafe || profile == npd.ProfileDeep:
+		ports = npd.DefaultPorts(profile)
+	case profile == npd.ProfileCustom:
+		return nil, errors.New("custom profile requires -p PORTS")
+	case udpOnly:
+		ports = udpscan.DefaultPorts()
+	default:
+		ports = npd.Top100()
+	}
+	if err != nil {
+		return nil, err
+	}
+	if len(ports) == 0 || len(ports) > npd.MaxPorts {
+		return nil, errors.New("scan port set is empty or exceeds the 65535-port bound")
+	}
+	return ports, nil
+}
+
+func runStandaloneProtocolScans(ctx context.Context, transport *httpengine.Engine, targets []string, ports []uint16, profile npd.Profile, runTCP, runUDP bool, timeout time.Duration, concurrency int) ([]scan.Result, error) {
+	var results []scan.Result
+	var firstErr error
+	if runTCP {
+		engine := scan.Engine{TCP: transport}
+		tcpResults, err := engine.ScanMany(ctx, targets, scan.Options{
+			Profile:     profile,
+			Ports:       ports,
+			Timeout:     timeout,
+			ProjectID:   "standalone",
+			ScopeID:     "standalone",
+			Concurrency: concurrency,
+		})
+		results = tcpResults
+		firstErr = err
+	} else {
+		now := time.Now().UTC()
+		results = make([]scan.Result, len(targets))
+		for i, target := range targets {
+			results[i] = scan.Result{Target: target, Profile: profile, State: scan.StateCompleted, StartedAt: now, CompletedAt: now}
+		}
+		sort.Slice(results, func(i, j int) bool { return results[i].Target < results[j].Target })
+	}
+
+	if runUDP {
+		udpScanner := udpscan.Scanner{UDP: transport}
+		for i := range results {
+			udpResults, err := udpScanner.Scan(ctx, results[i].Target, ports, udpscan.Options{ProjectID: "standalone", Timeout: timeout, Concurrency: concurrency})
+			results[i].Ports = append(results[i].Ports, udpResults...)
+			if err != nil && firstErr == nil {
+				firstErr = err
+			}
+			sort.Slice(results[i].Ports, func(a, b int) bool {
+				if results[i].Ports[a].Port == results[i].Ports[b].Port {
+					return results[i].Ports[a].Protocol < results[i].Ports[b].Protocol
+				}
+				return results[i].Ports[a].Port < results[i].Ports[b].Port
+			})
+		}
+	}
+	return results, firstErr
 }
 
 func discoverStandaloneTargets(ctx context.Context, transport httpengine.TCPClient, targets []string, timeout time.Duration, concurrency int) ([]string, error) {
@@ -271,8 +319,10 @@ func enrichScanResults(ctx context.Context, transport httpengine.TCPBannerClient
 		host, hostErr := serviceprobe.ParseHost(results[resultIndex].Target)
 		for portIndex := range results[resultIndex].Ports {
 			port := &results[resultIndex].Ports[portIndex]
-			port.Service = serviceprobe.ServiceName(port.Port)
-			if !detectVersion || port.State != npd.StateOpen || hostErr != nil || ctx.Err() != nil {
+			if port.Service == "" {
+				port.Service = serviceprobe.ServiceName(port.Port)
+			}
+			if port.Protocol != "tcp" || !detectVersion || port.State != npd.StateOpen || hostErr != nil || ctx.Err() != nil {
 				continue
 			}
 			fingerprint := detector.Detect(ctx, host, port.Port)
@@ -302,6 +352,11 @@ func writeStandaloneScanResult(stdout io.Writer, result scan.Result) error {
 }
 
 func splitStandaloneScanArgs(args []string) ([]string, string, error) {
+	valueFlags := map[string]bool{
+		"-p": true, "--top-ports": true, "-top-ports": true, "--profile": true, "-profile": true,
+		"--timeout": true, "-timeout": true, "--max-concurrency": true, "-max-concurrency": true,
+		"--rate": true, "-rate": true,
+	}
 	var target string
 	flags := make([]string, 0, len(args)+1)
 	for i := 0; i < len(args); i++ {
@@ -310,11 +365,22 @@ func splitStandaloneScanArgs(args []string) ([]string, string, error) {
 			flags = append(flags, "-p", "1-65535")
 			continue
 		}
-		if !strings.HasPrefix(arg, "-") && target == "" {
-			target = arg
+		if valueFlags[arg] {
+			if i+1 >= len(args) {
+				return nil, "", errors.New("missing scan option value")
+			}
+			flags = append(flags, arg, args[i+1])
+			i++
 			continue
 		}
-		flags = append(flags, arg)
+		if strings.HasPrefix(arg, "-") {
+			flags = append(flags, arg)
+			continue
+		}
+		if target != "" {
+			return nil, "", errors.New("multiple scan targets require CIDR or a target file")
+		}
+		target = arg
 	}
 	if target == "" {
 		return nil, "", errors.New("missing scan target")
@@ -376,8 +442,8 @@ func standaloneTarget(raw string) (string, error) {
 		return "", errors.New("numeric-only scan target is invalid")
 	}
 	parsed, err := policy.ParseTarget("tcp://" + raw + "/")
-	if err != nil {
-		return "", err
+	if err != nil || parsed.Port != 0 {
+		return "", errors.New("scan target must not include a port; use -p")
 	}
 	normalized, err := policy.NormalizeTarget(parsed)
 	if err != nil {
