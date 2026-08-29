@@ -10,10 +10,9 @@ import (
 )
 
 type concurrentTCP struct {
-	mu       sync.Mutex
-	active   int
-	max      int
-	observed []uint16
+	mu     sync.Mutex
+	active int
+	max    int
 }
 
 func (f *concurrentTCP) ProbeTCP(context.Context, httpengine.TCPRequest) (httpengine.TCPResponse, error) {
