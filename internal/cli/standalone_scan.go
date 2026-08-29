@@ -14,10 +14,12 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/Adam-Ghanem/Wraith/internal/discovery"
 	"github.com/Adam-Ghanem/Wraith/internal/httpengine"
 	"github.com/Adam-Ghanem/Wraith/internal/npd"
 	"github.com/Adam-Ghanem/Wraith/internal/policy"
 	"github.com/Adam-Ghanem/Wraith/internal/scan"
+	"github.com/Adam-Ghanem/Wraith/internal/serviceprobe"
 )
 
 type standaloneGateway struct{}
@@ -29,11 +31,27 @@ func (standaloneGateway) Authorize(_ context.Context, projectID string, target p
 	return policy.Decision{Allowed: true, ProjectID: projectID, Target: target, Action: action, Reason: "standalone scan mode"}, nil
 }
 
-// RunStandaloneScan provides the top-level native scan command. It keeps
-// socket ownership inside the shared TCP engine while requiring no persisted
-// project authorization/campaign records for explicit standalone scanning.
+type standaloneTCPDiscoveryProbe struct {
+	tcp httpengine.TCPClient
+}
+
+func (probe standaloneTCPDiscoveryProbe) ProbeTCP(ctx context.Context, address netip.Addr, port uint16, timeout time.Duration) error {
+	_, err := probe.tcp.ProbeTCP(ctx, httpengine.TCPRequest{
+		ProjectID: "standalone",
+		Target:    policy.Target{IP: address, Port: port},
+		Timeout:   timeout,
+	})
+	// A TCP RST/refusal still proves that the host is reachable.
+	if errors.Is(err, httpengine.ErrTCPRefused) {
+		return nil
+	}
+	return err
+}
+
+// RunStandaloneScan provides the top-level native scan command. Standalone
+// scanning requires no persisted project/campaign authorization record.
 func RunStandaloneScan(ctx context.Context, args []string, stdout, _ io.Writer) error {
-	const usage = "usage: wraith scan TARGET|CIDR [-A|-a] [-p PORTS|-p-] [--top-ports N] [--profile safe|standard|deep|custom] [--timeout D] [--max-concurrency N] [--rate N] [--json]"
+	const usage = "usage: wraith scan TARGET|CIDR [-sT] [-sV] [-sn] [-Pn] [-A] [-p PORTS|-p-] [--top-ports N] [--profile safe|standard|deep|custom] [--timeout D] [--max-concurrency N] [--rate N] [--json]"
 	if ctx == nil || len(args) < 2 || args[0] != "scan" {
 		return errors.New(usage)
 	}
@@ -41,6 +59,10 @@ func RunStandaloneScan(ctx context.Context, args []string, stdout, _ io.Writer) 
 	fs.SetOutput(io.Discard)
 	aggressiveUpper := fs.Bool("A", false, "")
 	aggressiveLower := fs.Bool("a", false, "")
+	tcpConnect := fs.Bool("sT", false, "")
+	serviceVersion := fs.Bool("sV", false, "")
+	hostDiscoveryOnly := fs.Bool("sn", false, "")
+	skipDiscovery := fs.Bool("Pn", false, "")
 	portsSpec := fs.String("p", "", "")
 	topPorts := fs.Int("top-ports", 0, "")
 	profile := fs.String("profile", "standard", "")
@@ -56,6 +78,7 @@ func RunStandaloneScan(ctx context.Context, args []string, stdout, _ io.Writer) 
 	if err := fs.Parse(flagArgs); err != nil {
 		return errors.New(usage)
 	}
+	_ = tcpConnect // TCP connect is the current native default and -sT makes it explicit.
 	if *timeout <= 0 || *timeout > 30*time.Second || *concurrency < 1 || *concurrency > 50 || *rate < 1 || *rate > 1000 {
 		return errors.New("scan limits are outside allowed bounds")
 	}
@@ -72,6 +95,7 @@ func RunStandaloneScan(ctx context.Context, args []string, stdout, _ io.Writer) 
 	selected := npd.Profile(strings.TrimSpace(*profile))
 	if *aggressiveUpper || *aggressiveLower {
 		selected = npd.ProfileDeep
+		*serviceVersion = true
 	}
 	if selected != npd.ProfileSafe && selected != npd.ProfileStandard && selected != npd.ProfileDeep && selected != npd.ProfileCustom {
 		return errors.New("invalid scan profile")
@@ -110,6 +134,23 @@ func RunStandaloneScan(ctx context.Context, args []string, stdout, _ io.Writer) 
 	})
 	defer func() { _ = transport.CloseIdleConnections() }()
 
+	if !*skipDiscovery {
+		targets, err = discoverStandaloneTargets(ctx, transport, targets, *timeout, *concurrency)
+		if err != nil {
+			return err
+		}
+	}
+	if *hostDiscoveryOnly {
+		return writeDiscoveredHosts(stdout, targets, *jsonOutput)
+	}
+	if len(targets) == 0 {
+		if *jsonOutput {
+			return json.NewEncoder(stdout).Encode([]scan.Result{})
+		}
+		_, err := fmt.Fprintln(stdout, "No live hosts found. Use -Pn to skip host discovery.")
+		return err
+	}
+
 	engine := scan.Engine{TCP: transport}
 	results, err := engine.ScanMany(ctx, targets, scan.Options{
 		Profile:     selected,
@@ -122,6 +163,7 @@ func RunStandaloneScan(ctx context.Context, args []string, stdout, _ io.Writer) 
 	if err != nil && ctx.Err() != nil {
 		return err
 	}
+	enrichScanResults(ctx, results, *serviceVersion, *timeout)
 	if *jsonOutput {
 		encoder := json.NewEncoder(stdout)
 		encoder.SetEscapeHTML(false)
@@ -143,16 +185,88 @@ func RunStandaloneScan(ctx context.Context, args []string, stdout, _ io.Writer) 
 	return err
 }
 
+func discoverStandaloneTargets(ctx context.Context, transport httpengine.TCPClient, targets []string, timeout time.Duration, concurrency int) ([]string, error) {
+	addresses := make([]netip.Addr, 0, len(targets))
+	for _, raw := range targets {
+		parsed, err := policy.ParseTarget(raw)
+		if err != nil {
+			return nil, err
+		}
+		if !parsed.IP.IsValid() {
+			// Hostnames are resolved by the transport during the actual scan.
+			return targets, nil
+		}
+		addresses = append(addresses, parsed.IP.Unmap())
+	}
+	if len(addresses) == 0 {
+		return targets, nil
+	}
+	discoveryTimeout := timeout
+	if discoveryTimeout > 2*time.Second {
+		discoveryTimeout = 2 * time.Second
+	}
+	live, err := discovery.DiscoverTCP(ctx, addresses, discovery.TCPDiscoveryOptions{
+		MaxTargets:  len(addresses),
+		Concurrency: concurrency,
+		Timeout:     discoveryTimeout,
+		Ports:       []uint16{80, 443, 22, 445, 3389},
+	}, standaloneTCPDiscoveryProbe{tcp: transport})
+	if err != nil {
+		return nil, err
+	}
+	result := make([]string, 0, len(live))
+	for _, address := range live {
+		host := address.String()
+		if address.Is6() {
+			host = "[" + host + "]"
+		}
+		result = append(result, "tcp://"+host+"/")
+	}
+	return result, nil
+}
+
+func writeDiscoveredHosts(stdout io.Writer, targets []string, jsonOutput bool) error {
+	if jsonOutput {
+		return json.NewEncoder(stdout).Encode(map[string]any{"hosts": targets, "count": len(targets)})
+	}
+	for _, target := range targets {
+		if _, err := fmt.Fprintf(stdout, "Host is up: %s\n", target); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func enrichScanResults(ctx context.Context, results []scan.Result, detectVersion bool, timeout time.Duration) {
+	detector := serviceprobe.Detector{Timeout: timeout}
+	for resultIndex := range results {
+		host, hostErr := serviceprobe.ParseHost(results[resultIndex].Target)
+		for portIndex := range results[resultIndex].Ports {
+			port := &results[resultIndex].Ports[portIndex]
+			port.Service = serviceprobe.ServiceName(port.Port)
+			if !detectVersion || port.State != npd.StateOpen || hostErr != nil || ctx.Err() != nil {
+				continue
+			}
+			fingerprint := detector.Detect(ctx, host, port.Port)
+			port.Service = fingerprint.Service
+			port.Version = fingerprint.Version
+			port.Banner = fingerprint.Banner
+			port.TLS = fingerprint.TLS
+		}
+	}
+}
+
 func writeStandaloneScanResult(stdout io.Writer, result scan.Result) error {
 	if _, err := fmt.Fprintf(stdout, "Wraith scan report for %s\n", result.Target); err != nil {
 		return err
 	}
 	table := tabwriter.NewWriter(stdout, 0, 4, 2, ' ', 0)
-	if _, err := fmt.Fprintln(table, "PORT\tSTATE\tPROTOCOL\tLATENCY"); err != nil {
+	if _, err := fmt.Fprintln(table, "PORT\tSTATE\tSERVICE\tVERSION\tLATENCY"); err != nil {
 		return err
 	}
 	for _, item := range result.Ports {
-		if _, err := fmt.Fprintf(table, "%d\t%s\t%s\t%s\n", item.Port, item.State, item.Protocol, item.Duration.Round(time.Millisecond)); err != nil {
+		port := fmt.Sprintf("%d/%s", item.Port, item.Protocol)
+		if _, err := fmt.Fprintf(table, "%s\t%s\t%s\t%s\t%s\n", port, item.State, item.Service, item.Version, item.Duration.Round(time.Millisecond)); err != nil {
 			return err
 		}
 	}
