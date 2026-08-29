@@ -12,8 +12,8 @@ import (
 
 type fakeTCP struct{}
 
-func (fakeTCP) ProbeTCP(context.Context, httpengine.TCPRequest) (httpengine.TCPProbeResult, error) {
-	return httpengine.TCPProbeResult{Duration: time.Millisecond}, nil
+func (fakeTCP) ProbeTCP(context.Context, httpengine.TCPRequest) (httpengine.TCPResponse, error) {
+	return httpengine.TCPResponse{Duration: time.Millisecond}, nil
 }
 
 func TestEngineUsesStandardProfileByDefault(t *testing.T) {
