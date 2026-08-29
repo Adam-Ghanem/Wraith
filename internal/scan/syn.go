@@ -2,7 +2,6 @@ package scan
 
 import (
 	"context"
-	"errors"
 	"sort"
 	"strings"
 	"time"
@@ -88,5 +87,3 @@ func canonicalSYNTarget(target policy.Target) string {
 	}
 	return "tcp://" + host + "/"
 }
-
-var _ = errors.Is
