@@ -163,7 +163,7 @@ func RunStandaloneScan(ctx context.Context, args []string, stdout, _ io.Writer) 
 	if err != nil && ctx.Err() != nil {
 		return err
 	}
-	enrichScanResults(ctx, results, *serviceVersion, *timeout)
+	enrichScanResults(ctx, transport, results, *serviceVersion, *timeout)
 	if *jsonOutput {
 		encoder := json.NewEncoder(stdout)
 		encoder.SetEscapeHTML(false)
@@ -265,8 +265,8 @@ func writeDiscoveredHosts(stdout io.Writer, targets []string, jsonOutput bool) e
 	return nil
 }
 
-func enrichScanResults(ctx context.Context, results []scan.Result, detectVersion bool, timeout time.Duration) {
-	detector := serviceprobe.Detector{Timeout: timeout}
+func enrichScanResults(ctx context.Context, transport httpengine.TCPBannerClient, results []scan.Result, detectVersion bool, timeout time.Duration) {
+	detector := serviceprobe.Detector{Client: transport, ProjectID: "standalone", Timeout: timeout}
 	for resultIndex := range results {
 		host, hostErr := serviceprobe.ParseHost(results[resultIndex].Target)
 		for portIndex := range results[resultIndex].Ports {
