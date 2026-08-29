@@ -14,8 +14,15 @@ const MaxTargets = 4096
 // the scanner's global concurrency ceiling. Results are returned in stable
 // target order so terminal and JSON output remain deterministic.
 func (e Engine) ScanMany(ctx context.Context, targets []string, opts Options) ([]Result, error) {
-	if ctx == nil || e.TCP == nil {
-		return nil, errors.New("scan engine requires context and TCP transport")
+	if ctx == nil {
+		return nil, errors.New("scan engine requires context")
+	}
+	mode := opts.Mode
+	if mode == "" {
+		mode = ModeConnect
+	}
+	if !e.supportsMode(mode) {
+		return nil, errors.New("scan engine transport is unavailable for the selected mode")
 	}
 	if len(targets) == 0 || len(targets) > MaxTargets {
 		return nil, errors.New("scan target set is empty or exceeds the target bound")
