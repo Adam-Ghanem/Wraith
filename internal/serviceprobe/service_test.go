@@ -33,8 +33,8 @@ func TestIdentifyKnownBanners(t *testing.T) {
 
 func TestParseHost(t *testing.T) {
 	cases := map[string]string{
-		"tcp://example.com/": "example.com",
-		"tcp://192.0.2.10/":  "192.0.2.10",
+		"tcp://example.com/":    "example.com",
+		"tcp://192.0.2.10/":     "192.0.2.10",
 		"tcp://[2001:db8::1]/": "2001:db8::1",
 	}
 	for input, want := range cases {
