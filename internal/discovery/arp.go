@@ -91,25 +91,53 @@ func DiscoverARP(ctx context.Context, scope config.Scope, options ARPOptions, re
 	if err := config.ValidateScope(scope); err != nil {
 		return nil, fmt.Errorf("scope rejected: %w", err)
 	}
+	candidates, err := EnumerateIPv4Targets(scope.CIDR, options.MaxTargets)
+	if err != nil {
+		return nil, err
+	}
+	return DiscoverARPAddresses(ctx, candidates, options, resolver)
+}
+
+// DiscoverARPAddresses probes an explicit, bounded IPv4 subset through an
+// already-created ARP resolver. This lets higher-level discovery reuse the
+// Phase 1 ARP transport without widening a requested subnet to the interface's
+// whole L2 network.
+func DiscoverARPAddresses(ctx context.Context, candidates []netip.Addr, options ARPOptions, resolver ARPResolver) ([]model.Target, error) {
+	if ctx == nil {
+		return nil, errors.New("ARP discovery context is required")
+	}
 	if err := options.Validate(); err != nil {
 		return nil, err
 	}
 	if resolver == nil {
 		return nil, errors.New("ARP resolver is required")
 	}
-
-	candidates, err := EnumerateIPv4Targets(scope.CIDR, options.MaxTargets)
-	if err != nil {
-		return nil, err
+	if len(candidates) == 0 || len(candidates) > options.MaxTargets {
+		return nil, ErrInvalidARPOptions
 	}
-	results := make([]model.Target, len(candidates))
+
+	unique := make([]netip.Addr, 0, len(candidates))
+	seen := make(map[netip.Addr]struct{}, len(candidates))
+	for _, address := range candidates {
+		address = address.Unmap()
+		if !address.IsValid() || !address.Is4() {
+			return nil, ErrInvalidARPOptions
+		}
+		if _, exists := seen[address]; exists {
+			continue
+		}
+		seen[address] = struct{}{}
+		unique = append(unique, address)
+	}
+	if len(unique) == 0 {
+		return nil, ErrInvalidARPOptions
+	}
+
+	results := make([]model.Target, len(unique))
 	jobs := make(chan int)
 	workerCount := options.Concurrency
-	if workerCount > len(candidates) {
-		workerCount = len(candidates)
-	}
-	if workerCount == 0 {
-		return []model.Target{}, nil
+	if workerCount > len(unique) {
+		workerCount = len(unique)
 	}
 
 	var wg sync.WaitGroup
@@ -118,7 +146,7 @@ func DiscoverARP(ctx context.Context, scope config.Scope, options ARPOptions, re
 		go func() {
 			defer wg.Done()
 			for index := range jobs {
-				address := candidates[index]
+				address := unique[index]
 				resolveCtx, cancel := context.WithTimeout(ctx, options.Timeout)
 				mac, resolveErr := resolver.Resolve(resolveCtx, address)
 				cancel()
@@ -129,7 +157,7 @@ func DiscoverARP(ctx context.Context, scope config.Scope, options ARPOptions, re
 		}()
 	}
 
-	for index := range candidates {
+	for index := range unique {
 		select {
 		case jobs <- index:
 		case <-ctx.Done():
